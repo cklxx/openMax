@@ -161,6 +161,18 @@ a, button {
   opacity: 1;
   transform: translateY(0);
 }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+  .reveal {
+    opacity: 1;
+    transform: none;
+  }
+}
 ```
 
 ```javascript
@@ -176,6 +188,9 @@ const observer = new IntersectionObserver((entries) => {
 
 document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
 ```
+
+- Always respect `prefers-reduced-motion`; reveals should degrade to immediate visibility.
+- For external links opened with `target="_blank"`, add `rel="noopener noreferrer"`.
 
 ---
 

@@ -19,6 +19,29 @@ from openmax.pane_manager import PaneManager
 console = Console()
 
 
+def _resolve_cwd(cwd: str | None) -> str:
+    return os.path.realpath(cwd or os.getcwd())
+
+
+def _parse_allowed_agents(agents: str | None, available_agents: set[str]) -> list[str] | None:
+    if not agents:
+        return None
+
+    parsed = list(
+        dict.fromkeys(agent.strip().lower() for agent in agents.split(",") if agent.strip())
+    )
+    if not parsed:
+        raise click.UsageError("--agents requires at least one agent name")
+
+    unknown = set(parsed) - available_agents
+    if unknown:
+        raise click.UsageError(
+            f"Unknown agent type(s): {', '.join(sorted(unknown))}. "
+            f"Valid types: {', '.join(sorted(available_agents))}"
+        )
+    return parsed
+
+
 @click.group()
 @click.version_option(version=None, package_name="openmax", prog_name="openmax")
 def main() -> None:
@@ -29,7 +52,7 @@ def main() -> None:
 @click.argument("task")
 @click.option("--cwd", default=None, help="Working directory for agents")
 @click.option("--model", default=None, help="Model for the lead agent")
-@click.option("--max-turns", default=50, type=int, help="Max agent loop turns")
+@click.option("--max-turns", default=50, type=click.IntRange(min=1), help="Max agent loop turns")
 @click.option("--keep-panes", is_flag=True, default=False, help="Don't close panes on exit")
 @click.option("--session-id", default=None, help="Persistent lead-agent session identifier")
 @click.option(
@@ -54,9 +77,7 @@ def run(
     agents: str | None,
 ) -> None:
     """Decompose TASK and dispatch sub-agents in Kaku panes."""
-    if cwd is None:
-        cwd = os.getcwd()
-    cwd = os.path.realpath(cwd)
+    cwd = _resolve_cwd(cwd)
 
     if resume and not session_id:
         raise click.UsageError("--resume requires --session-id")
@@ -67,15 +88,7 @@ def run(
         raise click.UsageError(str(exc)) from exc
 
     available_agents = set(agent_registry.names())
-    allowed_agents: list[str] | None = None
-    if agents:
-        allowed_agents = [a.strip().lower() for a in agents.split(",")]
-        unknown = set(allowed_agents) - available_agents
-        if unknown:
-            raise click.UsageError(
-                f"Unknown agent type(s): {', '.join(unknown)}. "
-                f"Valid types: {', '.join(sorted(available_agents))}"
-            )
+    allowed_agents = _parse_allowed_agents(agents, available_agents)
 
     if not ensure_kaku():
         raise SystemExit(1)
@@ -97,7 +110,10 @@ def run(
 
     atexit.register(_do_cleanup)
 
-    def _cleanup_and_exit(signum, frame):
+    previous_sigint = signal.getsignal(signal.SIGINT)
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+
+    def _cleanup_and_exit(signum, _frame):
         console.print("\n[yellow]Interrupted — cleaning up panes...[/yellow]")
         _do_cleanup()
         console.print("[green]All managed panes closed.[/green]")
@@ -128,6 +144,8 @@ def run(
             f"{summary['done']} done"
         )
     finally:
+        signal.signal(signal.SIGINT, previous_sigint)
+        signal.signal(signal.SIGTERM, previous_sigterm)
         if not keep_panes:
             console.print("[dim]Closing managed panes...[/dim]")
             _do_cleanup()
@@ -166,12 +184,15 @@ def read_pane(pane_id: int) -> None:
 
 @main.command()
 @click.option("--cwd", default=None, help="Workspace to inspect memory for")
-@click.option("--limit", default=10, type=int, help="Maximum number of memory entries to show")
+@click.option(
+    "--limit",
+    default=10,
+    type=click.IntRange(min=1),
+    help="Maximum number of memory entries to show",
+)
 def memories(cwd: str | None, limit: int) -> None:
     """Show learned workspace memory that future runs can reuse."""
-    if cwd is None:
-        cwd = os.getcwd()
-    cwd = os.path.realpath(cwd)
+    cwd = _resolve_cwd(cwd)
 
     store = MemoryStore()
     lines = store.render_workspace_memories(cwd, limit=limit)
@@ -187,12 +208,15 @@ def memories(cwd: str | None, limit: int) -> None:
 @main.command("recommend-agents")
 @click.argument("task")
 @click.option("--cwd", default=None, help="Workspace to inspect memory for")
-@click.option("--limit", default=4, type=int, help="Maximum number of agent recommendations")
+@click.option(
+    "--limit",
+    default=4,
+    type=click.IntRange(min=1),
+    help="Maximum number of agent recommendations",
+)
 def recommend_agents(task: str, cwd: str | None, limit: int) -> None:
     """Show ranked agent recommendations for a task in this workspace."""
-    if cwd is None:
-        cwd = os.getcwd()
-    cwd = os.path.realpath(cwd)
+    cwd = _resolve_cwd(cwd)
 
     store = MemoryStore()
     recommendations = store.derive_agent_rankings(cwd=cwd, task=task, limit=limit)
@@ -211,9 +235,7 @@ def recommend_agents(task: str, cwd: str | None, limit: int) -> None:
 @click.option("--cwd", default=None, help="Working directory used for workspace agent config")
 def list_agents(cwd: str | None) -> None:
     """List built-in and configured agents."""
-    if cwd is None:
-        cwd = os.getcwd()
-    cwd = os.path.realpath(cwd)
+    cwd = _resolve_cwd(cwd)
 
     try:
         registry = load_agent_registry(cwd)

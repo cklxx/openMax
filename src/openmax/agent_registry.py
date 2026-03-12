@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterable
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 try:
@@ -63,36 +64,39 @@ class AgentRegistry:
         return AgentRegistry(updated)
 
 
+@lru_cache(maxsize=1)
+def _built_in_definitions() -> tuple[AgentDefinition, ...]:
+    return (
+        AgentDefinition(
+            name="claude-code",
+            adapter=ClaudeCodeAdapter(),
+            source="built-in",
+            built_in=True,
+        ),
+        AgentDefinition(
+            name="codex",
+            adapter=CodexAdapter(),
+            source="built-in",
+            built_in=True,
+        ),
+        AgentDefinition(
+            name="opencode",
+            adapter=OpenCodeAdapter(),
+            source="built-in",
+            built_in=True,
+        ),
+        AgentDefinition(
+            name="generic",
+            adapter=SubprocessAdapter("generic", ["claude"]),
+            source="built-in",
+            built_in=True,
+        ),
+    )
+
+
 def built_in_agent_registry() -> AgentRegistry:
     """Return the built-in agent registry."""
-    return AgentRegistry(
-        [
-            AgentDefinition(
-                name="claude-code",
-                adapter=ClaudeCodeAdapter(),
-                source="built-in",
-                built_in=True,
-            ),
-            AgentDefinition(
-                name="codex",
-                adapter=CodexAdapter(),
-                source="built-in",
-                built_in=True,
-            ),
-            AgentDefinition(
-                name="opencode",
-                adapter=OpenCodeAdapter(),
-                source="built-in",
-                built_in=True,
-            ),
-            AgentDefinition(
-                name="generic",
-                adapter=SubprocessAdapter("generic", ["claude"]),
-                source="built-in",
-                built_in=True,
-            ),
-        ]
-    )
+    return AgentRegistry(_built_in_definitions())
 
 
 def load_agent_registry(cwd: str | None = None) -> AgentRegistry:

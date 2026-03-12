@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 MemoryKind = Literal["lesson", "run_summary"]
+_MAX_ENTRIES_PER_WORKSPACE = 50
 _STOP_WORDS = {
     "the",
     "and",
@@ -160,7 +161,10 @@ class MemoryStore:
         if not path.exists():
             return []
         raw = json.loads(path.read_text(encoding="utf-8"))
-        return [MemoryEntry(**item) for item in raw.get("entries", [])]
+        entries = raw.get("entries", [])
+        if not isinstance(entries, list):
+            return []
+        return [MemoryEntry(**item) for item in entries if isinstance(item, dict)]
 
     def render_workspace_memories(self, cwd: str, limit: int = 10) -> list[str]:
         entries = list(reversed(self.load_entries(cwd)))[0:limit]
@@ -189,7 +193,8 @@ class MemoryStore:
             return None
 
         ranked = self._rank_entries(entries, task)
-        selected = [entry for entry in ranked if self._score_entry(entry, task) > 0][:limit]
+        ranked_scores = [(entry, self._score_entry(entry, task)) for entry in ranked]
+        selected = [entry for entry, score in ranked_scores if score > 0][:limit]
         if not selected:
             selected = ranked[: min(limit, len(ranked))]
 
@@ -318,8 +323,8 @@ class MemoryStore:
         entries.append(asdict(entry))
         payload["cwd"] = str(Path(cwd).resolve())
         payload["updated_at"] = utc_now_iso()
-        if len(entries) > 50:
-            payload["entries"] = entries[-50:]
+        if len(entries) > _MAX_ENTRIES_PER_WORKSPACE:
+            payload["entries"] = entries[-_MAX_ENTRIES_PER_WORKSPACE:]
 
         path = self._workspace_path(cwd)
         path.parent.mkdir(parents=True, exist_ok=True)

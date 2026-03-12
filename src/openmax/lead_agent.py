@@ -216,6 +216,8 @@ def _update_session_phase(phase: str | None) -> None:
 
 
 def _upsert_subtask(subtask: SubTask) -> None:
+    if _plan is None:
+        raise RuntimeError("Lead agent plan is not initialized")
     for index, existing in enumerate(_plan.subtasks):
         if existing.name == subtask.name:
             _plan.subtasks[index] = subtask
@@ -224,6 +226,8 @@ def _upsert_subtask(subtask: SubTask) -> None:
 
 
 def _record_phase_anchor(phase: str, summary: str, completion_pct: int | None = None) -> None:
+    if _plan is None:
+        return
     normalized_phase = phase.strip().lower()
     payload = anchor_payload(
         phase=normalized_phase,
@@ -295,7 +299,7 @@ def _build_lead_prompt(
 
 
 def _remember_run_summary(notes: str, completion_pct: int) -> None:
-    if _memory_store is None:
+    if _memory_store is None or _plan is None:
         return
     anchors: list[dict[str, Any]] = []
     if _session_store is not None and _session_meta is not None:
@@ -369,6 +373,8 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         )
         agent_type = fallback
         adapter = _agent_registry.get(agent_type)
+    if adapter is None:
+        raise RuntimeError(f"Agent '{agent_type}' is unavailable")
 
     cmd_spec = adapter.get_command(prompt, cwd=_cwd)
 
@@ -477,7 +483,7 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
 async def send_text_to_pane(args: dict[str, Any]) -> dict[str, Any]:
     pane_id = args["pane_id"]
     text = args["text"]
-    _pane_mgr.send_text(pane_id, text + "\n")
+    _pane_mgr.send_text(pane_id, text)
     console.print(f"  [yellow]→[/yellow] Sent to pane {pane_id}: {text[:80]}")
     _append_session_event(
         "tool.send_text_to_pane",

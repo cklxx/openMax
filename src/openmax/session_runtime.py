@@ -158,11 +158,12 @@ class SessionStore:
         if not events_path.exists():
             return []
         events: list[LeadEvent] = []
-        for line in events_path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            data = json.loads(line)
-            events.append(LeadEvent(**data))
+        with events_path.open(encoding="utf-8") as file_obj:
+            for line in file_obj:
+                if not line.strip():
+                    continue
+                data = json.loads(line)
+                events.append(LeadEvent(**data))
         return events
 
     def load_snapshot(self, session_id: str) -> SessionSnapshot:

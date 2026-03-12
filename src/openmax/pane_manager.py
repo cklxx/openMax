@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from urllib.parse import unquote, urlparse
 
+_KAKU_CLI_PREFIX = ["kaku", "cli"]
+
 
 def _wrap_command_clean_env(command: list[str]) -> list[str]:
     """Wrap a command to run without CLAUDECODE env var."""
@@ -71,8 +73,6 @@ class KakuPaneInfo:
 #   3 panes → split pane[0] bottom  (left-top / left-bottom | right-top / right-bottom)
 #   4+ panes → alternate bottom on most recent panes
 
-_LAYOUT_DIRECTIONS = ["right", "bottom", "bottom", "bottom"]
-
 
 def _pick_split(pane_ids: list[int], index: int) -> tuple[int, str]:
     """Given existing pane_ids and the new pane index, return (target_pane_id, direction)."""
@@ -122,13 +122,7 @@ class PaneManager:
     @staticmethod
     def list_all_panes() -> list[KakuPaneInfo]:
         """List all kaku panes (not just managed ones)."""
-        result = subprocess.run(
-            ["kaku", "cli", "list", "--format", "json"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"kaku cli list failed: {result.stderr}")
+        result = PaneManager._run_kaku(["list", "--format", "json"])
         raw = json.loads(result.stdout)
         panes = []
         for p in raw:
@@ -166,16 +160,13 @@ class PaneManager:
 
         Returns the ManagedPane for the first pane.
         """
-        args = ["kaku", "cli", "spawn", "--new-window"]
+        args = ["spawn", "--new-window"]
         if cwd:
             args.extend(["--cwd", cwd])
         args.append("--")
         args.extend(_wrap_command_clean_env(command))
 
-        result = subprocess.run(args, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise RuntimeError(f"kaku spawn --new-window failed: {result.stderr}")
-
+        result = self._run_kaku(args)
         pane_id = int(result.stdout.strip())
         window_id = self._find_pane_window(pane_id)
 
@@ -227,7 +218,7 @@ class PaneManager:
         index = len(win.pane_ids)
         target_pane, direction = _pick_split(win.pane_ids, index)
 
-        args = ["kaku", "cli", "split-pane"]
+        args = ["split-pane"]
         args.extend(["--pane-id", str(target_pane)])
         if direction == "right":
             args.append("--right")
@@ -242,10 +233,7 @@ class PaneManager:
         args.append("--")
         args.extend(_wrap_command_clean_env(command))
 
-        result = subprocess.run(args, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise RuntimeError(f"kaku split-pane failed: {result.stderr}")
-
+        result = self._run_kaku(args)
         pane_id = int(result.stdout.strip())
 
         # Track
@@ -265,50 +253,30 @@ class PaneManager:
     def send_text(self, pane_id: int, text: str, submit: bool = True) -> None:
         """Send text to a pane as paste, then optionally press Enter."""
         content = text.rstrip("\n").rstrip("\r")
-        result = subprocess.run(
-            ["kaku", "cli", "send-text", "--pane-id", str(pane_id), "--", content],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"kaku send-text failed: {result.stderr}")
+        self._run_kaku(["send-text", "--pane-id", str(pane_id), "--", content])
 
         if submit:
             time.sleep(0.5)
-            result = subprocess.run(
-                ["kaku", "cli", "send-text", "--pane-id", str(pane_id), "--no-paste"],
-                input="\r",
-                capture_output=True,
-                text=True,
+            self._run_kaku(
+                ["send-text", "--pane-id", str(pane_id), "--no-paste"],
+                input_text="\r",
             )
-            if result.returncode != 0:
-                raise RuntimeError(f"kaku send-text (enter) failed: {result.stderr}")
 
     def get_text(self, pane_id: int, start_line: int | None = None) -> str:
         """Read text content from a pane."""
-        args = ["kaku", "cli", "get-text", "--pane-id", str(pane_id)]
+        args = ["get-text", "--pane-id", str(pane_id)]
         if start_line is not None:
             args.extend(["--start-line", str(start_line)])
-        result = subprocess.run(args, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise RuntimeError(f"kaku get-text failed: {result.stderr}")
+        result = self._run_kaku(args)
         return result.stdout
 
     def activate_pane(self, pane_id: int) -> None:
         """Focus a pane."""
-        subprocess.run(
-            ["kaku", "cli", "activate-pane", "--pane-id", str(pane_id)],
-            capture_output=True,
-            text=True,
-        )
+        self._run_kaku(["activate-pane", "--pane-id", str(pane_id)], check=False)
 
     def kill_pane(self, pane_id: int) -> None:
         """Kill a pane and remove from tracking."""
-        subprocess.run(
-            ["kaku", "cli", "kill-pane", "--pane-id", str(pane_id)],
-            capture_output=True,
-            text=True,
-        )
+        self._kill_pane_process(pane_id)
         # Remove from window tracking
         pane = self._panes.pop(pane_id, None)
         if pane and pane.window_id and pane.window_id in self._windows:
@@ -376,8 +344,9 @@ class PaneManager:
 
     def cleanup_all(self) -> None:
         """Kill all managed panes. Windows close automatically when empty."""
-        for pane_id in list(self._panes):
-            self.kill_pane(pane_id)
+        managed_pane_ids = list(self._panes)
+        for pane_id in managed_pane_ids:
+            self._kill_pane_process(pane_id)
 
         # Verify: some panes may survive the first kill (e.g. interactive CLIs
         # that trap signals).  Re-check and retry once.
@@ -387,9 +356,9 @@ class PaneManager:
         except RuntimeError:
             alive_ids = set()
 
-        stragglers = alive_ids & set(self._panes)
+        stragglers = alive_ids & set(managed_pane_ids)
         for pane_id in stragglers:
-            self.kill_pane(pane_id)
+            self._kill_pane_process(pane_id)
 
         self._panes.clear()
         self._windows.clear()
@@ -403,6 +372,26 @@ class PaneManager:
 
     # ── Internal helpers ───────────────────────────────────────────
 
+    @staticmethod
+    def _run_kaku(
+        args: list[str],
+        *,
+        input_text: str | None = None,
+        timeout: float | None = None,
+        check: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run(
+            [*_KAKU_CLI_PREFIX, *args],
+            input=input_text,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if check and result.returncode != 0:
+            command_name = " ".join(args[:2]).strip()
+            raise RuntimeError(f"kaku {command_name} failed: {result.stderr}")
+        return result
+
     def _find_pane_window(self, pane_id: int) -> int | None:
         try:
             for p in self.list_all_panes():
@@ -413,15 +402,17 @@ class PaneManager:
         return None
 
     def _set_window_title(self, pane_id: int, title: str) -> None:
-        subprocess.run(
-            ["kaku", "cli", "set-window-title", "--pane-id", str(pane_id), title],
-            capture_output=True,
-            text=True,
+        self._run_kaku(
+            ["set-window-title", "--pane-id", str(pane_id), title],
+            check=False,
         )
+
+    def _kill_pane_process(self, pane_id: int) -> None:
+        self._run_kaku(["kill-pane", "--pane-id", str(pane_id)], check=False)
 
     @staticmethod
     def _resize_frontmost_window() -> None:
-        """Resize the frontmost kaku window to 68% of screen (macOS only)."""
+        """Resize the frontmost kaku window to 50% of screen (macOS only)."""
         if platform.system() != "Darwin":
             return
         script = (

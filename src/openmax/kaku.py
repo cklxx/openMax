@@ -10,7 +10,12 @@ import subprocess
 def get_current_pane_id() -> int | None:
     """Get the pane ID of the current terminal (from WEZTERM_PANE env)."""
     pane = os.environ.get("WEZTERM_PANE")
-    return int(pane) if pane else None
+    if not pane:
+        return None
+    try:
+        return int(pane)
+    except ValueError:
+        return None
 
 
 def is_kaku_available() -> bool:
@@ -30,8 +35,8 @@ def is_kaku_available() -> bool:
 def _has_brew() -> bool:
     """Check if Homebrew is available."""
     try:
-        subprocess.run(["brew", "--version"], capture_output=True, timeout=5)
-        return True
+        result = subprocess.run(["brew", "--version"], capture_output=True, timeout=5)
+        return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
 

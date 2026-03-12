@@ -112,6 +112,29 @@ def test_agents_option_forwarded(monkeypatch, tmp_path):
     assert captured["allowed_agents"] == ["codex", "claude-code"]
 
 
+def test_agents_option_deduplicates_and_ignores_empty_values(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "ensure_kaku", lambda: True)
+    monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+
+    captured: dict[str, object] = {}
+
+    def fake_run_lead_agent(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(subtasks=[])
+
+    monkeypatch.setattr(cli, "run_lead_agent", fake_run_lead_agent)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        ["run", "Build feature", "--cwd", str(tmp_path), "--agents", "codex, ,codex,claude-code"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["allowed_agents"] == ["codex", "claude-code"]
+
+
 def test_agents_option_accepts_configured_agent(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "ensure_kaku", lambda: True)
     monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
