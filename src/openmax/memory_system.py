@@ -98,7 +98,9 @@ class MemoryStore:
             insights=insights,
             confidence=confidence,
             source=source,
-            metadata={},
+            metadata={
+                "code_scope": infer_code_scope(task, lesson, rationale),
+            },
         )
         self._append_entry(cwd, entry)
         return entry
@@ -140,7 +142,15 @@ class MemoryStore:
             insights=insights[:6],
             completion_pct=completion_pct,
             source="report_completion",
-            metadata={"subtasks": subtasks[:12]},
+            metadata={
+                "subtasks": subtasks[:12],
+                "code_scope": infer_code_scope(
+                    task,
+                    notes,
+                    *anchor_summaries,
+                    subtasks=subtasks,
+                ),
+            },
         )
         self._append_entry(cwd, entry)
         return entry
@@ -165,6 +175,9 @@ class MemoryStore:
             suffix = f" ({entry.kind})"
             if entry.completion_pct is not None:
                 suffix += f" [{entry.completion_pct}%]"
+            scope = entry.metadata.get("code_scope", [])
+            if isinstance(scope, list) and scope:
+                suffix += f" <{', '.join(scope[:3])}>"
             lines.append(f"- {entry.summary}{suffix}")
             for insight in entry.insights[:2]:
                 lines.append(f"  {insight}")
@@ -181,6 +194,9 @@ class MemoryStore:
             selected = ranked[: min(limit, len(ranked))]
 
         lines = ["Learned memory for this workspace:"]
+        task_scope = infer_code_scope(task)
+        if task_scope:
+            lines.append("Relevant code scope: " + ", ".join(task_scope[:5]))
         advice = self.derive_strategy(cwd=cwd, task=task, entries=entries)
         if advice.agent_lines:
             lines.append("Recommended agent choices:")
@@ -257,6 +273,7 @@ class MemoryStore:
             return []
 
         task_terms = _keywords(task)
+        task_scope = infer_code_scope(task)
         scores: dict[str, float] = defaultdict(float)
         reasons: dict[str, list[str]] = defaultdict(list)
 
@@ -268,6 +285,7 @@ class MemoryStore:
                 self._score_lesson_entry(
                     entry=entry,
                     task_terms=task_terms,
+                    task_scope=task_scope,
                     base_weight=base_weight,
                     scores=scores,
                     reasons=reasons,
@@ -277,6 +295,7 @@ class MemoryStore:
                 self._score_run_summary_entry(
                     entry=entry,
                     task_terms=task_terms,
+                    task_scope=task_scope,
                     base_weight=base_weight,
                     scores=scores,
                     reasons=reasons,
@@ -333,11 +352,13 @@ class MemoryStore:
         *,
         entry: MemoryEntry,
         task_terms: set[str],
+        task_scope: list[str],
         base_weight: float,
         scores: dict[str, float],
         reasons: dict[str, list[str]],
     ) -> None:
         combined = " ".join([entry.task, entry.summary, *entry.insights]).lower()
+        scope_bonus = self._scope_bonus(entry, task_scope)
         for agent in ("claude-code", "codex", "opencode", "generic"):
             mentions_agent = agent in combined
             if not mentions_agent:
@@ -346,18 +367,19 @@ class MemoryStore:
             if task_terms and task_terms & _keywords(combined):
                 relevance += 1.5
             if "prefer" in combined or "best" in combined or "fastest" in combined:
-                scores[agent] += base_weight * relevance + 2
+                scores[agent] += base_weight * relevance + 2 + scope_bonus
                 reasons[agent].append(entry.summary)
             elif "avoid" in combined or "drift" in combined or "fail" in combined:
-                scores[agent] -= base_weight * relevance + 2
+                scores[agent] -= base_weight * relevance + 2 + scope_bonus
             else:
-                scores[agent] += base_weight * 0.5
+                scores[agent] += base_weight * 0.5 + scope_bonus * 0.25
 
     def _score_run_summary_entry(
         self,
         *,
         entry: MemoryEntry,
         task_terms: set[str],
+        task_scope: list[str],
         base_weight: float,
         scores: dict[str, float],
         reasons: dict[str, list[str]],
@@ -365,6 +387,7 @@ class MemoryStore:
         subtasks = entry.metadata.get("subtasks", [])
         if not isinstance(subtasks, list):
             subtasks = []
+        scope_bonus = self._scope_bonus(entry, task_scope)
         for task_info in subtasks:
             if not isinstance(task_info, dict):
                 continue
@@ -372,18 +395,31 @@ class MemoryStore:
             if not agent:
                 continue
             status = str(task_info.get("status", "")).lower()
-            task_text = " ".join(
-                str(task_info.get(field, "")) for field in ("name", "prompt")
-            )
+            task_text = " ".join(str(task_info.get(field, "")) for field in ("name", "prompt"))
             overlap = len(task_terms & _keywords(task_text or entry.task))
             relevance = 1 + overlap
             if status == "done":
-                scores[agent] += base_weight * relevance + 2
+                scores[agent] += base_weight * relevance + 2 + scope_bonus
                 reasons[agent].append(
                     f"{agent} completed '{task_info.get('name', 'unknown')}' successfully"
                 )
             elif status in {"error", "failed"}:
-                scores[agent] -= base_weight * relevance + 1
+                scores[agent] -= base_weight * relevance + 1 + scope_bonus
+
+    def _scope_bonus(self, entry: MemoryEntry, task_scope: list[str]) -> float:
+        if not task_scope:
+            return 0.0
+        entry_scope = entry.metadata.get("code_scope", [])
+        if not isinstance(entry_scope, list):
+            return 0.0
+        overlap = len(set(task_scope) & set(str(item) for item in entry_scope))
+        if overlap >= 3:
+            return 4.0
+        if overlap == 2:
+            return 2.5
+        if overlap == 1:
+            return 1.0
+        return -0.5
 
     def _rank_entries(self, entries: list[MemoryEntry], task: str) -> list[MemoryEntry]:
         indexed = list(enumerate(entries))
@@ -427,12 +463,60 @@ def serialize_subtasks(tasks: list[Any]) -> list[dict[str, Any]]:
     return result
 
 
+def infer_code_scope(
+    task: str,
+    *texts: str,
+    subtasks: list[dict[str, Any]] | None = None,
+) -> list[str]:
+    candidates = [task, *texts]
+    if subtasks:
+        for subtask in subtasks:
+            if not isinstance(subtask, dict):
+                continue
+            candidates.extend(
+                str(subtask.get(field, "")) for field in ("name", "prompt", "agent_type")
+            )
+
+    scope: list[str] = []
+    for text in candidates:
+        if not text:
+            continue
+        scope.extend(_extract_path_tokens(text))
+        scope.extend(_extract_keyword_scope(text))
+
+    return _dedupe(scope)[:12]
+
+
 def _keywords(text: str) -> set[str]:
     tokens = {
-        token
-        for token in re.findall(r"[a-z0-9_]{3,}", text.lower())
-        if token not in _STOP_WORDS
+        token for token in re.findall(r"[a-z0-9_]{3,}", text.lower()) if token not in _STOP_WORDS
     }
+    return tokens
+
+
+def _extract_path_tokens(text: str) -> list[str]:
+    tokens: list[str] = []
+    for match in re.findall(r"[A-Za-z0-9_./-]+\.[A-Za-z0-9_]+", text):
+        normalized = match.strip("./").lower()
+        if not normalized:
+            continue
+        parts = [part for part in re.split(r"[/.]", normalized) if part]
+        if parts:
+            tokens.append(parts[-1])
+            if len(parts) >= 2:
+                tokens.append(parts[-2])
+    return tokens
+
+
+def _extract_keyword_scope(text: str) -> list[str]:
+    tokens = []
+    for token in _keywords(text):
+        if token in {"tests", "routes", "components", "frontend", "backend", "api", "docs"}:
+            tokens.append(token)
+        elif "/" in token:
+            tokens.append(token.replace("/", "_"))
+        else:
+            tokens.append(token)
     return tokens
 
 

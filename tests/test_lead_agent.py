@@ -88,6 +88,28 @@ def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
     _teardown_session()
 
 
+def test_dispatch_agent_enforces_allowed_agents(monkeypatch, tmp_path):
+    _store, _meta, _memory_store = _setup_session(tmp_path)
+    monkeypatch.setattr(lead_agent.anyio, "sleep", _no_sleep)
+    lead_agent._allowed_agents = ["codex"]
+
+    result = anyio.run(
+        lead_agent.dispatch_agent.handler,
+        {"task_name": "API", "agent_type": "claude-code", "prompt": "Implement API"},
+    )
+
+    # Should have fallen back to codex (first in allowed list)
+    subtask = lead_agent._plan.subtasks[0]
+    assert subtask.agent_type == "codex"
+    import json
+
+    dispatched = json.loads(result["content"][0]["text"])
+    assert dispatched["agent_type"] == "codex"
+
+    lead_agent._allowed_agents = None
+    _teardown_session()
+
+
 def test_report_completion_writes_report_and_anchor(tmp_path):
     store, meta, memory_store = _setup_session(tmp_path)
     lead_agent._plan.subtasks.append(
@@ -132,5 +154,33 @@ def test_remember_learning_stores_workspace_memory(tmp_path):
     assert memories
     assert memories[-1].kind == "lesson"
     assert memories[-1].summary == "Prefer codex for API work."
+
+    _teardown_session()
+
+
+def test_get_agent_recommendations_returns_ranked_json(tmp_path):
+    _store, _meta, memory_store = _setup_session(tmp_path)
+    memory_store.record_run_summary(
+        cwd=str(tmp_path),
+        task="Build API endpoints",
+        notes="Codex completed the API endpoints cleanly.",
+        completion_pct=100,
+        subtasks=[
+            {
+                "name": "API",
+                "agent_type": "codex",
+                "status": "done",
+                "prompt": "Update src/api/routes.py",
+            }
+        ],
+        anchors=[{"summary": "API work succeeded in src/api/routes.py"}],
+    )
+
+    result = anyio.run(
+        lead_agent.get_agent_recommendations.handler,
+        {"task": "Refactor API endpoints"},
+    )
+
+    assert "codex" in result["content"][0]["text"]
 
     _teardown_session()

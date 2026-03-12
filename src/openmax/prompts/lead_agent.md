@@ -16,6 +16,7 @@ One sentence: what does "done" look like?
 2-5 sub-tasks. Each has a clear deliverable — a file created, a test passing, a deployment configured. Don't over-decompose.
 
 ### 3. Dispatch (all at once)
+Before dispatching, if the task pattern is not trivial, call `get_agent_recommendations` for the task or each major sub-task.
 Call `dispatch_agent` for every sub-task immediately. Don't serialize — all agents should start in parallel.
 
 Write prompts like a CEO writing a brief to a senior engineer:

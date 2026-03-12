@@ -85,6 +85,7 @@ _agent_window_id: int | None = None  # the shared window for all agent panes
 _session_store: SessionStore | None = None
 _session_meta: SessionMeta | None = None
 _memory_store: MemoryStore | None = None
+_allowed_agents: list[str] | None = None  # None = all allowed; order = preference
 
 
 def _append_session_event(event_type: str, payload: dict[str, Any] | None = None) -> None:
@@ -151,8 +152,15 @@ def _build_lead_prompt(
     session_id: str | None,
     resume_context: str | None,
     memory_context: str | None,
+    allowed_agents: list[str] | None = None,
 ) -> str:
     parts = [f"Goal: {task}", f"Working directory: {cwd}"]
+    if allowed_agents:
+        parts.append(
+            f"Allowed agents (in preference order): {', '.join(allowed_agents)}. "
+            f"Use '{allowed_agents[0]}' as the default unless another is better suited. "
+            f"Do NOT use agent types outside this list."
+        )
     if session_id:
         parts.append(f"Session ID: {session_id}")
     if resume_context:
@@ -191,6 +199,27 @@ def _remember_run_summary(notes: str, completion_pct: int) -> None:
 
 
 @tool(
+    "get_agent_recommendations",
+    "Get ranked agent recommendations for a task based on workspace memory and similar code work.",
+    {"task": str},
+)
+async def get_agent_recommendations(args: dict[str, Any]) -> dict[str, Any]:
+    task = args["task"]
+    if _memory_store is None:
+        return {"content": [{"type": "text", "text": "[]"}]}
+    rankings = _memory_store.derive_agent_rankings(cwd=_cwd, task=task)
+    payload = [
+        {
+            "agent_type": item.agent_type,
+            "score": item.score,
+            "reasons": item.reasons,
+        }
+        for item in rankings
+    ]
+    return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]}
+
+
+@tool(
     "dispatch_agent",
     "Dispatch a sub-task to an AI agent in a terminal pane. "
     "All agents share one window with smart grid layout. Returns pane_id.",
@@ -220,6 +249,15 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     prompt = args["prompt"]
 
     global _agent_window_id
+
+    # Enforce allowed agents constraint
+    if _allowed_agents:
+        if agent_type not in _allowed_agents:
+            fallback = _allowed_agents[0]
+            console.print(
+                f"  [yellow]⚠[/yellow] Agent '{agent_type}' not allowed, using '{fallback}' instead"
+            )
+            agent_type = fallback
 
     adapter = adapters.get(agent_type, adapters["generic"])
     cmd_spec = adapter.get_command(prompt, cwd=_cwd)
@@ -455,10 +493,19 @@ def run_lead_agent(
     max_turns: int = 50,
     session_id: str | None = None,
     resume: bool = False,
+    allowed_agents: list[str] | None = None,
 ) -> PlanResult:
     """Run the lead agent synchronously (wraps async)."""
     return anyio.run(
-        _run_lead_agent_async, task, pane_mgr, cwd, model, max_turns, session_id, resume
+        _run_lead_agent_async,
+        task,
+        pane_mgr,
+        cwd,
+        model,
+        max_turns,
+        session_id,
+        resume,
+        allowed_agents,
     )
 
 
@@ -470,8 +517,10 @@ async def _run_lead_agent_async(
     max_turns: int,
     session_id: str | None,
     resume: bool,
+    allowed_agents: list[str] | None = None,
 ) -> PlanResult:
-    global _pane_mgr, _plan, _cwd, _agent_window_id, _session_store, _session_meta, _memory_store
+    global _pane_mgr, _plan, _cwd, _agent_window_id, _session_store, _session_meta
+    global _memory_store, _allowed_agents
 
     _pane_mgr = pane_mgr
     _cwd = cwd
@@ -480,6 +529,7 @@ async def _run_lead_agent_async(
     _session_store = None
     _session_meta = None
     _memory_store = MemoryStore()
+    _allowed_agents = allowed_agents
 
     resume_context: str | None = None
     memory_context = _memory_store.build_context(cwd=cwd, task=task)
@@ -534,6 +584,7 @@ async def _run_lead_agent_async(
         version="0.1.0",
         tools=[
             dispatch_agent,
+            get_agent_recommendations,
             read_pane_output,
             send_text_to_pane,
             list_managed_panes,
@@ -547,6 +598,7 @@ async def _run_lead_agent_async(
 
     tool_names = [
         "mcp__openmax__dispatch_agent",
+        "mcp__openmax__get_agent_recommendations",
         "mcp__openmax__read_pane_output",
         "mcp__openmax__send_text_to_pane",
         "mcp__openmax__list_managed_panes",
@@ -587,6 +639,7 @@ async def _run_lead_agent_async(
         session_id,
         resume_context,
         memory_context.text if memory_context else None,
+        allowed_agents=allowed_agents,
     )
 
     console.print(

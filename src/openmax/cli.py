@@ -42,12 +42,6 @@ def main() -> None:
     default=None,
     help="Comma-separated list of allowed agent types (e.g. claude-code,codex)",
 )
-@click.option(
-    "--prefer",
-    default=None,
-    type=click.Choice(["claude-code", "codex", "opencode"], case_sensitive=False),
-    help="Preferred agent type for tasks",
-)
 def run(
     task: str,
     cwd: str | None,
@@ -57,7 +51,6 @@ def run(
     session_id: str | None,
     resume: bool,
     agents: str | None,
-    prefer: str | None,
 ) -> None:
     """Decompose TASK and dispatch sub-agents in Kaku panes."""
     if cwd is None:
@@ -77,11 +70,6 @@ def run(
                 f"Unknown agent type(s): {', '.join(unknown)}. "
                 f"Valid types: {', '.join(sorted(valid_agent_types))}"
             )
-
-    if prefer and allowed_agents and prefer not in allowed_agents:
-        raise click.UsageError(
-            f"--prefer '{prefer}' is not in --agents list: {', '.join(allowed_agents)}"
-        )
 
     if not ensure_kaku():
         raise SystemExit(1)
@@ -121,6 +109,7 @@ def run(
             max_turns=max_turns,
             session_id=session_id,
             resume=resume,
+            allowed_agents=allowed_agents,
         )
 
         # Session complete — show final summary before cleanup
@@ -186,3 +175,26 @@ def memories(cwd: str | None, limit: int) -> None:
     console.print(f"[bold]Memory for {cwd}[/bold]")
     for line in lines:
         console.print(line)
+
+
+@main.command("recommend-agents")
+@click.argument("task")
+@click.option("--cwd", default=None, help="Workspace to inspect memory for")
+@click.option("--limit", default=4, type=int, help="Maximum number of agent recommendations")
+def recommend_agents(task: str, cwd: str | None, limit: int) -> None:
+    """Show ranked agent recommendations for a task in this workspace."""
+    if cwd is None:
+        cwd = os.getcwd()
+    cwd = os.path.realpath(cwd)
+
+    store = MemoryStore()
+    recommendations = store.derive_agent_rankings(cwd=cwd, task=task, limit=limit)
+    if not recommendations:
+        console.print("[yellow]No agent recommendations available yet.[/yellow]")
+        return
+
+    console.print(f"[bold]Agent recommendations for {task}[/bold]")
+    for item in recommendations:
+        console.print(f"- {item.agent_type}: {item.score}")
+        for reason in item.reasons:
+            console.print(f"  {reason}")
