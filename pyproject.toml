@@ -5,13 +5,35 @@ build-backend = "hatchling.build"
 [project]
 name = "openmax"
 version = "0.1.0"
-description = "Multi AI Agent orchestration hub"
+description = "Multi AI Agent orchestration hub — dispatch interactive AI agents across terminal panes"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.10"
+authors = [
+    { name = "Chen Kailun" },
+]
+keywords = ["ai", "agent", "orchestration", "multi-agent", "claude", "codex", "terminal"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
 dependencies = [
     "claude-agent-sdk>=0.1.0",
     "click>=8.0",
     "rich>=13.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/anthropics/openMax"
+Repository = "https://github.com/anthropics/openMax"
 
 [project.scripts]
 openmax = "openmax.cli:main"
