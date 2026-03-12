@@ -101,8 +101,7 @@ def panes() -> None:
     for p in all_panes:
         active = " [green]★[/green]" if p.is_active else ""
         console.print(
-            f"  Pane {p.pane_id}: {p.title or '(untitled)'} "
-            f"[dim]({p.cols}x{p.rows})[/dim]{active}"
+            f"  Pane {p.pane_id}: {p.title or '(untitled)'} [dim]({p.cols}x{p.rows})[/dim]{active}"
         )
 
 

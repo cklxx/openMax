@@ -16,9 +16,9 @@
 
 ---
 
-One command. Multiple AI agents. One window.
+One command, multiple AI agents, one window.
 
-openMax decomposes your task, dispatches AI coding agents (Claude Code, Codex, OpenCode) into [Kaku](https://github.com/niceda/kaku) terminal panes, monitors progress, intervenes when needed, and reports back.
+openMax breaks down your task, dispatches agents (Claude Code, Codex, OpenCode) into [Kaku](https://github.com/niceda/kaku) terminal panes, monitors progress, and intervenes when needed.
 
 ```
 openmax run "Build a blog with Next.js"
@@ -31,7 +31,6 @@ openmax run "Build a blog with Next.js"
 └──────────┬───────────────────────┘
            ▼
    ┌────────────────────────────────┐
-   │  Kaku Window (auto grid)       │
    │  ┌────────────┬─────────────┐  │
    │  │ claude-code │ codex       │  │
    │  │ components  │ API routes  │  │
@@ -40,7 +39,6 @@ openmax run "Build a blog with Next.js"
    │  │ tests       │ styling     │  │
    │  └────────────┴─────────────┘  │
    └────────────────────────────────┘
-     ↑ click any pane to intervene
 ```
 
 ## Install
@@ -49,55 +47,32 @@ openmax run "Build a blog with Next.js"
 pip install openmax
 ```
 
-Requires **macOS**, Python 3.10+, and [Kaku](https://github.com/niceda/kaku) terminal (auto-prompted if missing).
+Requires macOS, Python 3.10+, [Kaku](https://github.com/niceda/kaku) (auto-prompted if missing), and at least one agent CLI (`claude`, `codex`, or `opencode`).
 
 ## Usage
 
 ```bash
 openmax run "Build a blog with Next.js"
-openmax run "Refactor the API module" --cwd /path/to/project
-openmax run "Write unit tests" --model claude-sonnet-4-20250514
+openmax run "Refactor the API" --cwd /path/to/project
+openmax run "Write tests" --model claude-sonnet-4-20250514
 openmax run "Fix the bug" --max-turns 30
-openmax run "Explore the codebase" --keep-panes
+openmax run "Explore" --keep-panes
 ```
 
 ```bash
-openmax panes              # list all panes
-openmax read-pane <id>     # read a pane's output
+openmax panes              # list panes
+openmax read-pane <id>     # read pane output
 ```
 
-## Supported agents
+## Agents
 
-| Agent | Type | Command |
-|-------|------|---------|
-| Claude Code | `claude-code` | `claude` |
-| Codex | `codex` | `codex` |
-| OpenCode | `opencode` | `opencode` |
-| Generic | `generic` | `claude` |
+| Type | Command |
+|------|---------|
+| `claude-code` | `claude` |
+| `codex` | `codex` |
+| `opencode` | `opencode` |
 
-All interactive — click any pane to intervene.
-
-## Architecture
-
-```
-src/openmax/
-├── cli.py           # CLI (click)
-├── lead_agent.py    # Lead agent + 6 custom MCP tools
-├── pane_manager.py  # Window/pane lifecycle
-├── kaku.py          # Kaku detection + auto-install
-└── adapters/        # Agent CLI adapters
-```
-
-### Lead agent tools
-
-| Tool | What it does |
-|------|-------------|
-| `dispatch_agent` | Spawn agent in a pane (auto grid layout) |
-| `read_pane_output` | Read agent terminal output |
-| `send_text_to_pane` | Send instructions to agent |
-| `list_managed_panes` | List panes and states |
-| `mark_task_done` | Mark sub-task done |
-| `report_completion` | Report completion % |
+All run interactively. Click any pane to intervene.
 
 ## License
 
