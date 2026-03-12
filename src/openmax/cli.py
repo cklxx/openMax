@@ -29,10 +29,29 @@ def main() -> None:
 @click.option("--model", default=None, help="Model for the lead agent")
 @click.option("--max-turns", default=50, type=int, help="Max agent loop turns")
 @click.option("--keep-panes", is_flag=True, default=False, help="Don't close panes on exit")
-def run(task: str, cwd: str | None, model: str | None, max_turns: int, keep_panes: bool) -> None:
+@click.option("--session-id", default=None, help="Persistent lead-agent session identifier")
+@click.option(
+    "--resume",
+    is_flag=True,
+    default=False,
+    help="Resume a persistent lead-agent session",
+)
+def run(
+    task: str,
+    cwd: str | None,
+    model: str | None,
+    max_turns: int,
+    keep_panes: bool,
+    session_id: str | None,
+    resume: bool,
+) -> None:
     """Decompose TASK and dispatch sub-agents in Kaku panes."""
     if cwd is None:
         cwd = os.getcwd()
+    cwd = os.path.realpath(cwd)
+
+    if resume and not session_id:
+        raise click.UsageError("--resume requires --session-id")
 
     if not ensure_kaku():
         raise SystemExit(1)
@@ -70,6 +89,8 @@ def run(task: str, cwd: str | None, model: str | None, max_turns: int, keep_pane
             cwd=cwd,
             model=model,
             max_turns=max_turns,
+            session_id=session_id,
+            resume=resume,
         )
 
         # Session complete — show final summary before cleanup

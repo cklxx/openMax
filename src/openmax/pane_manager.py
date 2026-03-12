@@ -428,8 +428,8 @@ class PaneManager:
             'tell application "Finder"\n'
             "  set {_x, _y, sw, sh} to bounds of window of desktop\n"
             "end tell\n"
-            "set w to round (sw * 0.68)\n"
-            "set h to round (sh * 0.68)\n"
+            "set w to round (sw * 0.5)\n"
+            "set h to round (sh * 0.5)\n"
             "set xOff to round ((sw - w) / 2)\n"
             "set yOff to round ((sh - h) / 2)\n"
             'tell application "System Events"\n'
