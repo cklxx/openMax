@@ -99,12 +99,6 @@ src/openmax/
 | `mark_task_done` | Mark sub-task done |
 | `report_completion` | Report completion % |
 
-### Lifecycle
-
-- One window, smart grid layout, auto-resized to 68% screen
-- Clean shutdown on exit / Ctrl-C / SIGTERM
-- `--keep-panes` to preserve panes after session
-
 ## License
 
 MIT
