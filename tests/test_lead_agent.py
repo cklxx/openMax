@@ -95,6 +95,80 @@ def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
     _teardown_session()
 
 
+def test_format_tool_use_humanizes_all_openmax_tools():
+    assert (
+        lead_agent._format_tool_use(
+            "mcp__openmax__dispatch_agent",
+            {"task_name": "API routes", "agent_type": "codex"},
+        )
+        == "Starting agent for API routes via codex"
+    )
+    assert (
+        lead_agent._format_tool_use(
+            "mcp__openmax__get_agent_recommendations",
+            {"task": "Refactor API routes"},
+        )
+        == "Checking best agent for Refactor API routes"
+    )
+    assert (
+        lead_agent._format_tool_use(
+            "mcp__openmax__read_pane_output",
+            {"pane_id": 12},
+        )
+        == "Checking progress in pane 12"
+    )
+    assert (
+        lead_agent._format_tool_use(
+            "mcp__openmax__send_text_to_pane",
+            {"pane_id": 12, "text": "Please rerun the failing tests with logs"},
+        )
+        == "Sending follow-up to pane 12: Please rerun the failing tests with logs"
+    )
+    assert (
+        lead_agent._format_tool_use("mcp__openmax__list_managed_panes", {})
+        == "Reviewing active panes"
+    )
+    assert (
+        lead_agent._format_tool_use(
+            "mcp__openmax__mark_task_done",
+            {"task_name": "API routes"},
+        )
+        == "Marking API routes done"
+    )
+    assert (
+        lead_agent._format_tool_use(
+            "mcp__openmax__record_phase_anchor",
+            {
+                "phase": "plan",
+                "summary": "Defined the delivery plan and split the work.",
+                "completion_pct": 20,
+            },
+        )
+        == "Saving planning checkpoint (20%): Defined the delivery plan and split the work."
+    )
+    assert (
+        lead_agent._format_tool_use(
+            "mcp__openmax__remember_learning",
+            {"lesson": "Prefer codex when editing Python test suites."},
+        )
+        == "Saving reusable lesson: Prefer codex when editing Python test suites."
+    )
+    assert (
+        lead_agent._format_tool_use(
+            "mcp__openmax__report_completion",
+            {"completion_pct": 100, "notes": "Everything finished and verified."},
+        )
+        == "Publishing completion update (100%): Everything finished and verified."
+    )
+    assert (
+        lead_agent._format_tool_use(
+            "mcp__openmax__wait",
+            {"seconds": 45},
+        )
+        == "Waiting 45s before the next check"
+    )
+
+
 def test_dispatch_agent_enforces_allowed_agents(monkeypatch, tmp_path):
     _store, _meta, _memory_store = _setup_session(tmp_path)
     monkeypatch.setattr(lead_agent.anyio, "sleep", _no_sleep)
