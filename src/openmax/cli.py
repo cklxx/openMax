@@ -10,7 +10,7 @@ import sys
 import click
 from rich.console import Console
 
-from openmax.kaku import is_kaku_available, ensure_kaku
+from openmax.kaku import ensure_kaku, is_kaku_available
 from openmax.lead_agent import run_lead_agent
 from openmax.pane_manager import PaneManager
 
@@ -18,6 +18,7 @@ console = Console()
 
 
 @click.group()
+@click.version_option(version=None, package_name="openmax", prog_name="openmax")
 def main() -> None:
     """openMax — Multi AI Agent orchestration hub."""
 

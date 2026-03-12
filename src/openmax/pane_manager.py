@@ -124,7 +124,8 @@ class PaneManager:
         """List all kaku panes (not just managed ones)."""
         result = subprocess.run(
             ["kaku", "cli", "list", "--format", "json"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
             raise RuntimeError(f"kaku cli list failed: {result.stderr}")
@@ -134,19 +135,21 @@ class PaneManager:
             cwd = p.get("cwd", "")
             if cwd.startswith("file://"):
                 cwd = unquote(urlparse(cwd).path)
-            panes.append(KakuPaneInfo(
-                window_id=p["window_id"],
-                tab_id=p["tab_id"],
-                pane_id=p["pane_id"],
-                workspace=p.get("workspace", ""),
-                rows=p["size"]["rows"],
-                cols=p["size"]["cols"],
-                title=p.get("title", ""),
-                cwd=cwd,
-                is_active=p.get("is_active", False),
-                is_zoomed=p.get("is_zoomed", False),
-                cursor_visibility=p.get("cursor_visibility", ""),
-            ))
+            panes.append(
+                KakuPaneInfo(
+                    window_id=p["window_id"],
+                    tab_id=p["tab_id"],
+                    pane_id=p["pane_id"],
+                    workspace=p.get("workspace", ""),
+                    rows=p["size"]["rows"],
+                    cols=p["size"]["cols"],
+                    title=p.get("title", ""),
+                    cwd=cwd,
+                    is_active=p.get("is_active", False),
+                    is_zoomed=p.get("is_zoomed", False),
+                    cursor_visibility=p.get("cursor_visibility", ""),
+                )
+            )
         return panes
 
     # ── High-level: create window with first pane ──────────────────
@@ -261,7 +264,8 @@ class PaneManager:
         content = text.rstrip("\n").rstrip("\r")
         result = subprocess.run(
             ["kaku", "cli", "send-text", "--pane-id", str(pane_id), "--", content],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
             raise RuntimeError(f"kaku send-text failed: {result.stderr}")
@@ -271,7 +275,8 @@ class PaneManager:
             result = subprocess.run(
                 ["kaku", "cli", "send-text", "--pane-id", str(pane_id), "--no-paste"],
                 input="\r",
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
             )
             if result.returncode != 0:
                 raise RuntimeError(f"kaku send-text (enter) failed: {result.stderr}")
@@ -290,14 +295,16 @@ class PaneManager:
         """Focus a pane."""
         subprocess.run(
             ["kaku", "cli", "activate-pane", "--pane-id", str(pane_id)],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
 
     def kill_pane(self, pane_id: int) -> None:
         """Kill a pane and remove from tracking."""
         subprocess.run(
             ["kaku", "cli", "kill-pane", "--pane-id", str(pane_id)],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         # Remove from window tracking
         pane = self._panes.pop(pane_id, None)
@@ -336,18 +343,22 @@ class PaneManager:
             for pid in win.pane_ids:
                 p = self._panes.get(pid)
                 if p:
-                    pane_details.append({
-                        "pane_id": p.pane_id,
-                        "purpose": p.purpose,
-                        "agent_type": p.agent_type,
-                        "state": p.state.value,
-                    })
-            window_list.append({
-                "window_id": win.window_id,
-                "title": win.title,
-                "pane_count": len(win.pane_ids),
-                "panes": pane_details,
-            })
+                    pane_details.append(
+                        {
+                            "pane_id": p.pane_id,
+                            "purpose": p.purpose,
+                            "agent_type": p.agent_type,
+                            "state": p.state.value,
+                        }
+                    )
+            window_list.append(
+                {
+                    "window_id": win.window_id,
+                    "title": win.title,
+                    "pane_count": len(win.pane_ids),
+                    "panes": pane_details,
+                }
+            )
 
         return {
             "total_windows": len(self._windows),
@@ -401,7 +412,8 @@ class PaneManager:
     def _set_window_title(self, pane_id: int, title: str) -> None:
         subprocess.run(
             ["kaku", "cli", "set-window-title", "--pane-id", str(pane_id), title],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
 
     @staticmethod
@@ -411,20 +423,22 @@ class PaneManager:
             return
         script = (
             'tell application "Finder"\n'
-            '  set {_x, _y, sw, sh} to bounds of window of desktop\n'
-            'end tell\n'
-            'set w to round (sw * 0.68)\n'
-            'set h to round (sh * 0.68)\n'
-            'set xOff to round ((sw - w) / 2)\n'
-            'set yOff to round ((sh - h) / 2)\n'
+            "  set {_x, _y, sw, sh} to bounds of window of desktop\n"
+            "end tell\n"
+            "set w to round (sw * 0.68)\n"
+            "set h to round (sh * 0.68)\n"
+            "set xOff to round ((sw - w) / 2)\n"
+            "set yOff to round ((sh - h) / 2)\n"
             'tell application "System Events"\n'
             '  tell process "kaku-gui"\n'
-            '    set position of window 1 to {xOff, yOff}\n'
-            '    set size of window 1 to {w, h}\n'
-            '  end tell\n'
-            'end tell'
+            "    set position of window 1 to {xOff, yOff}\n"
+            "    set size of window 1 to {w, h}\n"
+            "  end tell\n"
+            "end tell"
         )
         subprocess.run(
             ["osascript", "-e", script],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )

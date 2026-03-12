@@ -8,27 +8,23 @@ multi-turn orchestration.
 from __future__ import annotations
 
 import json
-import os
-import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
 import anyio
-from rich.console import Console
-from rich.panel import Panel
-
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
     ResultMessage,
     TextBlock,
-    ToolResultBlock,
     ToolUseBlock,
     create_sdk_mcp_server,
     tool,
 )
+from rich.console import Console
+from rich.panel import Panel
 
 from openmax.pane_manager import PaneManager
 
@@ -88,7 +84,7 @@ You operate as a project manager following a strict management lifecycle:
 - Provide a summary of what was accomplished.
 
 ## Available agent types:
-- "claude-code": Claude Code CLI — best for most coding tasks. Supports plan mode, interactive editing, full tool access.
+- "claude-code": Claude Code CLI — best for coding tasks, plan mode, full tool access.
 - "codex": OpenAI Codex CLI — good for code generation and review.
 - "opencode": OpenCode CLI — alternative coding assistant.
 - "generic": Falls back to interactive claude session.
@@ -191,14 +187,16 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         "content": [
             {
                 "type": "text",
-                "text": json.dumps({
-                    "status": "dispatched",
-                    "pane_id": pane.pane_id,
-                    "window_id": _agent_window_id,
-                    "agent_type": agent_type,
-                    "task_name": task_name,
-                    "panes_in_window": pane_count,
-                }),
+                "text": json.dumps(
+                    {
+                        "status": "dispatched",
+                        "pane_id": pane.pane_id,
+                        "window_id": _agent_window_id,
+                        "agent_type": agent_type,
+                        "task_name": task_name,
+                        "panes_in_window": pane_count,
+                    }
+                ),
             }
         ]
     }
@@ -223,7 +221,7 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "send_text_to_pane",
-    "Send text/instructions to an agent pane, as if typed by the user. Use to give follow-up instructions or intervene.",
+    "Send text to an agent pane. Use to give follow-up instructions or intervene.",
     {"pane_id": int, "text": str},
 )
 async def send_text_to_pane(args: dict[str, Any]) -> dict[str, Any]:
@@ -268,11 +266,13 @@ async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:
 async def report_completion(args: dict[str, Any]) -> dict[str, Any]:
     pct = args["completion_pct"]
     notes = args["notes"]
-    console.print(Panel(
-        f"[bold]Completion: {pct}%[/bold]\n{notes}",
-        title="Progress Report",
-        border_style="cyan",
-    ))
+    console.print(
+        Panel(
+            f"[bold]Completion: {pct}%[/bold]\n{notes}",
+            title="Progress Report",
+            border_style="cyan",
+        )
+    )
     return {"content": [{"type": "text", "text": f"Reported {pct}% — {notes}"}]}
 
 
@@ -332,8 +332,16 @@ async def _run_lead_agent_async(
         mcp_servers={"openmax": server},
         allowed_tools=tool_names,
         disallowed_tools=[
-            "Read", "Write", "Edit", "Bash", "Glob", "Grep",
-            "Agent", "NotebookEdit", "WebFetch", "WebSearch",
+            "Read",
+            "Write",
+            "Edit",
+            "Bash",
+            "Glob",
+            "Grep",
+            "Agent",
+            "NotebookEdit",
+            "WebFetch",
+            "WebSearch",
         ],
         max_turns=max_turns,
         cwd=cwd,
@@ -354,11 +362,13 @@ async def _run_lead_agent_async(
         "5. Summarize & report"
     )
 
-    console.print(Panel(
-        f"[bold]Goal:[/bold] {task}",
-        title="openMax Lead Agent",
-        border_style="blue",
-    ))
+    console.print(
+        Panel(
+            f"[bold]Goal:[/bold] {task}",
+            title="openMax Lead Agent",
+            border_style="blue",
+        )
+    )
 
     async with ClaudeSDKClient(options=options) as client:
         await client.query(prompt)
@@ -372,12 +382,14 @@ async def _run_lead_agent_async(
                         console.print(f"  [dim]⚙ {block.name}[/dim]")
             elif isinstance(msg, ResultMessage):
                 cost = msg.total_cost_usd or 0
-                console.print(Panel(
-                    f"Cost: ${cost:.4f}\n"
-                    f"Duration: {msg.duration_ms / 1000:.1f}s\n"
-                    f"Turns: {msg.num_turns}",
-                    title="Lead Agent Summary",
-                    border_style="green",
-                ))
+                console.print(
+                    Panel(
+                        f"Cost: ${cost:.4f}\n"
+                        f"Duration: {msg.duration_ms / 1000:.1f}s\n"
+                        f"Turns: {msg.num_turns}",
+                        title="Lead Agent Summary",
+                        border_style="green",
+                    )
+                )
 
     return _plan

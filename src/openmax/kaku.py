@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
-import sys
 
 
 def get_current_pane_id() -> int | None:
@@ -19,7 +18,9 @@ def is_kaku_available() -> bool:
     try:
         result = subprocess.run(
             ["kaku", "cli", "list"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -38,6 +39,7 @@ def _has_brew() -> bool:
 def _install_kaku_brew() -> bool:
     """Install Kaku via Homebrew cask."""
     from rich.console import Console
+
     console = Console()
     console.print("[cyan]Installing Kaku via Homebrew...[/cyan]")
     result = subprocess.run(
@@ -60,6 +62,7 @@ def ensure_kaku() -> bool:
         return True
 
     from rich.console import Console
+
     console = Console()
 
     # Check if kaku binary exists but we're not inside a kaku terminal
@@ -88,9 +91,7 @@ def ensure_kaku() -> bool:
         return False
 
     if _has_brew():
-        console.print(
-            "[yellow]Kaku terminal is required but not installed.[/yellow]"
-        )
+        console.print("[yellow]Kaku terminal is required but not installed.[/yellow]")
         try:
             answer = input("Install Kaku via Homebrew? [Y/n] ").strip().lower()
         except (EOFError, KeyboardInterrupt):
