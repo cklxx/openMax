@@ -107,11 +107,13 @@ You operate as a project manager following a strict management lifecycle:
 _pane_mgr: PaneManager | None = None
 _plan: PlanResult | None = None
 _cwd: str = ""
+_agent_window_id: int | None = None  # the shared window for all agent panes
 
 
 @tool(
     "dispatch_agent",
-    "Dispatch a sub-task to an AI agent by opening a new interactive terminal pane. Returns the pane_id.",
+    "Dispatch a sub-task to an AI agent in a terminal pane. "
+    "All agents share one window with smart grid layout. Returns pane_id.",
     {
         "task_name": str,
         "agent_type": str,
@@ -137,15 +139,30 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     agent_type = args.get("agent_type", "claude-code")
     prompt = args["prompt"]
 
+    global _agent_window_id
+
     adapter = adapters.get(agent_type, adapters["generic"])
     cmd_spec = adapter.get_command(prompt, cwd=_cwd)
 
-    pane = _pane_mgr.spawn_window(
-        command=cmd_spec.launch_cmd,
-        purpose=f"subtask: {task_name}",
-        agent_type=agent_type,
-        cwd=_cwd,
-    )
+    if _agent_window_id is None:
+        # First agent → create a new window
+        pane = _pane_mgr.create_window(
+            command=cmd_spec.launch_cmd,
+            purpose=task_name,
+            agent_type=agent_type,
+            title=f"openMax: {_plan.goal[:40]}",
+            cwd=_cwd,
+        )
+        _agent_window_id = pane.window_id
+    else:
+        # Subsequent agents → add pane to the same window (auto layout)
+        pane = _pane_mgr.add_pane(
+            window_id=_agent_window_id,
+            command=cmd_spec.launch_cmd,
+            purpose=task_name,
+            agent_type=agent_type,
+            cwd=_cwd,
+        )
 
     # For interactive agents, send the initial prompt after CLI starts
     if cmd_spec.interactive and cmd_spec.initial_input:
@@ -161,9 +178,13 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     )
     _plan.subtasks.append(subtask)
 
+    # Show layout info
+    win = _pane_mgr.windows.get(_agent_window_id)
+    pane_count = len(win.pane_ids) if win else 1
     console.print(
         f"  [green]✓[/green] Dispatched [bold]{task_name}[/bold] "
-        f"→ pane {pane.pane_id} ({agent_type})"
+        f"→ pane {pane.pane_id} ({agent_type}) "
+        f"[dim][window {_agent_window_id}, {pane_count} panes][/dim]"
     )
 
     return {
@@ -173,8 +194,10 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
                 "text": json.dumps({
                     "status": "dispatched",
                     "pane_id": pane.pane_id,
+                    "window_id": _agent_window_id,
                     "agent_type": agent_type,
                     "task_name": task_name,
+                    "panes_in_window": pane_count,
                 }),
             }
         ]
@@ -274,11 +297,12 @@ async def _run_lead_agent_async(
     model: str | None,
     max_turns: int,
 ) -> PlanResult:
-    global _pane_mgr, _plan, _cwd
+    global _pane_mgr, _plan, _cwd, _agent_window_id
 
     _pane_mgr = pane_mgr
     _plan = PlanResult(goal=task)
     _cwd = cwd
+    _agent_window_id = None
 
     # Create SDK MCP server with our tools
     server = create_sdk_mcp_server(

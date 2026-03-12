@@ -59,7 +59,7 @@ def run(task: str, cwd: str | None, model: str | None, max_turns: int) -> None:
         console.print(
             f"\n[bold green]Done.[/bold green] "
             f"{len(plan.subtasks)} sub-tasks | "
-            f"{summary['windows']} windows | "
+            f"{summary['total_windows']} windows | "
             f"{summary['done']} done"
         )
         console.print("[dim]Closing managed panes...[/dim]")

@@ -1,9 +1,8 @@
-"""Kaku pane manager — tracks all panes created by openMax."""
+"""Kaku pane manager — tracks windows, panes, and their relationships."""
 
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -12,11 +11,7 @@ from urllib.parse import unquote, urlparse
 
 
 def _wrap_command_clean_env(command: list[str]) -> list[str]:
-    """Wrap a command to run without CLAUDECODE env var.
-
-    This prevents 'nested session' errors when spawning
-    Claude Code in new kaku panes.
-    """
+    """Wrap a command to run without CLAUDECODE env var."""
     return ["env", "-u", "CLAUDECODE", "-u", "CLAUDE_CODE_ENTRYPOINT"] + command
 
 
@@ -33,9 +28,19 @@ class ManagedPane:
 
     pane_id: int
     window_id: int | None
-    purpose: str  # e.g. "lead-agent", "subtask: Write components"
-    agent_type: str  # e.g. "claude-code", "codex"
+    purpose: str
+    agent_type: str
     state: PaneState = PaneState.IDLE
+    created_at: float = field(default_factory=time.time)
+
+
+@dataclass
+class ManagedWindow:
+    """A window managed by openMax, containing one or more panes."""
+
+    window_id: int
+    title: str
+    pane_ids: list[int] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
 
 
@@ -56,28 +61,60 @@ class KakuPaneInfo:
     cursor_visibility: str
 
 
+# ── Layout strategy ───────────────────────────────────────────────
+
+# How to split panes given the count already in the window:
+#   0 panes → first pane (spawn window)
+#   1 pane  → split right  (left | right)
+#   2 panes → split pane[1] bottom  (left | right-top / right-bottom)
+#   3 panes → split pane[0] bottom  (left-top / left-bottom | right-top / right-bottom)
+#   4+ panes → alternate bottom on most recent panes
+
+_LAYOUT_DIRECTIONS = ["right", "bottom", "bottom", "bottom"]
+
+
+def _pick_split(pane_ids: list[int], index: int) -> tuple[int, str]:
+    """Given existing pane_ids and the new pane index, return (target_pane_id, direction)."""
+    if index == 0:
+        raise ValueError("index 0 should use spawn_window, not split")
+    if index == 1:
+        return pane_ids[0], "right"
+    if index == 2:
+        return pane_ids[1], "bottom"
+    if index == 3:
+        return pane_ids[0], "bottom"
+    # 4+: cycle bottom on existing panes
+    target = pane_ids[index % len(pane_ids)]
+    return target, "bottom"
+
+
 class PaneManager:
-    """Manages kaku windows and panes for openMax."""
+    """Manages kaku windows and panes for openMax.
+
+    Tracks:
+    - Which windows we created and their IDs
+    - Which panes belong to which window
+    - Pane states (idle/running/done/error)
+    - Layout: how panes are arranged within a window
+    """
 
     def __init__(self) -> None:
-        self._managed: dict[int, ManagedPane] = {}
-        self._windows: set[int] = set()  # window IDs we created
+        self._panes: dict[int, ManagedPane] = {}
+        self._windows: dict[int, ManagedWindow] = {}
+
+    # ── Properties ─────────────────────────────────────────────────
 
     @property
     def panes(self) -> dict[int, ManagedPane]:
-        return dict(self._managed)
+        return dict(self._panes)
+
+    @property
+    def windows(self) -> dict[int, ManagedWindow]:
+        return dict(self._windows)
 
     @property
     def active_count(self) -> int:
-        return sum(1 for p in self._managed.values() if p.state == PaneState.RUNNING)
-
-    @property
-    def idle_panes(self) -> list[ManagedPane]:
-        return [p for p in self._managed.values() if p.state == PaneState.IDLE]
-
-    @property
-    def managed_windows(self) -> set[int]:
-        return set(self._windows)
+        return sum(1 for p in self._panes.values() if p.state == PaneState.RUNNING)
 
     # ── Kaku CLI wrappers ──────────────────────────────────────────
 
@@ -111,18 +148,19 @@ class PaneManager:
             ))
         return panes
 
-    # ── Window management ──────────────────────────────────────────
+    # ── High-level: create window with first pane ──────────────────
 
-    def spawn_window(
+    def create_window(
         self,
         command: list[str],
         purpose: str,
         agent_type: str,
+        title: str = "openMax agents",
         cwd: str | None = None,
     ) -> ManagedPane:
-        """Open a NEW window with a command and track it.
+        """Create a NEW window, run command in it, track everything.
 
-        Returns the ManagedPane for the pane in the new window.
+        Returns the ManagedPane for the first pane.
         """
         args = ["kaku", "cli", "spawn", "--new-window"]
         if cwd:
@@ -135,12 +173,20 @@ class PaneManager:
             raise RuntimeError(f"kaku spawn --new-window failed: {result.stderr}")
 
         pane_id = int(result.stdout.strip())
-
-        # Find which window this pane belongs to
         window_id = self._find_pane_window(pane_id)
-        if window_id is not None:
-            self._windows.add(window_id)
 
+        # Track window
+        win = ManagedWindow(
+            window_id=window_id,
+            title=title,
+            pane_ids=[pane_id],
+        )
+        if window_id is not None:
+            self._windows[window_id] = win
+            # Set window title
+            self._set_window_title(pane_id, title)
+
+        # Track pane
         pane = ManagedPane(
             pane_id=pane_id,
             window_id=window_id,
@@ -148,62 +194,39 @@ class PaneManager:
             agent_type=agent_type,
             state=PaneState.RUNNING,
         )
-        self._managed[pane_id] = pane
+        self._panes[pane_id] = pane
         return pane
 
-    def spawn_tab(
+    # ── High-level: add pane to existing window ────────────────────
+
+    def add_pane(
         self,
+        window_id: int,
         command: list[str],
         purpose: str,
         agent_type: str,
         cwd: str | None = None,
-        window_id: int | None = None,
     ) -> ManagedPane:
-        """Open a new tab (in an existing window or default) and track it."""
-        args = ["kaku", "cli", "spawn"]
-        if window_id is not None:
-            args.extend(["--window-id", str(window_id)])
-        if cwd:
-            args.extend(["--cwd", cwd])
-        args.append("--")
-        args.extend(_wrap_command_clean_env(command))
+        """Add a new pane to an existing managed window with smart layout.
 
-        result = subprocess.run(args, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise RuntimeError(f"kaku spawn failed: {result.stderr}")
+        Automatically picks the split target and direction based on
+        how many panes are already in the window.
+        """
+        win = self._windows.get(window_id)
+        if win is None:
+            raise RuntimeError(f"Window {window_id} is not managed")
 
-        pane_id = int(result.stdout.strip())
-        win_id = window_id or self._find_pane_window(pane_id)
+        index = len(win.pane_ids)
+        target_pane, direction = _pick_split(win.pane_ids, index)
 
-        pane = ManagedPane(
-            pane_id=pane_id,
-            window_id=win_id,
-            purpose=purpose,
-            agent_type=agent_type,
-            state=PaneState.RUNNING,
-        )
-        self._managed[pane_id] = pane
-        return pane
-
-    def split_pane(
-        self,
-        command: list[str],
-        purpose: str,
-        agent_type: str,
-        direction: str = "right",
-        cwd: str | None = None,
-        target_pane_id: int | None = None,
-    ) -> ManagedPane:
-        """Split an existing pane and track the new one."""
         args = ["kaku", "cli", "split-pane"]
-        if target_pane_id is not None:
-            args.extend(["--pane-id", str(target_pane_id)])
+        args.extend(["--pane-id", str(target_pane)])
         if direction == "right":
             args.append("--right")
-        elif direction == "left":
-            args.append("--left")
         elif direction == "bottom":
             args.append("--bottom")
+        elif direction == "left":
+            args.append("--left")
         elif direction == "top":
             args.append("--top")
         if cwd:
@@ -216,29 +239,23 @@ class PaneManager:
             raise RuntimeError(f"kaku split-pane failed: {result.stderr}")
 
         pane_id = int(result.stdout.strip())
-        win_id = self._find_pane_window(pane_id)
 
+        # Track
+        win.pane_ids.append(pane_id)
         pane = ManagedPane(
             pane_id=pane_id,
-            window_id=win_id,
+            window_id=window_id,
             purpose=purpose,
             agent_type=agent_type,
             state=PaneState.RUNNING,
         )
-        self._managed[pane_id] = pane
+        self._panes[pane_id] = pane
         return pane
 
     # ── Pane I/O ───────────────────────────────────────────────────
 
     def send_text(self, pane_id: int, text: str, submit: bool = True) -> None:
-        """Send text to a pane as paste, then optionally press Enter to submit.
-
-        Args:
-            pane_id: Target pane.
-            text: Text to send.
-            submit: If True, send a carriage return after the text to trigger
-                    submission (e.g. in interactive CLIs like Claude Code).
-        """
+        """Send text to a pane as paste, then optionally press Enter."""
         content = text.rstrip("\n").rstrip("\r")
         result = subprocess.run(
             ["kaku", "cli", "send-text", "--pane-id", str(pane_id), "--", content],
@@ -248,9 +265,7 @@ class PaneManager:
             raise RuntimeError(f"kaku send-text failed: {result.stderr}")
 
         if submit:
-            # Wait for the CLI to finish processing the pasted text
             time.sleep(0.5)
-            # Send raw carriage return byte via stdin to trigger Enter
             result = subprocess.run(
                 ["kaku", "cli", "send-text", "--pane-id", str(pane_id), "--no-paste"],
                 input="\r",
@@ -277,37 +292,27 @@ class PaneManager:
         )
 
     def kill_pane(self, pane_id: int) -> None:
-        """Kill a managed pane and remove it from tracking."""
+        """Kill a pane and remove from tracking."""
         subprocess.run(
             ["kaku", "cli", "kill-pane", "--pane-id", str(pane_id)],
             capture_output=True, text=True,
         )
-        self._managed.pop(pane_id, None)
-
-    def set_title(self, pane_id: int, title: str) -> None:
-        """Set the tab title for a pane."""
-        subprocess.run(
-            ["kaku", "cli", "set-tab-title", "--pane-id", str(pane_id), title],
-            capture_output=True, text=True,
-        )
-
-    def set_window_title(self, pane_id: int, title: str) -> None:
-        """Set the window title via a pane in that window."""
-        subprocess.run(
-            ["kaku", "cli", "set-window-title", "--pane-id", str(pane_id), title],
-            capture_output=True, text=True,
-        )
+        # Remove from window tracking
+        pane = self._panes.pop(pane_id, None)
+        if pane and pane.window_id and pane.window_id in self._windows:
+            win = self._windows[pane.window_id]
+            if pane_id in win.pane_ids:
+                win.pane_ids.remove(pane_id)
 
     # ── State management ───────────────────────────────────────────
 
     def update_state(self, pane_id: int, state: PaneState) -> None:
-        if pane_id in self._managed:
-            self._managed[pane_id].state = state
+        if pane_id in self._panes:
+            self._panes[pane_id].state = state
 
     def is_pane_alive(self, pane_id: int) -> bool:
         try:
-            all_panes = self.list_all_panes()
-            return any(p.pane_id == pane_id for p in all_panes)
+            return any(p.pane_id == pane_id for p in self.list_all_panes())
         except RuntimeError:
             return False
 
@@ -317,39 +322,49 @@ class PaneManager:
             alive_ids = {p.pane_id for p in self.list_all_panes()}
         except RuntimeError:
             return
-        for pane_id, pane in list(self._managed.items()):
+        for pane_id, pane in list(self._panes.items()):
             if pane_id not in alive_ids:
                 pane.state = PaneState.DONE
 
     def summary(self) -> dict:
+        """Full topology: windows → panes with states."""
+        window_list = []
+        for win in self._windows.values():
+            pane_details = []
+            for pid in win.pane_ids:
+                p = self._panes.get(pid)
+                if p:
+                    pane_details.append({
+                        "pane_id": p.pane_id,
+                        "purpose": p.purpose,
+                        "agent_type": p.agent_type,
+                        "state": p.state.value,
+                    })
+            window_list.append({
+                "window_id": win.window_id,
+                "title": win.title,
+                "pane_count": len(win.pane_ids),
+                "panes": pane_details,
+            })
+
         return {
-            "total": len(self._managed),
-            "windows": len(self._windows),
-            "running": sum(1 for p in self._managed.values() if p.state == PaneState.RUNNING),
-            "idle": sum(1 for p in self._managed.values() if p.state == PaneState.IDLE),
-            "done": sum(1 for p in self._managed.values() if p.state == PaneState.DONE),
-            "error": sum(1 for p in self._managed.values() if p.state == PaneState.ERROR),
-            "panes": [
-                {
-                    "pane_id": p.pane_id,
-                    "window_id": p.window_id,
-                    "purpose": p.purpose,
-                    "agent_type": p.agent_type,
-                    "state": p.state.value,
-                }
-                for p in self._managed.values()
-            ],
+            "total_windows": len(self._windows),
+            "total_panes": len(self._panes),
+            "running": sum(1 for p in self._panes.values() if p.state == PaneState.RUNNING),
+            "done": sum(1 for p in self._panes.values() if p.state == PaneState.DONE),
+            "error": sum(1 for p in self._panes.values() if p.state == PaneState.ERROR),
+            "windows": window_list,
         }
 
+    # ── Cleanup ────────────────────────────────────────────────────
+
     def cleanup_all(self) -> None:
-        """Kill all managed panes and close managed windows."""
-        for pane_id in list(self._managed):
+        """Kill all managed panes. Windows close automatically when empty."""
+        for pane_id in list(self._panes):
             self.kill_pane(pane_id)
         self._windows.clear()
 
-    # ── Context manager ────────────────────────────────────────────
-
-    def __enter__(self) -> "PaneManager":
+    def __enter__(self) -> PaneManager:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -359,7 +374,6 @@ class PaneManager:
     # ── Internal helpers ───────────────────────────────────────────
 
     def _find_pane_window(self, pane_id: int) -> int | None:
-        """Find which window a pane belongs to."""
         try:
             for p in self.list_all_panes():
                 if p.pane_id == pane_id:
@@ -367,3 +381,9 @@ class PaneManager:
         except RuntimeError:
             pass
         return None
+
+    def _set_window_title(self, pane_id: int, title: str) -> None:
+        subprocess.run(
+            ["kaku", "cli", "set-window-title", "--pane-id", str(pane_id), title],
+            capture_output=True, text=True,
+        )
