@@ -6,50 +6,6 @@
   <title>openMax — Multi AI Agent Orchestration</title>
   <meta name="description" content="One command, multiple AI agents, one window. openMax orchestrates Claude Code, Codex, and OpenCode in parallel." />
   <style>
-    :root {
-      --bg: #ffffff;
-      --bg-secondary: #f5f5f7;
-      --text-primary: #1d1d1f;
-      --text-secondary: #6e6e73;
-      --text-tertiary: #86868b;
-      --accent: #0071e3;
-      --accent-hover: #0077ed;
-      --card-bg: #ffffff;
-      --card-border: rgba(0, 0, 0, 0.04);
-      --code-bg: #f5f5f7;
-      --code-text: #1d1d1f;
-      --divider: rgba(0, 0, 0, 0.08);
-      --hero-gradient-start: #fbfbfd;
-      --hero-gradient-end: #f5f5f7;
-      --glow-1: rgba(0, 113, 227, 0.15);
-      --glow-2: rgba(94, 92, 230, 0.12);
-      --nav-bg: rgba(255, 255, 255, 0.72);
-      --shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-      --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.08);
-    }
-
-    [data-theme="dark"] {
-      --bg: #000000;
-      --bg-secondary: #1d1d1f;
-      --text-primary: #f5f5f7;
-      --text-secondary: #a1a1a6;
-      --text-tertiary: #6e6e73;
-      --accent: #2997ff;
-      --accent-hover: #4fb4ff;
-      --card-bg: #1d1d1f;
-      --card-border: rgba(255, 255, 255, 0.06);
-      --code-bg: #1d1d1f;
-      --code-text: #f5f5f7;
-      --divider: rgba(255, 255, 255, 0.08);
-      --hero-gradient-start: #000000;
-      --hero-gradient-end: #1d1d1f;
-      --glow-1: rgba(41, 151, 255, 0.2);
-      --glow-2: rgba(94, 92, 230, 0.18);
-      --nav-bg: rgba(0, 0, 0, 0.72);
-      --shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
-      --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.4);
-    }
-
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     html {
@@ -58,12 +14,13 @@
     }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+      background: #FFFFFF;
+      color: #1d1d1f;
       line-height: 1.5;
-      transition: background 0.4s ease, color 0.4s ease;
       overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
 
     /* ---------- Nav ---------- */
@@ -75,59 +32,48 @@
       z-index: 1000;
       backdrop-filter: saturate(180%) blur(20px);
       -webkit-backdrop-filter: saturate(180%) blur(20px);
-      background: var(--nav-bg);
-      border-bottom: 1px solid var(--divider);
-      transition: background 0.4s ease;
+      background: rgba(255, 255, 255, 0.72);
+      border-bottom: 1px solid rgba(0, 0, 0, 0.06);
     }
 
     .nav-inner {
-      max-width: 1024px;
+      max-width: 1080px;
       margin: 0 auto;
-      padding: 0 22px;
-      height: 48px;
+      padding: 0 24px;
+      height: 52px;
       display: flex;
       align-items: center;
       justify-content: space-between;
     }
 
     .nav-logo {
-      font-size: 18px;
-      font-weight: 600;
-      letter-spacing: -0.02em;
-      color: var(--text-primary);
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      color: #1d1d1f;
       text-decoration: none;
+      transition: opacity 0.3s ease;
     }
 
-    .nav-logo span { color: var(--accent); }
+    .nav-logo:hover { opacity: 0.7; }
+    .nav-logo span { color: #0071e3; }
 
     .nav-links {
       display: flex;
       align-items: center;
-      gap: 28px;
+      gap: 32px;
       list-style: none;
     }
 
     .nav-links a {
-      font-size: 13px;
-      color: var(--text-secondary);
+      font-size: 14px;
+      font-weight: 400;
+      color: #6e6e73;
       text-decoration: none;
-      transition: color 0.2s;
+      transition: color 0.3s ease;
     }
 
-    .nav-links a:hover { color: var(--text-primary); }
-
-    .theme-toggle {
-      background: none;
-      border: none;
-      cursor: pointer;
-      color: var(--text-secondary);
-      font-size: 18px;
-      padding: 4px;
-      line-height: 1;
-      transition: color 0.2s;
-    }
-
-    .theme-toggle:hover { color: var(--text-primary); }
+    .nav-links a:hover { color: #1d1d1f; }
 
     /* ---------- Hero ---------- */
     .hero {
@@ -137,80 +83,61 @@
       align-items: center;
       justify-content: center;
       text-align: center;
-      padding: 120px 24px 80px;
-      background: linear-gradient(180deg, var(--hero-gradient-start) 0%, var(--hero-gradient-end) 100%);
-      position: relative;
-      overflow: hidden;
+      padding: 140px 24px 100px;
+      background: linear-gradient(180deg, #FFFFFF 0%, #F5F5F7 100%);
     }
 
-    .hero::before {
-      content: "";
-      position: absolute;
-      width: 600px;
-      height: 600px;
-      border-radius: 50%;
-      background: radial-gradient(circle, var(--glow-1), transparent 70%);
-      top: 10%;
-      left: 50%;
-      transform: translateX(-50%);
-      pointer-events: none;
-      animation: pulse 6s ease-in-out infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 0.5; transform: translateX(-50%) scale(1); }
-      50% { opacity: 0.8; transform: translateX(-50%) scale(1.15); }
-    }
-
-    .hero-badge {
+    .hero-eyebrow {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      padding: 6px 16px;
+      gap: 8px;
+      padding: 8px 20px;
       border-radius: 100px;
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
+      background: #FFFFFF;
+      border: 1px solid rgba(0, 0, 0, 0.06);
       font-size: 13px;
-      color: var(--text-secondary);
-      margin-bottom: 32px;
-      box-shadow: var(--shadow);
+      font-weight: 500;
+      color: #6e6e73;
+      margin-bottom: 40px;
+      box-shadow: 0 1px 6px rgba(0, 0, 0, 0.04);
       opacity: 0;
-      animation: fadeUp 0.8s ease forwards 0.2s;
+      animation: fadeUp 0.8s ease forwards 0.1s;
     }
 
-    .hero-badge .dot {
-      width: 6px;
-      height: 6px;
+    .hero-eyebrow .status-dot {
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
-      background: #30d158;
+      background: #34c759;
+      box-shadow: 0 0 6px rgba(52, 199, 89, 0.4);
     }
 
     .hero h1 {
-      font-size: clamp(48px, 8vw, 80px);
+      font-size: clamp(44px, 7vw, 76px);
       font-weight: 700;
-      letter-spacing: -0.04em;
+      letter-spacing: -0.045em;
       line-height: 1.05;
-      margin-bottom: 20px;
+      margin-bottom: 24px;
       opacity: 0;
-      animation: fadeUp 0.8s ease forwards 0.4s;
-      position: relative;
+      animation: fadeUp 0.8s ease forwards 0.25s;
     }
 
-    .hero h1 .gradient-text {
-      background: linear-gradient(135deg, var(--accent), #5e5ce6);
+    .hero h1 .highlight {
+      background: linear-gradient(135deg, #0071e3, #5856d6);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
     }
 
     .hero .subtitle {
-      font-size: clamp(18px, 2.5vw, 24px);
-      color: var(--text-secondary);
-      max-width: 560px;
-      line-height: 1.4;
-      margin-bottom: 40px;
+      font-size: clamp(17px, 2.2vw, 22px);
+      font-weight: 300;
+      color: #6e6e73;
+      max-width: 580px;
+      line-height: 1.5;
+      margin-bottom: 48px;
       opacity: 0;
-      animation: fadeUp 0.8s ease forwards 0.6s;
+      animation: fadeUp 0.8s ease forwards 0.4s;
     }
 
     .hero-actions {
@@ -219,49 +146,55 @@
       flex-wrap: wrap;
       justify-content: center;
       opacity: 0;
-      animation: fadeUp 0.8s ease forwards 0.8s;
+      animation: fadeUp 0.8s ease forwards 0.55s;
     }
 
     .btn {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 14px 28px;
-      border-radius: 100px;
-      font-size: 15px;
+      padding: 16px 32px;
+      border-radius: 980px;
+      font-size: 16px;
       font-weight: 500;
       text-decoration: none;
-      transition: all 0.2s ease;
+      transition: all 0.3s ease;
       cursor: pointer;
       border: none;
     }
 
     .btn-primary {
-      background: var(--accent);
+      background: #0071e3;
       color: #fff;
+      box-shadow: 0 4px 14px rgba(0, 113, 227, 0.25);
     }
 
-    .btn-primary:hover { background: var(--accent-hover); transform: scale(1.02); }
+    .btn-primary:hover {
+      background: #0077ed;
+      box-shadow: 0 6px 20px rgba(0, 113, 227, 0.35);
+      transform: translateY(-1px);
+    }
 
     .btn-secondary {
       background: transparent;
-      color: var(--accent);
-      border: 1px solid var(--divider);
+      color: #0071e3;
+      border: 1.5px solid rgba(0, 113, 227, 0.3);
     }
 
-    .btn-secondary:hover { background: var(--card-bg); border-color: var(--accent); }
+    .btn-secondary:hover {
+      background: rgba(0, 113, 227, 0.04);
+      border-color: #0071e3;
+    }
 
     @keyframes fadeUp {
-      from { opacity: 0; transform: translateY(24px); }
+      from { opacity: 0; transform: translateY(28px); }
       to { opacity: 1; transform: translateY(0); }
     }
 
     /* ---------- Install strip ---------- */
     .install-strip {
-      background: var(--bg-secondary);
-      border-top: 1px solid var(--divider);
-      border-bottom: 1px solid var(--divider);
-      padding: 28px 24px;
+      background: #F5F5F7;
+      padding: 32px 24px;
       text-align: center;
     }
 
@@ -269,228 +202,202 @@
       display: inline-flex;
       align-items: center;
       gap: 14px;
-      background: var(--code-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 12px;
-      padding: 14px 24px;
-      font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, monospace;
+      background: #FFFFFF;
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      border-radius: 14px;
+      padding: 16px 28px;
+      font-family: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, monospace;
       font-size: 15px;
-      color: var(--code-text);
-      box-shadow: var(--shadow);
+      color: #1d1d1f;
+      box-shadow: 0 1px 8px rgba(0, 0, 0, 0.04);
     }
 
-    .install-cmd .prompt { color: var(--accent); user-select: none; }
+    .install-cmd .prompt { color: #0071e3; user-select: none; }
 
     .copy-btn {
       background: none;
       border: none;
       cursor: pointer;
-      color: var(--text-tertiary);
+      color: #86868b;
       font-size: 16px;
-      padding: 2px;
-      transition: color 0.2s;
+      padding: 4px;
+      transition: color 0.3s ease;
     }
 
-    .copy-btn:hover { color: var(--accent); }
+    .copy-btn:hover { color: #0071e3; }
 
-    /* ---------- Sections shared ---------- */
+    /* ---------- Sections ---------- */
     section {
-      max-width: 1024px;
+      max-width: 1080px;
       margin: 0 auto;
       padding: 100px 24px;
     }
 
-    .section-label {
-      font-size: 13px;
+    .section-eyebrow {
+      font-size: 14px;
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: var(--accent);
+      letter-spacing: 0.04em;
+      color: #0071e3;
       margin-bottom: 12px;
     }
 
     .section-title {
-      font-size: clamp(32px, 5vw, 48px);
+      font-size: clamp(32px, 4.5vw, 52px);
       font-weight: 700;
-      letter-spacing: -0.03em;
-      line-height: 1.1;
+      letter-spacing: -0.035em;
+      line-height: 1.08;
       margin-bottom: 16px;
+      color: #1d1d1f;
     }
 
     .section-desc {
       font-size: 18px;
-      color: var(--text-secondary);
-      max-width: 540px;
-      line-height: 1.5;
-      margin-bottom: 56px;
-    }
-
-    /* ---------- How it works (diagram) ---------- */
-    .workflow {
-      background: var(--bg-secondary);
-    }
-
-    .workflow-inner {
-      max-width: 1024px;
-      margin: 0 auto;
-      padding: 100px 24px;
-    }
-
-    .diagram {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0;
-      margin-top: 8px;
-    }
-
-    .diagram-row {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0;
-    }
-
-    .diagram-node {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 16px;
-      padding: 24px 32px;
-      text-align: center;
-      box-shadow: var(--shadow);
-      transition: transform 0.3s, box-shadow 0.3s;
-    }
-
-    .diagram-node:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); }
-
-    .diagram-node .node-icon { font-size: 28px; margin-bottom: 8px; }
-    .diagram-node .node-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
-    .diagram-node .node-desc { font-size: 13px; color: var(--text-secondary); }
-
-    .diagram-arrow {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--text-tertiary);
-      font-size: 22px;
-      padding: 12px 0;
-    }
-
-    .diagram-arrow.horizontal {
-      padding: 0 16px;
-    }
-
-    .agents-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 12px;
-      max-width: 700px;
+      font-weight: 300;
+      color: #6e6e73;
+      max-width: 560px;
+      line-height: 1.55;
+      margin-bottom: 64px;
     }
 
     /* ---------- Features ---------- */
     .features-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 20px;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
     }
 
     .feature-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 20px;
-      padding: 36px 28px;
+      background: #FFFFFF;
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      border-radius: 24px;
+      padding: 40px 32px;
       transition: transform 0.3s ease, box-shadow 0.3s ease;
     }
 
     .feature-card:hover {
-      transform: translateY(-6px);
-      box-shadow: var(--shadow-lg);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
     }
 
     .feature-icon {
-      width: 48px;
-      height: 48px;
-      border-radius: 12px;
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 24px;
-      margin-bottom: 20px;
-      background: var(--bg-secondary);
+      font-size: 26px;
+      margin-bottom: 24px;
+      background: #F5F5F7;
     }
 
     .feature-card h3 {
-      font-size: 19px;
+      font-size: 20px;
       font-weight: 600;
-      margin-bottom: 8px;
-      letter-spacing: -0.01em;
+      margin-bottom: 10px;
+      letter-spacing: -0.02em;
     }
 
     .feature-card p {
-      font-size: 14px;
-      color: var(--text-secondary);
-      line-height: 1.55;
+      font-size: 15px;
+      font-weight: 300;
+      color: #6e6e73;
+      line-height: 1.6;
     }
 
-    /* ---------- Workflow Steps ---------- */
+    /* ---------- How it Works ---------- */
+    .workflow {
+      background: #F5F5F7;
+    }
+
+    .workflow-inner {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 100px 24px;
+    }
+
     .steps {
-      counter-reset: step;
       display: flex;
       flex-direction: column;
-      gap: 32px;
+      gap: 0;
       max-width: 640px;
+      position: relative;
+    }
+
+    .steps::before {
+      content: '';
+      position: absolute;
+      left: 23px;
+      top: 48px;
+      bottom: 48px;
+      width: 1px;
+      background: rgba(0, 0, 0, 0.08);
     }
 
     .step {
       display: flex;
-      gap: 20px;
+      gap: 24px;
       align-items: flex-start;
+      padding: 24px 0;
     }
 
-    .step-num {
+    .step-marker {
       flex-shrink: 0;
-      width: 40px;
-      height: 40px;
+      width: 48px;
+      height: 48px;
       border-radius: 50%;
-      background: var(--accent);
-      color: #fff;
+      background: #FFFFFF;
+      border: 2px solid #0071e3;
+      color: #0071e3;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 15px;
+      font-size: 16px;
       font-weight: 700;
-      margin-top: 2px;
+      position: relative;
+      z-index: 1;
+      transition: all 0.3s ease;
     }
 
-    .step h3 {
-      font-size: 17px;
+    .step:hover .step-marker {
+      background: #0071e3;
+      color: #FFFFFF;
+    }
+
+    .step-content h3 {
+      font-size: 18px;
       font-weight: 600;
       margin-bottom: 4px;
+      letter-spacing: -0.01em;
     }
 
-    .step p {
-      font-size: 14px;
-      color: var(--text-secondary);
-      line-height: 1.5;
+    .step-content p {
+      font-size: 15px;
+      font-weight: 300;
+      color: #6e6e73;
+      line-height: 1.55;
     }
 
     /* ---------- Demo ---------- */
+    .demo-section { background: #FFFFFF; }
+
     .demo-block {
-      background: var(--code-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 16px;
+      background: #F5F5F7;
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      border-radius: 20px;
       overflow: hidden;
-      box-shadow: var(--shadow-lg);
-      max-width: 700px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
+      max-width: 720px;
     }
 
     .demo-titlebar {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 14px 18px;
-      background: var(--card-bg);
-      border-bottom: 1px solid var(--divider);
+      padding: 16px 20px;
+      background: #FFFFFF;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.06);
     }
 
     .demo-dot {
@@ -507,121 +414,165 @@
       flex: 1;
       text-align: center;
       font-size: 13px;
-      color: var(--text-tertiary);
+      font-weight: 400;
+      color: #86868b;
       margin-right: 52px;
     }
 
     .demo-body {
-      padding: 24px;
-      font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, monospace;
+      padding: 28px;
+      font-family: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, monospace;
       font-size: 13px;
-      line-height: 1.7;
-      color: var(--code-text);
+      line-height: 1.8;
+      color: #1d1d1f;
       overflow-x: auto;
     }
 
-    .demo-body .cmd { color: var(--accent); }
-    .demo-body .muted { color: var(--text-tertiary); }
-    .demo-body .green-text { color: #30d158; }
-    .demo-body .purple-text { color: #bf5af2; }
+    .demo-body .cmd { color: #0071e3; }
+    .demo-body .muted { color: #86868b; }
+    .demo-body .green-text { color: #34c759; }
+    .demo-body .purple-text { color: #5856d6; }
 
     /* ---------- Agents ---------- */
+    .agents-section { background: #FFFFFF; }
+
     .agent-cards {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 20px;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
     }
 
     .agent-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 20px;
-      padding: 32px 28px;
+      background: #FFFFFF;
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      border-radius: 24px;
+      padding: 40px 32px;
       text-align: center;
       transition: transform 0.3s ease, box-shadow 0.3s ease;
     }
 
     .agent-card:hover {
-      transform: translateY(-6px);
-      box-shadow: var(--shadow-lg);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
     }
 
-    .agent-card .agent-icon {
-      font-size: 36px;
-      margin-bottom: 16px;
+    .agent-icon-wrap {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 20px;
+      border-radius: 18px;
+      background: #F5F5F7;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 30px;
+      transition: background 0.3s ease;
+    }
+
+    .agent-card:hover .agent-icon-wrap {
+      background: rgba(0, 113, 227, 0.06);
     }
 
     .agent-card h3 {
-      font-size: 19px;
+      font-size: 22px;
       font-weight: 600;
       margin-bottom: 6px;
+      letter-spacing: -0.02em;
     }
 
     .agent-card .agent-cmd {
-      font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, monospace;
+      font-family: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, monospace;
       font-size: 13px;
-      color: var(--accent);
-      margin-bottom: 10px;
+      color: #0071e3;
+      margin-bottom: 14px;
+      display: inline-block;
+      padding: 4px 12px;
+      background: rgba(0, 113, 227, 0.06);
+      border-radius: 6px;
     }
 
     .agent-card p {
-      font-size: 14px;
-      color: var(--text-secondary);
+      font-size: 15px;
+      font-weight: 300;
+      color: #6e6e73;
+      line-height: 1.55;
     }
 
     /* ---------- CTA ---------- */
     .cta {
       text-align: center;
       padding: 120px 24px;
-      position: relative;
-      overflow: hidden;
+      background: #F5F5F7;
     }
 
-    .cta::before {
-      content: "";
-      position: absolute;
-      width: 500px;
-      height: 500px;
-      border-radius: 50%;
-      background: radial-gradient(circle, var(--glow-2), transparent 70%);
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      pointer-events: none;
-      opacity: 0.5;
+    .cta .section-title {
+      margin-left: auto;
+      margin-right: auto;
+      max-width: 600px;
     }
-
-    .cta .section-title { margin-left: auto; margin-right: auto; }
 
     .cta .section-desc {
       margin-left: auto;
       margin-right: auto;
-      margin-bottom: 40px;
+      margin-bottom: 48px;
     }
 
     /* ---------- Footer ---------- */
     footer {
-      border-top: 1px solid var(--divider);
-      padding: 32px 24px;
-      text-align: center;
+      background: #FFFFFF;
+      border-top: 1px solid rgba(0, 0, 0, 0.06);
+      padding: 40px 24px;
     }
 
-    footer p {
+    .footer-inner {
+      max-width: 1080px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .footer-brand {
+      font-size: 15px;
+      font-weight: 600;
+      color: #1d1d1f;
+      letter-spacing: -0.02em;
+    }
+
+    .footer-brand span { color: #0071e3; }
+
+    .footer-links {
+      display: flex;
+      gap: 28px;
+      list-style: none;
+    }
+
+    .footer-links a {
       font-size: 13px;
-      color: var(--text-tertiary);
-    }
-
-    footer a {
-      color: var(--text-secondary);
+      font-weight: 400;
+      color: #86868b;
       text-decoration: none;
+      transition: color 0.3s ease;
     }
 
-    footer a:hover { color: var(--accent); }
+    .footer-links a:hover { color: #0071e3; }
+
+    .footer-copy {
+      width: 100%;
+      text-align: center;
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(0, 0, 0, 0.04);
+      font-size: 12px;
+      color: #86868b;
+    }
 
     /* ---------- Scroll animations ---------- */
     .reveal {
       opacity: 0;
-      transform: translateY(32px);
+      transform: translateY(28px);
       transition: opacity 0.7s ease, transform 0.7s ease;
     }
 
@@ -631,15 +582,23 @@
     }
 
     /* ---------- Responsive ---------- */
-    @media (max-width: 734px) {
+    @media (max-width: 900px) {
+      .features-grid { grid-template-columns: repeat(2, 1fr); }
+      .agent-cards { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 600px) {
       .nav-links .hide-mobile { display: none; }
-      .hero { padding: 100px 20px 60px; }
-      section { padding: 72px 20px; }
-      .workflow-inner { padding: 72px 20px; }
+      .hero { padding: 120px 20px 80px; min-height: auto; }
+      section { padding: 80px 20px; }
+      .workflow-inner { padding: 80px 20px; }
       .features-grid { grid-template-columns: 1fr; }
       .agent-cards { grid-template-columns: 1fr; }
-      .agents-grid { grid-template-columns: 1fr 1fr; }
       .hero-actions { flex-direction: column; align-items: center; }
+      .btn { width: 100%; max-width: 300px; justify-content: center; }
+      .footer-inner { justify-content: center; text-align: center; }
+      .footer-links { justify-content: center; }
+      .cta { padding: 80px 20px; }
     }
   </style>
 </head>
@@ -653,17 +612,16 @@
         <li class="hide-mobile"><a href="#workflow">How it Works</a></li>
         <li class="hide-mobile"><a href="#agents">Agents</a></li>
         <li><a href="https://github.com/niceda/openMax" target="_blank">GitHub</a></li>
-        <li><button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">&#9789;</button></li>
       </ul>
     </div>
   </nav>
 
   <!-- Hero -->
   <section class="hero" id="hero">
-    <div class="hero-badge"><span class="dot"></span> Open Source &middot; MIT License</div>
+    <div class="hero-eyebrow"><span class="status-dot"></span> Open Source &middot; MIT License</div>
     <h1>
       AI Agent Orchestration<br />
-      <span class="gradient-text">Made Simple.</span>
+      <span class="highlight">Made Simple.</span>
     </h1>
     <p class="subtitle">
       One command, multiple AI agents, one window. openMax orchestrates Claude Code, Codex, and OpenCode in parallel &mdash; plan, dispatch, monitor, and report from a single terminal.
@@ -685,7 +643,7 @@
 
   <!-- Features -->
   <section id="features">
-    <p class="section-label reveal">Features</p>
+    <p class="section-eyebrow reveal">Features</p>
     <h2 class="section-title reveal">Built for real-world<br/>multi-agent workflows.</h2>
     <p class="section-desc reveal">
       openMax decomposes complex tasks, dispatches them to the best-fit agent, and keeps everything in sync.
@@ -727,43 +685,43 @@
   <!-- How it Works -->
   <div class="workflow" id="workflow">
     <div class="workflow-inner">
-      <p class="section-label reveal">How it Works</p>
+      <p class="section-eyebrow reveal">How it Works</p>
       <h2 class="section-title reveal">From prompt to production.</h2>
       <p class="section-desc reveal">
         The lead agent has no direct file access. It orchestrates through six focused tools.
       </p>
       <div class="steps reveal">
         <div class="step">
-          <div class="step-num">1</div>
-          <div>
+          <div class="step-marker">1</div>
+          <div class="step-content">
             <h3>Align</h3>
             <p>Clarify your goal, identify scope and requirements from your prompt.</p>
           </div>
         </div>
         <div class="step">
-          <div class="step-num">2</div>
-          <div>
+          <div class="step-marker">2</div>
+          <div class="step-content">
             <h3>Plan</h3>
             <p>Decompose the task into parallelizable sub-tasks, assigning the best agent for each.</p>
           </div>
         </div>
         <div class="step">
-          <div class="step-num">3</div>
-          <div>
+          <div class="step-marker">3</div>
+          <div class="step-content">
             <h3>Dispatch</h3>
             <p>Spawn agents into Kaku panes &mdash; one window, auto grid layout, each agent isolated.</p>
           </div>
         </div>
         <div class="step">
-          <div class="step-num">4</div>
-          <div>
+          <div class="step-marker">4</div>
+          <div class="step-content">
             <h3>Monitor</h3>
             <p>Read agent output in real time. Intervene with follow-up instructions if stuck or off-track.</p>
           </div>
         </div>
         <div class="step">
-          <div class="step-num">5</div>
-          <div>
+          <div class="step-marker">5</div>
+          <div class="step-content">
             <h3>Report</h3>
             <p>Summarize results when all tasks are complete. Clean up panes automatically.</p>
           </div>
@@ -773,8 +731,8 @@
   </div>
 
   <!-- Demo -->
-  <section id="demo">
-    <p class="section-label reveal">In Action</p>
+  <section class="demo-section" id="demo">
+    <p class="section-eyebrow reveal">In Action</p>
     <h2 class="section-title reveal">See it run.</h2>
     <p class="section-desc reveal">A single command kicks off the entire orchestration pipeline.</p>
     <div class="demo-block reveal">
@@ -811,25 +769,25 @@
   </section>
 
   <!-- Agents -->
-  <section id="agents">
-    <p class="section-label reveal">Agents</p>
+  <section class="agents-section" id="agents">
+    <p class="section-eyebrow reveal">Agents</p>
     <h2 class="section-title reveal">Your AI workforce.</h2>
     <p class="section-desc reveal">openMax supports three agent CLIs, each running interactively in its own pane.</p>
     <div class="agent-cards">
       <div class="agent-card reveal">
-        <div class="agent-icon">&#9672;</div>
+        <div class="agent-icon-wrap">&#9672;</div>
         <h3>Claude Code</h3>
         <div class="agent-cmd">claude</div>
         <p>Best for most coding tasks. Powered by Anthropic's Claude, excels at complex reasoning and code generation.</p>
       </div>
       <div class="agent-card reveal">
-        <div class="agent-icon">&#9670;</div>
+        <div class="agent-icon-wrap">&#9670;</div>
         <h3>Codex</h3>
         <div class="agent-cmd">codex</div>
         <p>OpenAI's Codex CLI. Great for API routes, data transformations, and quick scripting tasks.</p>
       </div>
       <div class="agent-card reveal">
-        <div class="agent-icon">&#9674;</div>
+        <div class="agent-icon-wrap">&#9674;</div>
         <h3>OpenCode</h3>
         <div class="agent-cmd">opencode</div>
         <p>Open-source coding agent. Lightweight and fast, ideal for styling, formatting, and utility work.</p>
@@ -851,33 +809,21 @@
 
   <!-- Footer -->
   <footer>
-    <p>
-      openMax &middot; MIT License &middot;
-      <a href="https://github.com/niceda/openMax" target="_blank">GitHub</a> &middot;
-      <a href="https://pypi.org/project/openmax/" target="_blank">PyPI</a>
-    </p>
+    <div class="footer-inner">
+      <div class="footer-brand">open<span>Max</span></div>
+      <ul class="footer-links">
+        <li><a href="https://github.com/niceda/openMax" target="_blank">GitHub</a></li>
+        <li><a href="https://pypi.org/project/openmax/" target="_blank">PyPI</a></li>
+        <li><a href="https://github.com/niceda/openMax/issues" target="_blank">Issues</a></li>
+        <li><a href="https://github.com/niceda/openMax/blob/main/LICENSE" target="_blank">License</a></li>
+      </ul>
+      <div class="footer-copy">
+        &copy; 2025 openMax &middot; MIT License &middot; Built for developers who ship faster.
+      </div>
+    </div>
   </footer>
 
   <script>
-    // Theme toggle
-    const toggle = document.getElementById('themeToggle');
-    const root = document.documentElement;
-
-    function setTheme(dark) {
-      root.setAttribute('data-theme', dark ? 'dark' : 'light');
-      toggle.innerHTML = dark ? '&#9788;' : '&#9789;';
-      localStorage.setItem('theme', dark ? 'dark' : 'light');
-    }
-
-    // Init theme — dark by default
-    const saved = localStorage.getItem('theme');
-    setTheme(saved ? saved === 'dark' : true);
-
-    toggle.addEventListener('click', () => {
-      const isDark = root.getAttribute('data-theme') === 'dark';
-      setTheme(!isDark);
-    });
-
     // Copy button
     document.getElementById('copyBtn').addEventListener('click', () => {
       const text = document.getElementById('installText').textContent;
