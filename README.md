@@ -27,7 +27,7 @@ openmax run "Build a blog with Next.js"
 ┌──────────────────────────────────┐
 │  Lead Agent                      │
 │  Align → Plan → Dispatch →       │
-│  Monitor → Report                │
+│  Monitor → Review → Report       │
 └──────────┬───────────────────────┘
            ▼
    ┌────────────────────────────────┐
@@ -64,7 +64,8 @@ The lead agent (powered by [claude-agent-sdk](https://github.com/anthropics/clau
 2. **Plan** — decompose into parallelizable sub-tasks
 3. **Dispatch** — spawn agents into Kaku panes (one window, auto grid layout)
 4. **Monitor** — read agent output, intervene if stuck or off-track
-5. **Report** — summarize results when all tasks complete
+5. **Review** — cross-check deliverables, run tests, verify integration
+6. **Report** — summarize results, ensure changes are committed
 
 ### Options
 

@@ -33,8 +33,14 @@ Good: "Create docs/index.html — an Apple-style landing page for openMax with d
 - When an agent drifts off track → intervene immediately with clear correction.
 - Never read the same pane twice in a row without `wait` in between.
 
-### 5. Finish
-- Verify: tell an agent to run tests, check builds, or validate output.
+### 5. Review & Verify
+This is not optional. Work that isn't verified is not done.
+- **Cross-check**: read the output of each completed agent. Does it match what was asked? Are there obvious errors, missing files, or half-finished work?
+- **Run tests**: tell an agent to run the test suite, linter, or build. If it fails, send the agent back to fix it.
+- **Integration check**: if multiple agents produced related work, verify they fit together — no conflicting changes, no missing imports, no broken references.
+- **If anything fails**: send the agent a specific correction via `send_text_to_pane` and go back to Monitor. Don't mark a task done until it actually passes review.
+
+### 6. Finish
 - Ensure all changes are committed and pushed.
 - Call `report_completion` with what was actually delivered, not what was planned.
 
