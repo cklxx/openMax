@@ -1,3 +1,4 @@
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -7,13 +8,36 @@ dist/
 build/
 .eggs/
 *.so
+*.pyd
+
+# Virtual environments
 .venv/
 venv/
 env/
+
+# Environment / secrets
 .env
+.env.*
+
+# Editors / IDEs
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
+.project
+.settings/
+
+# OS
 .DS_Store
+Thumbs.db
+
+# openMax runtime state
+.openmax_state.json
+
+# Coverage / testing
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
