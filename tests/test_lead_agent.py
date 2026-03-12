@@ -6,6 +6,7 @@ import anyio
 
 from openmax import lead_agent
 from openmax.lead_agent import PlanResult, SubTask, TaskStatus
+from openmax.memory_system import MemoryStore
 from openmax.session_runtime import SessionStore
 
 
@@ -42,25 +43,28 @@ async def _no_sleep(_seconds: float) -> None:
 def _setup_session(tmp_path):
     store = SessionStore(base_dir=tmp_path)
     meta = store.create_session("lead-test", "Goal", str(tmp_path))
+    memory_store = MemoryStore(base_dir=tmp_path / "memory")
     lead_agent._session_store = store
     lead_agent._session_meta = meta
+    lead_agent._memory_store = memory_store
     lead_agent._plan = PlanResult(goal="Goal")
     lead_agent._cwd = str(tmp_path)
     lead_agent._agent_window_id = None
     lead_agent._pane_mgr = DummyPaneManager()
-    return store, meta
+    return store, meta, memory_store
 
 
 def _teardown_session():
     lead_agent._session_store = None
     lead_agent._session_meta = None
+    lead_agent._memory_store = None
     lead_agent._plan = None
     lead_agent._pane_mgr = None
     lead_agent._agent_window_id = None
 
 
 def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
-    store, _meta = _setup_session(tmp_path)
+    store, _meta, _memory_store = _setup_session(tmp_path)
     monkeypatch.setattr(lead_agent.anyio, "sleep", _no_sleep)
 
     anyio.run(
@@ -85,7 +89,7 @@ def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
 
 
 def test_report_completion_writes_report_and_anchor(tmp_path):
-    store, meta = _setup_session(tmp_path)
+    store, meta, memory_store = _setup_session(tmp_path)
     lead_agent._plan.subtasks.append(
         SubTask(
             name="API",
@@ -105,5 +109,28 @@ def test_report_completion_writes_report_and_anchor(tmp_path):
     assert [event.event_type for event in events][-2:] == ["tool.report_completion", "phase.anchor"]
     refreshed_meta = store.load_meta(meta.session_id)
     assert refreshed_meta.latest_phase == "report"
+    memories = memory_store.load_entries(str(tmp_path))
+    assert memories
+    assert memories[-1].kind == "run_summary"
+
+    _teardown_session()
+
+
+def test_remember_learning_stores_workspace_memory(tmp_path):
+    _store, _meta, memory_store = _setup_session(tmp_path)
+
+    anyio.run(
+        lead_agent.remember_learning.handler,
+        {
+            "lesson": "Prefer codex for API work.",
+            "rationale": "It converged fastest in the last run.",
+            "confidence": 9,
+        },
+    )
+
+    memories = memory_store.load_entries(str(tmp_path))
+    assert memories
+    assert memories[-1].kind == "lesson"
+    assert memories[-1].summary == "Prefer codex for API work."
 
     _teardown_session()

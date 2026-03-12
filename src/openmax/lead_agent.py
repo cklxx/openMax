@@ -27,6 +27,7 @@ from claude_agent_sdk import (
 from rich.console import Console
 from rich.panel import Panel
 
+from openmax.memory_system import MemoryStore, serialize_subtasks
 from openmax.pane_manager import PaneManager
 from openmax.session_runtime import (
     ContextBuilder,
@@ -83,6 +84,7 @@ _cwd: str = ""
 _agent_window_id: int | None = None  # the shared window for all agent panes
 _session_store: SessionStore | None = None
 _session_meta: SessionMeta | None = None
+_memory_store: MemoryStore | None = None
 
 
 def _append_session_event(event_type: str, payload: dict[str, Any] | None = None) -> None:
@@ -144,13 +146,19 @@ def _plan_from_snapshot(snapshot: SessionSnapshot) -> PlanResult:
 
 
 def _build_lead_prompt(
-    task: str, cwd: str, session_id: str | None, resume_context: str | None
+    task: str,
+    cwd: str,
+    session_id: str | None,
+    resume_context: str | None,
+    memory_context: str | None,
 ) -> str:
     parts = [f"Goal: {task}", f"Working directory: {cwd}"]
     if session_id:
         parts.append(f"Session ID: {session_id}")
     if resume_context:
         parts.append("Recovered session context:\n" + resume_context)
+    if memory_context:
+        parts.append(memory_context)
     parts.append(
         "Proceed through the management lifecycle:\n"
         "1. Align goal\n"
@@ -162,6 +170,24 @@ def _build_lead_prompt(
         "with a concise summary and current state."
     )
     return "\n\n".join(parts)
+
+
+def _remember_run_summary(notes: str, completion_pct: int) -> None:
+    if _memory_store is None:
+        return
+    anchors: list[dict[str, Any]] = []
+    if _session_store is not None and _session_meta is not None:
+        for event in _session_store.load_events(_session_meta.session_id):
+            if event.event_type == "phase.anchor":
+                anchors.append(event.payload)
+    _memory_store.record_run_summary(
+        cwd=_cwd,
+        task=_plan.goal,
+        notes=notes,
+        completion_pct=completion_pct,
+        subtasks=serialize_subtasks(_plan.subtasks),
+        anchors=anchors,
+    )
 
 
 @tool(
@@ -357,6 +383,28 @@ async def record_phase_anchor(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
+    "remember_learning",
+    "Store a reusable lesson so future runs in this workspace can improve automatically.",
+    {"lesson": str, "rationale": str, "confidence": int},
+)
+async def remember_learning(args: dict[str, Any]) -> dict[str, Any]:
+    lesson = args["lesson"]
+    rationale = args.get("rationale", "")
+    confidence = args.get("confidence")
+    if _memory_store is None:
+        return {"content": [{"type": "text", "text": "Memory store unavailable"}]}
+    _memory_store.record_lesson(
+        cwd=_cwd,
+        task=_plan.goal,
+        lesson=lesson,
+        rationale=rationale,
+        confidence=confidence,
+    )
+    console.print(f"  [magenta]🧠[/magenta] Learned: {lesson[:80]}")
+    return {"content": [{"type": "text", "text": "Stored reusable lesson"}]}
+
+
+@tool(
     "report_completion",
     "Report overall goal completion percentage and summary. Call when all tasks are done.",
     {"completion_pct": int, "notes": str},
@@ -379,6 +427,7 @@ async def report_completion(args: dict[str, Any]) -> dict[str, Any]:
         },
     )
     _record_phase_anchor("report", notes, pct)
+    _remember_run_summary(notes, pct)
     return {"content": [{"type": "text", "text": f"Reported {pct}% — {notes}"}]}
 
 
@@ -422,7 +471,7 @@ async def _run_lead_agent_async(
     session_id: str | None,
     resume: bool,
 ) -> PlanResult:
-    global _pane_mgr, _plan, _cwd, _agent_window_id, _session_store, _session_meta
+    global _pane_mgr, _plan, _cwd, _agent_window_id, _session_store, _session_meta, _memory_store
 
     _pane_mgr = pane_mgr
     _cwd = cwd
@@ -430,8 +479,10 @@ async def _run_lead_agent_async(
     _agent_window_id = None
     _session_store = None
     _session_meta = None
+    _memory_store = MemoryStore()
 
     resume_context: str | None = None
+    memory_context = _memory_store.build_context(cwd=cwd, task=task)
     if session_id:
         _session_store = SessionStore()
         if resume:
@@ -488,6 +539,7 @@ async def _run_lead_agent_async(
             list_managed_panes,
             mark_task_done,
             record_phase_anchor,
+            remember_learning,
             report_completion,
             wait_tool,
         ],
@@ -500,6 +552,7 @@ async def _run_lead_agent_async(
         "mcp__openmax__list_managed_panes",
         "mcp__openmax__mark_task_done",
         "mcp__openmax__record_phase_anchor",
+        "mcp__openmax__remember_learning",
         "mcp__openmax__report_completion",
         "mcp__openmax__wait",
     ]
@@ -528,7 +581,13 @@ async def _run_lead_agent_async(
     if model:
         options.model = model
 
-    prompt = _build_lead_prompt(task, cwd, session_id, resume_context)
+    prompt = _build_lead_prompt(
+        task,
+        cwd,
+        session_id,
+        resume_context,
+        memory_context.text if memory_context else None,
+    )
 
     console.print(
         Panel(

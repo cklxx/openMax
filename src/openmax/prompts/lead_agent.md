@@ -59,3 +59,5 @@ This is not optional. Work that isn't verified is not done.
 - Don't ask the user for confirmation unless the goal is genuinely ambiguous.
 - Tell every agent to commit when their task is done.
 - Use `record_phase_anchor` at the end of each phase for session recovery.
+- When you discover a reusable heuristic, failure pattern, or better agent choice, call `remember_learning`.
+- If workspace memory includes recommended agent choices or known risks, use them unless current task facts clearly contradict them.

@@ -1,0 +1,448 @@
+"""Workspace memory store for reusable lessons and run summaries."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import uuid
+from collections import defaultdict
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Literal
+
+MemoryKind = Literal["lesson", "run_summary"]
+_STOP_WORDS = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "from",
+    "that",
+    "this",
+    "build",
+    "make",
+    "into",
+    "when",
+    "your",
+    "task",
+}
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def default_memory_dir() -> Path:
+    return Path.home() / ".openmax" / "memory"
+
+
+@dataclass
+class MemoryEntry:
+    memory_id: str
+    created_at: str
+    kind: MemoryKind
+    task: str
+    summary: str
+    insights: list[str] = field(default_factory=list)
+    confidence: int | None = None
+    completion_pct: int | None = None
+    source: str = "system"
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class MemoryContext:
+    text: str
+    matched_entries: int
+
+
+@dataclass
+class StrategyAdvice:
+    agent_lines: list[str] = field(default_factory=list)
+    execution_lines: list[str] = field(default_factory=list)
+    risk_lines: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AgentRecommendation:
+    agent_type: str
+    score: float
+    reasons: list[str] = field(default_factory=list)
+
+
+class MemoryStore:
+    """Store and retrieve workspace-scoped memory entries."""
+
+    def __init__(self, base_dir: Path | None = None) -> None:
+        self.base_dir = (base_dir or default_memory_dir()).expanduser()
+
+    def record_lesson(
+        self,
+        *,
+        cwd: str,
+        task: str,
+        lesson: str,
+        rationale: str = "",
+        confidence: int | None = None,
+        source: str = "agent",
+    ) -> MemoryEntry:
+        insights = [rationale.strip()] if rationale.strip() else []
+        entry = MemoryEntry(
+            memory_id=uuid.uuid4().hex,
+            created_at=utc_now_iso(),
+            kind="lesson",
+            task=task,
+            summary=lesson.strip(),
+            insights=insights,
+            confidence=confidence,
+            source=source,
+            metadata={},
+        )
+        self._append_entry(cwd, entry)
+        return entry
+
+    def record_run_summary(
+        self,
+        *,
+        cwd: str,
+        task: str,
+        notes: str,
+        completion_pct: int,
+        subtasks: list[dict[str, Any]],
+        anchors: list[dict[str, Any]],
+    ) -> MemoryEntry:
+        insights: list[str] = []
+
+        done_tasks = [task_info for task_info in subtasks if task_info.get("status") == "done"]
+        if done_tasks:
+            insights.extend(
+                "Completed "
+                f"'{task_info.get('name', 'unknown')}' "
+                f"with {task_info.get('agent_type', 'unknown')}"
+                for task_info in done_tasks[:4]
+            )
+
+        anchor_summaries = [
+            str(anchor.get("summary", "")).strip()
+            for anchor in anchors[-3:]
+            if str(anchor.get("summary", "")).strip()
+        ]
+        insights.extend(anchor_summaries[:3])
+
+        entry = MemoryEntry(
+            memory_id=uuid.uuid4().hex,
+            created_at=utc_now_iso(),
+            kind="run_summary",
+            task=task,
+            summary=notes.strip(),
+            insights=insights[:6],
+            completion_pct=completion_pct,
+            source="report_completion",
+            metadata={"subtasks": subtasks[:12]},
+        )
+        self._append_entry(cwd, entry)
+        return entry
+
+    def load_entries(self, cwd: str) -> list[MemoryEntry]:
+        path = self._workspace_path(cwd)
+        if not path.exists():
+            return []
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return [MemoryEntry(**item) for item in raw.get("entries", [])]
+
+    def render_workspace_memories(self, cwd: str, limit: int = 10) -> list[str]:
+        entries = list(reversed(self.load_entries(cwd)))[0:limit]
+        lines: list[str] = []
+        advice = self.derive_strategy(cwd=cwd, task="")
+        if advice.agent_lines or advice.execution_lines or advice.risk_lines:
+            lines.append("Strategy:")
+            lines.extend(advice.agent_lines[:2])
+            lines.extend(advice.execution_lines[:2])
+            lines.extend(advice.risk_lines[:2])
+        for entry in entries:
+            suffix = f" ({entry.kind})"
+            if entry.completion_pct is not None:
+                suffix += f" [{entry.completion_pct}%]"
+            lines.append(f"- {entry.summary}{suffix}")
+            for insight in entry.insights[:2]:
+                lines.append(f"  {insight}")
+        return lines
+
+    def build_context(self, *, cwd: str, task: str, limit: int = 4) -> MemoryContext | None:
+        entries = self.load_entries(cwd)
+        if not entries:
+            return None
+
+        ranked = self._rank_entries(entries, task)
+        selected = [entry for entry in ranked if self._score_entry(entry, task) > 0][:limit]
+        if not selected:
+            selected = ranked[: min(limit, len(ranked))]
+
+        lines = ["Learned memory for this workspace:"]
+        advice = self.derive_strategy(cwd=cwd, task=task, entries=entries)
+        if advice.agent_lines:
+            lines.append("Recommended agent choices:")
+            lines.extend(advice.agent_lines[:3])
+        if advice.execution_lines:
+            lines.append("Execution guidance:")
+            lines.extend(advice.execution_lines[:3])
+        if advice.risk_lines:
+            lines.append("Known risks:")
+            lines.extend(advice.risk_lines[:2])
+        for entry in selected:
+            prefix = "lesson" if entry.kind == "lesson" else "run"
+            detail = f"- [{prefix}] {entry.summary}"
+            if entry.confidence is not None:
+                detail += f" (confidence {entry.confidence}/10)"
+            if entry.completion_pct is not None:
+                detail += f" [{entry.completion_pct}%]"
+            lines.append(detail)
+            for insight in entry.insights[:2]:
+                lines.append(f"  {insight}")
+
+        return MemoryContext(text="\n".join(lines), matched_entries=len(selected))
+
+    def derive_strategy(
+        self,
+        *,
+        cwd: str,
+        task: str,
+        entries: list[MemoryEntry] | None = None,
+    ) -> StrategyAdvice:
+        records = list(entries if entries is not None else self.load_entries(cwd))
+        if not records:
+            return StrategyAdvice()
+
+        ranked = self._rank_entries(records, task) if task else list(reversed(records))
+        focus = ranked[:8]
+        execution_lines: list[str] = []
+        risk_lines: list[str] = []
+
+        for entry in focus:
+            if entry.kind == "lesson":
+                execution_lines.append(f"- {entry.summary}")
+            elif entry.summary:
+                execution_lines.append(f"- Reuse pattern: {entry.summary}")
+
+            combined_text = " ".join([entry.summary, *entry.insights]).lower()
+            risk_tokens = ("avoid", "drift", "stuck", "fail", "retry")
+            if any(token in combined_text for token in risk_tokens):
+                risk_lines.append(f"- Watch for: {entry.summary}")
+
+        ranked_agents = self.derive_agent_rankings(cwd=cwd, task=task, entries=records)
+        agent_lines = [
+            f"- Prefer {item.agent_type} for this task pattern."
+            for item in ranked_agents
+            if item.score > 0
+        ]
+
+        return StrategyAdvice(
+            agent_lines=_dedupe(agent_lines)[:3],
+            execution_lines=_dedupe(execution_lines)[:4],
+            risk_lines=_dedupe(risk_lines)[:3],
+        )
+
+    def derive_agent_rankings(
+        self,
+        *,
+        cwd: str,
+        task: str,
+        entries: list[MemoryEntry] | None = None,
+        limit: int = 4,
+    ) -> list[AgentRecommendation]:
+        records = list(entries if entries is not None else self.load_entries(cwd))
+        if not records:
+            return []
+
+        task_terms = _keywords(task)
+        scores: dict[str, float] = defaultdict(float)
+        reasons: dict[str, list[str]] = defaultdict(list)
+
+        for index, entry in enumerate(records):
+            base_weight = max(float(self._score_entry(entry, task)), 1.0)
+            base_weight += self._recency_bonus(index, len(records))
+
+            if entry.kind == "lesson":
+                self._score_lesson_entry(
+                    entry=entry,
+                    task_terms=task_terms,
+                    base_weight=base_weight,
+                    scores=scores,
+                    reasons=reasons,
+                )
+
+            if entry.kind == "run_summary":
+                self._score_run_summary_entry(
+                    entry=entry,
+                    task_terms=task_terms,
+                    base_weight=base_weight,
+                    scores=scores,
+                    reasons=reasons,
+                )
+
+        ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+        return [
+            AgentRecommendation(
+                agent_type=agent,
+                score=round(score, 2),
+                reasons=_dedupe(reasons[agent])[:3],
+            )
+            for agent, score in ranked[:limit]
+            if score > 0
+        ]
+
+    def _append_entry(self, cwd: str, entry: MemoryEntry) -> None:
+        payload = self._load_workspace_payload(cwd)
+        entries = payload.setdefault("entries", [])
+        entries.append(asdict(entry))
+        payload["cwd"] = str(Path(cwd).resolve())
+        payload["updated_at"] = utc_now_iso()
+        if len(entries) > 50:
+            payload["entries"] = entries[-50:]
+
+        path = self._workspace_path(cwd)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _load_workspace_payload(self, cwd: str) -> dict[str, Any]:
+        path = self._workspace_path(cwd)
+        if not path.exists():
+            return {"cwd": str(Path(cwd).resolve()), "entries": []}
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def _workspace_path(self, cwd: str) -> Path:
+        resolved = str(Path(cwd).resolve())
+        digest = hashlib.md5(resolved.encode(), usedforsecurity=False).hexdigest()[:16]
+        return self.base_dir / f"workspace_{digest}.json"
+
+    def _score_entry(self, entry: MemoryEntry, task: str) -> int:
+        task_terms = _keywords(task)
+        entry_terms = _keywords(entry.task + " " + entry.summary + " " + " ".join(entry.insights))
+        overlap = len(task_terms & entry_terms)
+        score = overlap
+        if entry.kind == "lesson":
+            score += 2
+        if entry.completion_pct:
+            score += max(entry.completion_pct // 25, 0)
+        return score
+
+    def _score_lesson_entry(
+        self,
+        *,
+        entry: MemoryEntry,
+        task_terms: set[str],
+        base_weight: float,
+        scores: dict[str, float],
+        reasons: dict[str, list[str]],
+    ) -> None:
+        combined = " ".join([entry.task, entry.summary, *entry.insights]).lower()
+        for agent in ("claude-code", "codex", "opencode", "generic"):
+            mentions_agent = agent in combined
+            if not mentions_agent:
+                continue
+            relevance = 1.0
+            if task_terms and task_terms & _keywords(combined):
+                relevance += 1.5
+            if "prefer" in combined or "best" in combined or "fastest" in combined:
+                scores[agent] += base_weight * relevance + 2
+                reasons[agent].append(entry.summary)
+            elif "avoid" in combined or "drift" in combined or "fail" in combined:
+                scores[agent] -= base_weight * relevance + 2
+            else:
+                scores[agent] += base_weight * 0.5
+
+    def _score_run_summary_entry(
+        self,
+        *,
+        entry: MemoryEntry,
+        task_terms: set[str],
+        base_weight: float,
+        scores: dict[str, float],
+        reasons: dict[str, list[str]],
+    ) -> None:
+        subtasks = entry.metadata.get("subtasks", [])
+        if not isinstance(subtasks, list):
+            subtasks = []
+        for task_info in subtasks:
+            if not isinstance(task_info, dict):
+                continue
+            agent = str(task_info.get("agent_type", "")).strip()
+            if not agent:
+                continue
+            status = str(task_info.get("status", "")).lower()
+            task_text = " ".join(
+                str(task_info.get(field, "")) for field in ("name", "prompt")
+            )
+            overlap = len(task_terms & _keywords(task_text or entry.task))
+            relevance = 1 + overlap
+            if status == "done":
+                scores[agent] += base_weight * relevance + 2
+                reasons[agent].append(
+                    f"{agent} completed '{task_info.get('name', 'unknown')}' successfully"
+                )
+            elif status in {"error", "failed"}:
+                scores[agent] -= base_weight * relevance + 1
+
+    def _rank_entries(self, entries: list[MemoryEntry], task: str) -> list[MemoryEntry]:
+        indexed = list(enumerate(entries))
+        ranked = sorted(
+            indexed,
+            key=lambda item: (
+                self._score_entry(item[1], task),
+                self._recency_bonus(item[0], len(indexed)),
+                item[1].created_at,
+            ),
+            reverse=True,
+        )
+        return [entry for _index, entry in ranked]
+
+    @staticmethod
+    def _recency_bonus(index: int, total: int) -> int:
+        # Newer entries arrive later in the append-only list.
+        distance = total - index
+        if distance <= 3:
+            return 3
+        if distance <= 8:
+            return 2
+        if distance <= 16:
+            return 1
+        return 0
+
+
+def serialize_subtasks(tasks: list[Any]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for task in tasks:
+        status = getattr(task, "status", "")
+        result.append(
+            {
+                "name": getattr(task, "name", ""),
+                "agent_type": getattr(task, "agent_type", ""),
+                "prompt": getattr(task, "prompt", ""),
+                "status": getattr(status, "value", str(status)),
+                "pane_id": getattr(task, "pane_id", None),
+            }
+        )
+    return result
+
+
+def _keywords(text: str) -> set[str]:
+    tokens = {
+        token
+        for token in re.findall(r"[a-z0-9_]{3,}", text.lower())
+        if token not in _STOP_WORDS
+    }
+    return tokens
+
+
+def _dedupe(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        normalized = item.strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(normalized)
+    return result

@@ -12,6 +12,7 @@ from rich.console import Console
 
 from openmax.kaku import ensure_kaku, is_kaku_available
 from openmax.lead_agent import run_lead_agent
+from openmax.memory_system import MemoryStore
 from openmax.pane_manager import PaneManager
 
 console = Console()
@@ -36,6 +37,17 @@ def main() -> None:
     default=False,
     help="Resume a persistent lead-agent session",
 )
+@click.option(
+    "--agents",
+    default=None,
+    help="Comma-separated list of allowed agent types (e.g. claude-code,codex)",
+)
+@click.option(
+    "--prefer",
+    default=None,
+    type=click.Choice(["claude-code", "codex", "opencode"], case_sensitive=False),
+    help="Preferred agent type for tasks",
+)
 def run(
     task: str,
     cwd: str | None,
@@ -44,6 +56,8 @@ def run(
     keep_panes: bool,
     session_id: str | None,
     resume: bool,
+    agents: str | None,
+    prefer: str | None,
 ) -> None:
     """Decompose TASK and dispatch sub-agents in Kaku panes."""
     if cwd is None:
@@ -52,6 +66,22 @@ def run(
 
     if resume and not session_id:
         raise click.UsageError("--resume requires --session-id")
+
+    valid_agent_types = {"claude-code", "codex", "opencode", "generic"}
+    allowed_agents: list[str] | None = None
+    if agents:
+        allowed_agents = [a.strip().lower() for a in agents.split(",")]
+        unknown = set(allowed_agents) - valid_agent_types
+        if unknown:
+            raise click.UsageError(
+                f"Unknown agent type(s): {', '.join(unknown)}. "
+                f"Valid types: {', '.join(sorted(valid_agent_types))}"
+            )
+
+    if prefer and allowed_agents and prefer not in allowed_agents:
+        raise click.UsageError(
+            f"--prefer '{prefer}' is not in --agents list: {', '.join(allowed_agents)}"
+        )
 
     if not ensure_kaku():
         raise SystemExit(1)
@@ -136,3 +166,23 @@ def read_pane(pane_id: int) -> None:
         console.print(text)
     except RuntimeError as e:
         console.print(f"[red]{e}[/red]")
+
+
+@main.command()
+@click.option("--cwd", default=None, help="Workspace to inspect memory for")
+@click.option("--limit", default=10, type=int, help="Maximum number of memory entries to show")
+def memories(cwd: str | None, limit: int) -> None:
+    """Show learned workspace memory that future runs can reuse."""
+    if cwd is None:
+        cwd = os.getcwd()
+    cwd = os.path.realpath(cwd)
+
+    store = MemoryStore()
+    lines = store.render_workspace_memories(cwd, limit=limit)
+    if not lines:
+        console.print(f"[yellow]No memory stored yet for {cwd}.[/yellow]")
+        return
+
+    console.print(f"[bold]Memory for {cwd}[/bold]")
+    for line in lines:
+        console.print(line)

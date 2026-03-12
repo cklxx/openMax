@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from click.testing import CliRunner
 
 from openmax import cli
+from openmax.memory_system import MemoryStore
 
 
 class DummyPaneManager:
@@ -73,3 +74,21 @@ def test_run_forwards_session_options(monkeypatch, tmp_path):
     assert captured["session_id"] == "sess-123"
     assert captured["resume"] is True
     assert captured["cwd"] == str(tmp_path.resolve())
+
+
+def test_memories_command_prints_workspace_memory(monkeypatch, tmp_path):
+    store = MemoryStore(base_dir=tmp_path / "memory")
+    cwd = str(tmp_path / "workspace")
+    store.record_lesson(
+        cwd=cwd,
+        task="Build API",
+        lesson="Prefer codex for API endpoints.",
+        confidence=8,
+    )
+    monkeypatch.setattr(cli, "MemoryStore", lambda: store)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["memories", "--cwd", cwd])
+
+    assert result.exit_code == 0
+    assert "Prefer codex for API endpoints." in result.output
