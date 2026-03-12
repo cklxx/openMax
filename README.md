@@ -199,11 +199,13 @@ openmax run "Add Python bindings for the Rust core library"
 | [Codex](https://github.com/openai/codex) | `codex` | OpenAI Codex CLI |
 | [OpenCode](https://github.com/opencode-ai/opencode) | `opencode` | OpenCode CLI |
 
-All agents run interactively in their own pane. You can click into any pane and type to intervene at any time. The lead agent also monitors and sends corrections automatically.
+All agents run interactively in their own pane by default. You can click into any pane and type to intervene at any time. The lead agent also monitors and sends corrections automatically.
+
+You can also define your own agents in config, including arbitrary local CLIs or remote entrypoints over SSH.
 
 ### Agent Selection
 
-By default, the lead agent automatically picks the best agent for each sub-task (`claude-code` is the default). Use `--agents` to restrict and prioritize:
+By default, the lead agent automatically picks the best agent for each sub-task (`claude-code` is the default). Use `--agents` to restrict and prioritize built-in or configured agent names:
 
 ```bash
 # Prefer Codex, fall back to Claude Code if needed
@@ -216,6 +218,45 @@ openmax run "Refactor auth module" --agents claude-code
 The order matters — the **first agent in the list is the preferred default**. If the lead agent tries to use an agent not in the list, it automatically falls back to the first one.
 
 The lead agent also learns from past runs. After completing a task, it stores what worked well via `remember_learning`. Future runs in the same workspace will receive these recommendations automatically. View them with `openmax memories`.
+
+### Custom Agent Config
+
+openMax merges agents from these locations, in this order:
+
+1. Built-in agents
+2. `~/.config/openmax/agents.toml`
+3. `<workspace>/.openmax/agents.toml`
+4. `OPENMAX_AGENTS_FILE=/path/to/agents.toml`
+
+List the effective agent registry for a workspace with:
+
+```bash
+openmax list-agents --cwd /path/to/repo
+```
+
+Example config:
+
+```toml
+[agents.remote-codex]
+command = ["ssh", "devbox", "bash", "-lc", "cd {cwd_sh} && codex"]
+interactive = true
+startup_delay = 8
+
+[agents.remote-review]
+command = ["ssh", "devbox", "bash", "-lc", "codex exec {prompt_sh}"]
+interactive = false
+```
+
+Supported placeholders:
+
+- `{cwd}` / `{prompt}`: raw substitution
+- `{cwd_sh}` / `{prompt_sh}`: shell-escaped substitution for commands such as `ssh ... "cd ... && tool"`
+
+Notes:
+
+- Interactive agents start the command first, then openMax sends the task prompt into the pane.
+- Non-interactive agents must include `{prompt}` or `{prompt_sh}` in `command`.
+- Use `startup_delay` for slow-starting commands such as SSH sessions or remote shells.
 
 ## How It Works
 

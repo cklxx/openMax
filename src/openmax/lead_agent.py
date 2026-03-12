@@ -27,6 +27,7 @@ from claude_agent_sdk import (
 from rich.console import Console
 from rich.panel import Panel
 
+from openmax.agent_registry import AgentRegistry, built_in_agent_registry
 from openmax.memory_system import MemoryStore, serialize_subtasks
 from openmax.pane_manager import PaneManager
 from openmax.session_runtime import (
@@ -86,6 +87,7 @@ _session_store: SessionStore | None = None
 _session_meta: SessionMeta | None = None
 _memory_store: MemoryStore | None = None
 _allowed_agents: list[str] | None = None  # None = all allowed; order = preference
+_agent_registry: AgentRegistry = built_in_agent_registry()
 
 
 def _append_session_event(event_type: str, payload: dict[str, Any] | None = None) -> None:
@@ -230,20 +232,6 @@ async def get_agent_recommendations(args: dict[str, Any]) -> dict[str, Any]:
     },
 )
 async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
-    from openmax.adapters import (
-        ClaudeCodeAdapter,
-        CodexAdapter,
-        OpenCodeAdapter,
-        SubprocessAdapter,
-    )
-
-    adapters = {
-        "claude-code": ClaudeCodeAdapter(),
-        "codex": CodexAdapter(),
-        "opencode": OpenCodeAdapter(),
-        "generic": SubprocessAdapter("generic", ["claude"]),
-    }
-
     task_name = args["task_name"]
     agent_type = args.get("agent_type", "claude-code")
     prompt = args["prompt"]
@@ -259,7 +247,17 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
             )
             agent_type = fallback
 
-    adapter = adapters.get(agent_type, adapters["generic"])
+    adapter = _agent_registry.get(agent_type)
+    if adapter is None:
+        fallback = _agent_registry.default_agent_name()
+        if fallback is None:
+            raise RuntimeError("No agents are configured")
+        console.print(
+            f"  [yellow]⚠[/yellow] Agent '{agent_type}' is not configured, using '{fallback}' instead"
+        )
+        agent_type = fallback
+        adapter = _agent_registry.get(agent_type)
+
     cmd_spec = adapter.get_command(prompt, cwd=_cwd)
 
     if _agent_window_id is None:
@@ -284,7 +282,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
 
     # For interactive agents, send the initial prompt after CLI starts
     if cmd_spec.interactive and cmd_spec.initial_input:
-        await anyio.sleep(3)
+        await anyio.sleep(cmd_spec.ready_delay_seconds)
         _pane_mgr.send_text(pane.pane_id, cmd_spec.initial_input)
 
     subtask = SubTask(
@@ -494,6 +492,7 @@ def run_lead_agent(
     session_id: str | None = None,
     resume: bool = False,
     allowed_agents: list[str] | None = None,
+    agent_registry: AgentRegistry | None = None,
 ) -> PlanResult:
     """Run the lead agent synchronously (wraps async)."""
     return anyio.run(
@@ -506,6 +505,7 @@ def run_lead_agent(
         session_id,
         resume,
         allowed_agents,
+        agent_registry,
     )
 
 
@@ -518,9 +518,10 @@ async def _run_lead_agent_async(
     session_id: str | None,
     resume: bool,
     allowed_agents: list[str] | None = None,
+    agent_registry: AgentRegistry | None = None,
 ) -> PlanResult:
     global _pane_mgr, _plan, _cwd, _agent_window_id, _session_store, _session_meta
-    global _memory_store, _allowed_agents
+    global _memory_store, _allowed_agents, _agent_registry
 
     _pane_mgr = pane_mgr
     _cwd = cwd
@@ -530,6 +531,7 @@ async def _run_lead_agent_async(
     _session_meta = None
     _memory_store = MemoryStore()
     _allowed_agents = allowed_agents
+    _agent_registry = agent_registry or built_in_agent_registry()
 
     resume_context: str | None = None
     memory_context = _memory_store.build_context(cwd=cwd, task=task)

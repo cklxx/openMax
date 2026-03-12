@@ -10,6 +10,7 @@ import sys
 import click
 from rich.console import Console
 
+from openmax.agent_registry import AgentConfigError, load_agent_registry
 from openmax.kaku import ensure_kaku, is_kaku_available
 from openmax.lead_agent import run_lead_agent
 from openmax.memory_system import MemoryStore
@@ -40,7 +41,7 @@ def main() -> None:
 @click.option(
     "--agents",
     default=None,
-    help="Comma-separated list of allowed agent types (e.g. claude-code,codex)",
+    help="Comma-separated list of allowed agent names (built-in or configured)",
 )
 def run(
     task: str,
@@ -60,15 +61,20 @@ def run(
     if resume and not session_id:
         raise click.UsageError("--resume requires --session-id")
 
-    valid_agent_types = {"claude-code", "codex", "opencode", "generic"}
+    try:
+        agent_registry = load_agent_registry(cwd)
+    except AgentConfigError as exc:
+        raise click.UsageError(str(exc)) from exc
+
+    available_agents = set(agent_registry.names())
     allowed_agents: list[str] | None = None
     if agents:
         allowed_agents = [a.strip().lower() for a in agents.split(",")]
-        unknown = set(allowed_agents) - valid_agent_types
+        unknown = set(allowed_agents) - available_agents
         if unknown:
             raise click.UsageError(
                 f"Unknown agent type(s): {', '.join(unknown)}. "
-                f"Valid types: {', '.join(sorted(valid_agent_types))}"
+                f"Valid types: {', '.join(sorted(available_agents))}"
             )
 
     if not ensure_kaku():
@@ -110,6 +116,7 @@ def run(
             session_id=session_id,
             resume=resume,
             allowed_agents=allowed_agents,
+            agent_registry=agent_registry,
         )
 
         # Session complete — show final summary before cleanup
@@ -198,3 +205,22 @@ def recommend_agents(task: str, cwd: str | None, limit: int) -> None:
         console.print(f"- {item.agent_type}: {item.score}")
         for reason in item.reasons:
             console.print(f"  {reason}")
+
+
+@main.command("list-agents")
+@click.option("--cwd", default=None, help="Working directory used for workspace agent config")
+def list_agents(cwd: str | None) -> None:
+    """List built-in and configured agents."""
+    if cwd is None:
+        cwd = os.getcwd()
+    cwd = os.path.realpath(cwd)
+
+    try:
+        registry = load_agent_registry(cwd)
+    except AgentConfigError as exc:
+        raise click.UsageError(str(exc)) from exc
+
+    console.print(f"[bold]Available agents for {cwd}[/bold]")
+    for definition in registry.definitions():
+        source = "built-in" if definition.built_in else definition.source
+        console.print(f"- {definition.name} [dim]({source})[/dim]")

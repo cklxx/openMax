@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from click.testing import CliRunner
 
+from openmax.agent_registry import AgentDefinition, built_in_agent_registry
 from openmax import cli
 from openmax.memory_system import MemoryStore
 
@@ -48,6 +49,7 @@ def test_resume_requires_session_id():
 def test_run_forwards_session_options(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "ensure_kaku", lambda: True)
     monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
 
     captured: dict[str, object] = {}
 
@@ -77,7 +79,8 @@ def test_run_forwards_session_options(monkeypatch, tmp_path):
     assert captured["cwd"] == str(tmp_path.resolve())
 
 
-def test_agents_option_rejects_unknown_type():
+def test_agents_option_rejects_unknown_type(monkeypatch):
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
     runner = CliRunner()
 
     result = runner.invoke(cli.main, ["run", "Build feature", "--agents", "claude-code,unknown"])
@@ -89,6 +92,7 @@ def test_agents_option_rejects_unknown_type():
 def test_agents_option_forwarded(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "ensure_kaku", lambda: True)
     monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
 
     captured: dict[str, object] = {}
 
@@ -106,6 +110,38 @@ def test_agents_option_forwarded(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert captured["allowed_agents"] == ["codex", "claude-code"]
+
+
+def test_agents_option_accepts_configured_agent(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "ensure_kaku", lambda: True)
+    monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
+
+    registry = built_in_agent_registry().with_definition(
+        AgentDefinition(
+            name="remote-codex",
+            adapter=built_in_agent_registry().get("codex"),
+            source="test",
+            built_in=False,
+        )
+    )
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: registry)
+
+    captured: dict[str, object] = {}
+
+    def fake_run_lead_agent(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(subtasks=[])
+
+    monkeypatch.setattr(cli, "run_lead_agent", fake_run_lead_agent)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        ["run", "Build feature", "--cwd", str(tmp_path), "--agents", "remote-codex,codex"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["allowed_agents"] == ["remote-codex", "codex"]
 
 
 def test_memories_command_prints_workspace_memory(monkeypatch, tmp_path):
@@ -151,3 +187,21 @@ def test_recommend_agents_command_prints_rankings(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert "codex" in result.output
+
+
+def test_list_agents_includes_configured_agents(monkeypatch, tmp_path):
+    registry = built_in_agent_registry().with_definition(
+        AgentDefinition(
+            name="remote-codex",
+            adapter=built_in_agent_registry().get("codex"),
+            source="/tmp/agents.toml",
+            built_in=False,
+        )
+    )
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: registry)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["list-agents", "--cwd", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "remote-codex" in result.output

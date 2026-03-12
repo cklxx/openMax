@@ -4,6 +4,8 @@ from types import SimpleNamespace
 
 import anyio
 
+from openmax.agent_registry import AgentDefinition, built_in_agent_registry
+from openmax.adapters.subprocess_adapter import SubprocessAdapter
 from openmax import lead_agent
 from openmax.lead_agent import PlanResult, SubTask, TaskStatus
 from openmax.memory_system import MemoryStore
@@ -14,12 +16,15 @@ class DummyPaneManager:
     def __init__(self) -> None:
         self.windows: dict[int, SimpleNamespace] = {}
         self.sent: list[tuple[int, str]] = []
+        self.created_commands: list[list[str]] = []
 
     def create_window(self, command, purpose, agent_type, title, cwd):
+        self.created_commands.append(command)
         self.windows[7] = SimpleNamespace(pane_ids=[101])
         return SimpleNamespace(pane_id=101, window_id=7)
 
     def add_pane(self, window_id, command, purpose, agent_type, cwd):
+        self.created_commands.append(command)
         self.windows[window_id].pane_ids.append(102)
         return SimpleNamespace(pane_id=102, window_id=window_id)
 
@@ -51,6 +56,7 @@ def _setup_session(tmp_path):
     lead_agent._cwd = str(tmp_path)
     lead_agent._agent_window_id = None
     lead_agent._pane_mgr = DummyPaneManager()
+    lead_agent._agent_registry = built_in_agent_registry()
     return store, meta, memory_store
 
 
@@ -61,6 +67,7 @@ def _teardown_session():
     lead_agent._plan = None
     lead_agent._pane_mgr = None
     lead_agent._agent_window_id = None
+    lead_agent._agent_registry = built_in_agent_registry()
 
 
 def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
@@ -182,5 +189,55 @@ def test_get_agent_recommendations_returns_ranked_json(tmp_path):
     )
 
     assert "codex" in result["content"][0]["text"]
+
+    _teardown_session()
+
+
+def test_dispatch_agent_uses_configured_custom_agent(monkeypatch, tmp_path):
+    _store, _meta, _memory_store = _setup_session(tmp_path)
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+
+    monkeypatch.setattr(lead_agent.anyio, "sleep", fake_sleep)
+    lead_agent._agent_registry = built_in_agent_registry().with_definition(
+        AgentDefinition(
+            name="remote-codex",
+            adapter=SubprocessAdapter(
+                "remote-codex",
+                ["ssh", "devbox", "bash", "-lc", "cd {cwd_sh} && codex"],
+                startup_delay=9,
+            ),
+            source="test",
+            built_in=False,
+        )
+    )
+
+    anyio.run(
+        lead_agent.dispatch_agent.handler,
+        {"task_name": "Remote API", "agent_type": "remote-codex", "prompt": "Implement API"},
+    )
+
+    assert lead_agent._pane_mgr.created_commands == [
+        ["ssh", "devbox", "bash", "-lc", f"cd {tmp_path!s} && codex"]
+    ]
+    assert sleep_calls == [9]
+    assert lead_agent._pane_mgr.sent == [(101, "Implement API")]
+
+    _teardown_session()
+
+
+def test_dispatch_agent_falls_back_when_agent_not_configured(monkeypatch, tmp_path):
+    _store, _meta, _memory_store = _setup_session(tmp_path)
+    monkeypatch.setattr(lead_agent.anyio, "sleep", _no_sleep)
+    lead_agent._agent_registry = built_in_agent_registry()
+
+    anyio.run(
+        lead_agent.dispatch_agent.handler,
+        {"task_name": "API", "agent_type": "missing-agent", "prompt": "Implement API"},
+    )
+
+    assert lead_agent._plan.subtasks[0].agent_type == "claude-code"
 
     _teardown_session()

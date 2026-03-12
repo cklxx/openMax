@@ -18,6 +18,7 @@ class AgentCommand:
     launch_cmd: list[str]
     initial_input: str | None = None
     interactive: bool = True
+    ready_delay_seconds: float = 3.0
 
 
 class AgentAdapter(ABC):
