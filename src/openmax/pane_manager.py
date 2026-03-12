@@ -342,9 +342,19 @@ class PaneManager:
         }
 
     def cleanup_all(self) -> None:
-        """Kill all managed panes."""
+        """Kill all managed panes and close managed windows."""
         for pane_id in list(self._managed):
             self.kill_pane(pane_id)
+        self._windows.clear()
+
+    # ── Context manager ────────────────────────────────────────────
+
+    def __enter__(self) -> "PaneManager":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.cleanup_all()
+        return None
 
     # ── Internal helpers ───────────────────────────────────────────
 

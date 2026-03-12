@@ -258,23 +258,25 @@ async def report_completion(args: dict[str, Any]) -> dict[str, Any]:
 
 def run_lead_agent(
     task: str,
+    pane_mgr: PaneManager,
     cwd: str,
     model: str | None = None,
     max_turns: int = 50,
 ) -> PlanResult:
     """Run the lead agent synchronously (wraps async)."""
-    return anyio.run(_run_lead_agent_async, task, cwd, model, max_turns)
+    return anyio.run(_run_lead_agent_async, task, pane_mgr, cwd, model, max_turns)
 
 
 async def _run_lead_agent_async(
     task: str,
+    pane_mgr: PaneManager,
     cwd: str,
     model: str | None,
     max_turns: int,
 ) -> PlanResult:
     global _pane_mgr, _plan, _cwd
 
-    _pane_mgr = PaneManager()
+    _pane_mgr = pane_mgr
     _plan = PlanResult(goal=task)
     _cwd = cwd
 

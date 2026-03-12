@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import signal
+import sys
 
 import click
 from rich.console import Console
@@ -33,9 +35,37 @@ def run(task: str, cwd: str | None, model: str | None, max_turns: int) -> None:
         console.print("[red]Error: kaku CLI not available. Run inside Kaku terminal.[/red]")
         raise SystemExit(1)
 
-    plan = run_lead_agent(task=task, cwd=cwd, model=model, max_turns=max_turns)
+    with PaneManager() as pane_mgr:
+        # Register signal handlers so Ctrl-C / kill also cleans up
+        def _cleanup_and_exit(signum, frame):
+            console.print("\n[yellow]Interrupted — cleaning up panes...[/yellow]")
+            pane_mgr.cleanup_all()
+            console.print("[green]All managed panes closed.[/green]")
+            sys.exit(130 if signum == signal.SIGINT else 143)
 
-    console.print(f"\n[bold green]Done.[/bold green] {len(plan.subtasks)} sub-tasks dispatched.")
+        signal.signal(signal.SIGINT, _cleanup_and_exit)
+        signal.signal(signal.SIGTERM, _cleanup_and_exit)
+
+        plan = run_lead_agent(
+            task=task,
+            pane_mgr=pane_mgr,
+            cwd=cwd,
+            model=model,
+            max_turns=max_turns,
+        )
+
+        # Session complete — show final summary before cleanup
+        summary = pane_mgr.summary()
+        console.print(
+            f"\n[bold green]Done.[/bold green] "
+            f"{len(plan.subtasks)} sub-tasks | "
+            f"{summary['windows']} windows | "
+            f"{summary['done']} done"
+        )
+        console.print("[dim]Closing managed panes...[/dim]")
+
+    # __exit__ runs cleanup_all here
+    console.print("[green]All managed panes closed.[/green]")
 
 
 @main.command()
