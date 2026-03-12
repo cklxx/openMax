@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import platform
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -183,8 +184,9 @@ class PaneManager:
         )
         if window_id is not None:
             self._windows[window_id] = win
-            # Set window title
             self._set_window_title(pane_id, title)
+            time.sleep(0.3)
+            self._resize_newest_window()
 
         # Track pane
         pane = ManagedPane(
@@ -362,6 +364,20 @@ class PaneManager:
         """Kill all managed panes. Windows close automatically when empty."""
         for pane_id in list(self._panes):
             self.kill_pane(pane_id)
+
+        # Verify: some panes may survive the first kill (e.g. interactive CLIs
+        # that trap signals).  Re-check and retry once.
+        time.sleep(0.5)
+        try:
+            alive_ids = {p.pane_id for p in self.list_all_panes()}
+        except RuntimeError:
+            alive_ids = set()
+
+        stragglers = alive_ids & set(self._panes)
+        for pane_id in stragglers:
+            self.kill_pane(pane_id)
+
+        self._panes.clear()
         self._windows.clear()
 
     def __enter__(self) -> PaneManager:
@@ -386,4 +402,29 @@ class PaneManager:
         subprocess.run(
             ["kaku", "cli", "set-window-title", "--pane-id", str(pane_id), title],
             capture_output=True, text=True,
+        )
+
+    @staticmethod
+    def _resize_newest_window() -> None:
+        """Resize the frontmost kaku window to 80% of screen (macOS only)."""
+        if platform.system() != "Darwin":
+            return
+        script = (
+            'tell application "Finder"\n'
+            '  set {_x, _y, sw, sh} to bounds of window of desktop\n'
+            'end tell\n'
+            'set w to round (sw * 0.68)\n'
+            'set h to round (sh * 0.68)\n'
+            'set xOff to round ((sw - w) / 2)\n'
+            'set yOff to round ((sh - h) / 2)\n'
+            'tell application "System Events"\n'
+            '  tell process "kaku-gui"\n'
+            '    set position of window 1 to {xOff, yOff}\n'
+            '    set size of window 1 to {w, h}\n'
+            '  end tell\n'
+            'end tell'
+        )
+        subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True, text=True, timeout=5,
         )

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openmax"
-version = "0.1.1"
+version = "0.1.3"
 description = "Multi AI Agent orchestration hub — dispatch interactive AI agents across terminal panes"
 readme = "README.md"
 license = "MIT"

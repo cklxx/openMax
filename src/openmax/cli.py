@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import os
 import signal
 import sys
@@ -9,7 +10,7 @@ import sys
 import click
 from rich.console import Console
 
-from openmax.kaku import is_kaku_available
+from openmax.kaku import is_kaku_available, ensure_kaku
 from openmax.lead_agent import run_lead_agent
 from openmax.pane_manager import PaneManager
 
@@ -26,26 +27,42 @@ def main() -> None:
 @click.option("--cwd", default=None, help="Working directory for agents")
 @click.option("--model", default=None, help="Model for the lead agent")
 @click.option("--max-turns", default=50, type=int, help="Max agent loop turns")
-def run(task: str, cwd: str | None, model: str | None, max_turns: int) -> None:
+@click.option("--keep-panes", is_flag=True, default=False, help="Don't close panes on exit")
+def run(task: str, cwd: str | None, model: str | None, max_turns: int, keep_panes: bool) -> None:
     """Decompose TASK and dispatch sub-agents in Kaku panes."""
     if cwd is None:
         cwd = os.getcwd()
 
-    if not is_kaku_available():
-        console.print("[red]Error: kaku CLI not available. Run inside Kaku terminal.[/red]")
+    if not ensure_kaku():
         raise SystemExit(1)
 
-    with PaneManager() as pane_mgr:
-        # Register signal handlers so Ctrl-C / kill also cleans up
-        def _cleanup_and_exit(signum, frame):
-            console.print("\n[yellow]Interrupted — cleaning up panes...[/yellow]")
+    pane_mgr = PaneManager()
+
+    # Safety net: atexit ensures cleanup even on unhandled exceptions
+    _cleaned_up = False
+
+    def _do_cleanup():
+        nonlocal _cleaned_up
+        if _cleaned_up or keep_panes:
+            return
+        _cleaned_up = True
+        try:
             pane_mgr.cleanup_all()
-            console.print("[green]All managed panes closed.[/green]")
-            sys.exit(130 if signum == signal.SIGINT else 143)
+        except Exception:
+            pass  # best-effort at exit
 
-        signal.signal(signal.SIGINT, _cleanup_and_exit)
-        signal.signal(signal.SIGTERM, _cleanup_and_exit)
+    atexit.register(_do_cleanup)
 
+    def _cleanup_and_exit(signum, frame):
+        console.print("\n[yellow]Interrupted — cleaning up panes...[/yellow]")
+        _do_cleanup()
+        console.print("[green]All managed panes closed.[/green]")
+        sys.exit(130 if signum == signal.SIGINT else 143)
+
+    signal.signal(signal.SIGINT, _cleanup_and_exit)
+    signal.signal(signal.SIGTERM, _cleanup_and_exit)
+
+    try:
         plan = run_lead_agent(
             task=task,
             pane_mgr=pane_mgr,
@@ -62,10 +79,13 @@ def run(task: str, cwd: str | None, model: str | None, max_turns: int) -> None:
             f"{summary['total_windows']} windows | "
             f"{summary['done']} done"
         )
-        console.print("[dim]Closing managed panes...[/dim]")
-
-    # __exit__ runs cleanup_all here
-    console.print("[green]All managed panes closed.[/green]")
+    finally:
+        if not keep_panes:
+            console.print("[dim]Closing managed panes...[/dim]")
+            _do_cleanup()
+            console.print("[green]All managed panes closed.[/green]")
+        else:
+            console.print("[dim]Keeping panes open (--keep-panes).[/dim]")
 
 
 @main.command()
