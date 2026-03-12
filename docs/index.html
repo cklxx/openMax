@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>openMax — Multi AI Agent Orchestration</title>
+  <meta name="description" content="One command, multiple AI agents, one window. openMax orchestrates Claude Code, Codex, and OpenCode in parallel." />
+  <style>
+    :root {
+      --bg: #ffffff;
+      --bg-secondary: #f5f5f7;
+      --text-primary: #1d1d1f;
+      --text-secondary: #6e6e73;
+      --text-tertiary: #86868b;
+      --accent: #0071e3;
+      --accent-hover: #0077ed;
+      --card-bg: #ffffff;
+      --card-border: rgba(0, 0, 0, 0.04);
+      --code-bg: #f5f5f7;
+      --code-text: #1d1d1f;
+      --divider: rgba(0, 0, 0, 0.08);
+      --hero-gradient-start: #fbfbfd;
+      --hero-gradient-end: #f5f5f7;
+      --glow-1: rgba(0, 113, 227, 0.15);
+      --glow-2: rgba(94, 92, 230, 0.12);
+      --nav-bg: rgba(255, 255, 255, 0.72);
+      --shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.08);
+    }
+
+    [data-theme="dark"] {
+      --bg: #000000;
+      --bg-secondary: #1d1d1f;
+      --text-primary: #f5f5f7;
+      --text-secondary: #a1a1a6;
+      --text-tertiary: #6e6e73;
+      --accent: #2997ff;
+      --accent-hover: #4fb4ff;
+      --card-bg: #1d1d1f;
+      --card-border: rgba(255, 255, 255, 0.06);
+      --code-bg: #1d1d1f;
+      --code-text: #f5f5f7;
+      --divider: rgba(255, 255, 255, 0.08);
+      --hero-gradient-start: #000000;
+      --hero-gradient-end: #1d1d1f;
+      --glow-1: rgba(41, 151, 255, 0.2);
+      --glow-2: rgba(94, 92, 230, 0.18);
+      --nav-bg: rgba(0, 0, 0, 0.72);
+      --shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+      --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.4);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text-primary);
+      line-height: 1.5;
+      transition: background 0.4s ease, color 0.4s ease;
+      overflow-x: hidden;
+    }
+
+    /* ---------- Nav ---------- */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      background: var(--nav-bg);
+      border-bottom: 1px solid var(--divider);
+      transition: background 0.4s ease;
+    }
+
+    .nav-inner {
+      max-width: 1024px;
+      margin: 0 auto;
+      padding: 0 22px;
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .nav-logo {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+      text-decoration: none;
+    }
+
+    .nav-logo span { color: var(--accent); }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      font-size: 13px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover { color: var(--text-primary); }
+
+    .theme-toggle {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--text-secondary);
+      font-size: 18px;
+      padding: 4px;
+      line-height: 1;
+      transition: color 0.2s;
+    }
+
+    .theme-toggle:hover { color: var(--text-primary); }
+
+    /* ---------- Hero ---------- */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 120px 24px 80px;
+      background: linear-gradient(180deg, var(--hero-gradient-start) 0%, var(--hero-gradient-end) 100%);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: "";
+      position: absolute;
+      width: 600px;
+      height: 600px;
+      border-radius: 50%;
+      background: radial-gradient(circle, var(--glow-1), transparent 70%);
+      top: 10%;
+      left: 50%;
+      transform: translateX(-50%);
+      pointer-events: none;
+      animation: pulse 6s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.5; transform: translateX(-50%) scale(1); }
+      50% { opacity: 0.8; transform: translateX(-50%) scale(1.15); }
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 16px;
+      border-radius: 100px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 32px;
+      box-shadow: var(--shadow);
+      opacity: 0;
+      animation: fadeUp 0.8s ease forwards 0.2s;
+    }
+
+    .hero-badge .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #30d158;
+    }
+
+    .hero h1 {
+      font-size: clamp(48px, 8vw, 80px);
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      line-height: 1.05;
+      margin-bottom: 20px;
+      opacity: 0;
+      animation: fadeUp 0.8s ease forwards 0.4s;
+      position: relative;
+    }
+
+    .hero h1 .gradient-text {
+      background: linear-gradient(135deg, var(--accent), #5e5ce6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero .subtitle {
+      font-size: clamp(18px, 2.5vw, 24px);
+      color: var(--text-secondary);
+      max-width: 560px;
+      line-height: 1.4;
+      margin-bottom: 40px;
+      opacity: 0;
+      animation: fadeUp 0.8s ease forwards 0.6s;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      justify-content: center;
+      opacity: 0;
+      animation: fadeUp 0.8s ease forwards 0.8s;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 28px;
+      border-radius: 100px;
+      font-size: 15px;
+      font-weight: 500;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      border: none;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-primary:hover { background: var(--accent-hover); transform: scale(1.02); }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--divider);
+    }
+
+    .btn-secondary:hover { background: var(--card-bg); border-color: var(--accent); }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ---------- Install strip ---------- */
+    .install-strip {
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--divider);
+      border-bottom: 1px solid var(--divider);
+      padding: 28px 24px;
+      text-align: center;
+    }
+
+    .install-cmd {
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+      background: var(--code-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 14px 24px;
+      font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, monospace;
+      font-size: 15px;
+      color: var(--code-text);
+      box-shadow: var(--shadow);
+    }
+
+    .install-cmd .prompt { color: var(--accent); user-select: none; }
+
+    .copy-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--text-tertiary);
+      font-size: 16px;
+      padding: 2px;
+      transition: color 0.2s;
+    }
+
+    .copy-btn:hover { color: var(--accent); }
+
+    /* ---------- Sections shared ---------- */
+    section {
+      max-width: 1024px;
+      margin: 0 auto;
+      padding: 100px 24px;
+    }
+
+    .section-label {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+
+    .section-title {
+      font-size: clamp(32px, 5vw, 48px);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+      margin-bottom: 16px;
+    }
+
+    .section-desc {
+      font-size: 18px;
+      color: var(--text-secondary);
+      max-width: 540px;
+      line-height: 1.5;
+      margin-bottom: 56px;
+    }
+
+    /* ---------- How it works (diagram) ---------- */
+    .workflow {
+      background: var(--bg-secondary);
+    }
+
+    .workflow-inner {
+      max-width: 1024px;
+      margin: 0 auto;
+      padding: 100px 24px;
+    }
+
+    .diagram {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      margin-top: 8px;
+    }
+
+    .diagram-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+    }
+
+    .diagram-node {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 24px 32px;
+      text-align: center;
+      box-shadow: var(--shadow);
+      transition: transform 0.3s, box-shadow 0.3s;
+    }
+
+    .diagram-node:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); }
+
+    .diagram-node .node-icon { font-size: 28px; margin-bottom: 8px; }
+    .diagram-node .node-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .diagram-node .node-desc { font-size: 13px; color: var(--text-secondary); }
+
+    .diagram-arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-tertiary);
+      font-size: 22px;
+      padding: 12px 0;
+    }
+
+    .diagram-arrow.horizontal {
+      padding: 0 16px;
+    }
+
+    .agents-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+      max-width: 700px;
+    }
+
+    /* ---------- Features ---------- */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+    }
+
+    .feature-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 36px 28px;
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .feature-card:hover {
+      transform: translateY(-6px);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .feature-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin-bottom: 20px;
+      background: var(--bg-secondary);
+    }
+
+    .feature-card h3 {
+      font-size: 19px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      letter-spacing: -0.01em;
+    }
+
+    .feature-card p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.55;
+    }
+
+    /* ---------- Workflow Steps ---------- */
+    .steps {
+      counter-reset: step;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+      max-width: 640px;
+    }
+
+    .step {
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+    }
+
+    .step-num {
+      flex-shrink: 0;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      font-weight: 700;
+      margin-top: 2px;
+    }
+
+    .step h3 {
+      font-size: 17px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .step p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    /* ---------- Demo ---------- */
+    .demo-block {
+      background: var(--code-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: var(--shadow-lg);
+      max-width: 700px;
+    }
+
+    .demo-titlebar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 18px;
+      background: var(--card-bg);
+      border-bottom: 1px solid var(--divider);
+    }
+
+    .demo-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .demo-dot.red { background: #ff5f57; }
+    .demo-dot.yellow { background: #febc2e; }
+    .demo-dot.green { background: #28c840; }
+
+    .demo-titlebar span {
+      flex: 1;
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-tertiary);
+      margin-right: 52px;
+    }
+
+    .demo-body {
+      padding: 24px;
+      font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, monospace;
+      font-size: 13px;
+      line-height: 1.7;
+      color: var(--code-text);
+      overflow-x: auto;
+    }
+
+    .demo-body .cmd { color: var(--accent); }
+    .demo-body .muted { color: var(--text-tertiary); }
+    .demo-body .green-text { color: #30d158; }
+    .demo-body .purple-text { color: #bf5af2; }
+
+    /* ---------- Agents ---------- */
+    .agent-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 20px;
+    }
+
+    .agent-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 32px 28px;
+      text-align: center;
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .agent-card:hover {
+      transform: translateY(-6px);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .agent-card .agent-icon {
+      font-size: 36px;
+      margin-bottom: 16px;
+    }
+
+    .agent-card h3 {
+      font-size: 19px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .agent-card .agent-cmd {
+      font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, monospace;
+      font-size: 13px;
+      color: var(--accent);
+      margin-bottom: 10px;
+    }
+
+    .agent-card p {
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+
+    /* ---------- CTA ---------- */
+    .cta {
+      text-align: center;
+      padding: 120px 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cta::before {
+      content: "";
+      position: absolute;
+      width: 500px;
+      height: 500px;
+      border-radius: 50%;
+      background: radial-gradient(circle, var(--glow-2), transparent 70%);
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      opacity: 0.5;
+    }
+
+    .cta .section-title { margin-left: auto; margin-right: auto; }
+
+    .cta .section-desc {
+      margin-left: auto;
+      margin-right: auto;
+      margin-bottom: 40px;
+    }
+
+    /* ---------- Footer ---------- */
+    footer {
+      border-top: 1px solid var(--divider);
+      padding: 32px 24px;
+      text-align: center;
+    }
+
+    footer p {
+      font-size: 13px;
+      color: var(--text-tertiary);
+    }
+
+    footer a {
+      color: var(--text-secondary);
+      text-decoration: none;
+    }
+
+    footer a:hover { color: var(--accent); }
+
+    /* ---------- Scroll animations ---------- */
+    .reveal {
+      opacity: 0;
+      transform: translateY(32px);
+      transition: opacity 0.7s ease, transform 0.7s ease;
+    }
+
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ---------- Responsive ---------- */
+    @media (max-width: 734px) {
+      .nav-links .hide-mobile { display: none; }
+      .hero { padding: 100px 20px 60px; }
+      section { padding: 72px 20px; }
+      .workflow-inner { padding: 72px 20px; }
+      .features-grid { grid-template-columns: 1fr; }
+      .agent-cards { grid-template-columns: 1fr; }
+      .agents-grid { grid-template-columns: 1fr 1fr; }
+      .hero-actions { flex-direction: column; align-items: center; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Nav -->
+  <nav>
+    <div class="nav-inner">
+      <a href="#" class="nav-logo">open<span>Max</span></a>
+      <ul class="nav-links">
+        <li class="hide-mobile"><a href="#features">Features</a></li>
+        <li class="hide-mobile"><a href="#workflow">How it Works</a></li>
+        <li class="hide-mobile"><a href="#agents">Agents</a></li>
+        <li><a href="https://github.com/niceda/openMax" target="_blank">GitHub</a></li>
+        <li><button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">&#9789;</button></li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero" id="hero">
+    <div class="hero-badge"><span class="dot"></span> Open Source &middot; MIT License</div>
+    <h1>
+      AI Agent Orchestration<br />
+      <span class="gradient-text">Made Simple.</span>
+    </h1>
+    <p class="subtitle">
+      One command, multiple AI agents, one window. openMax orchestrates Claude Code, Codex, and OpenCode in parallel &mdash; plan, dispatch, monitor, and report from a single terminal.
+    </p>
+    <div class="hero-actions">
+      <a href="https://pypi.org/project/openmax/" class="btn btn-primary" target="_blank">Get Started</a>
+      <a href="https://github.com/niceda/openMax" class="btn btn-secondary" target="_blank">View on GitHub &rarr;</a>
+    </div>
+  </section>
+
+  <!-- Install -->
+  <div class="install-strip">
+    <div class="install-cmd">
+      <span class="prompt">$</span>
+      <span id="installText">pip install openmax</span>
+      <button class="copy-btn" id="copyBtn" aria-label="Copy command">&#x2398;</button>
+    </div>
+  </div>
+
+  <!-- Features -->
+  <section id="features">
+    <p class="section-label reveal">Features</p>
+    <h2 class="section-title reveal">Built for real-world<br/>multi-agent workflows.</h2>
+    <p class="section-desc reveal">
+      openMax decomposes complex tasks, dispatches them to the best-fit agent, and keeps everything in sync.
+    </p>
+    <div class="features-grid">
+      <div class="feature-card reveal">
+        <div class="feature-icon">&#9881;</div>
+        <h3>Intelligent Orchestration</h3>
+        <p>A lead agent powered by Claude Agent SDK plans and dispatches sub-tasks across multiple AI agents automatically.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon">&#9638;</div>
+        <h3>Parallel Execution</h3>
+        <p>Agents run simultaneously in Kaku terminal panes with auto grid layout. Watch all progress at a glance.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon">&#128269;</div>
+        <h3>Live Monitoring</h3>
+        <p>The lead agent reads agent output in real time and intervenes automatically when agents get stuck or off-track.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon">&#128260;</div>
+        <h3>Session Recovery</h3>
+        <p>Sessions persist across interruptions. Resume right where you left off &mdash; context, panes, and progress are all restored automatically.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon">&#128268;</div>
+        <h3>Multi-Agent Support</h3>
+        <p>Works with Claude Code, Codex, and OpenCode out of the box. Each agent runs in its own isolated environment.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon">&#9889;</div>
+        <h3>Zero Config</h3>
+        <p>One command to start. openMax handles decomposition, agent selection, pane layout, and cleanup automatically.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- How it Works -->
+  <div class="workflow" id="workflow">
+    <div class="workflow-inner">
+      <p class="section-label reveal">How it Works</p>
+      <h2 class="section-title reveal">From prompt to production.</h2>
+      <p class="section-desc reveal">
+        The lead agent has no direct file access. It orchestrates through six focused tools.
+      </p>
+      <div class="steps reveal">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div>
+            <h3>Align</h3>
+            <p>Clarify your goal, identify scope and requirements from your prompt.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div>
+            <h3>Plan</h3>
+            <p>Decompose the task into parallelizable sub-tasks, assigning the best agent for each.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div>
+            <h3>Dispatch</h3>
+            <p>Spawn agents into Kaku panes &mdash; one window, auto grid layout, each agent isolated.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div>
+            <h3>Monitor</h3>
+            <p>Read agent output in real time. Intervene with follow-up instructions if stuck or off-track.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">5</div>
+          <div>
+            <h3>Report</h3>
+            <p>Summarize results when all tasks are complete. Clean up panes automatically.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Demo -->
+  <section id="demo">
+    <p class="section-label reveal">In Action</p>
+    <h2 class="section-title reveal">See it run.</h2>
+    <p class="section-desc reveal">A single command kicks off the entire orchestration pipeline.</p>
+    <div class="demo-block reveal">
+      <div class="demo-titlebar">
+        <div class="demo-dot red"></div>
+        <div class="demo-dot yellow"></div>
+        <div class="demo-dot green"></div>
+        <span>Kaku &mdash; openMax</span>
+      </div>
+      <div class="demo-body">
+<span class="cmd">$</span> openmax run <span class="green-text">"Build a blog with Next.js"</span>
+<br/><br/>
+<span class="muted">&#9656; Lead agent started (claude-sonnet-4-20250514)</span>
+<br/>
+<span class="muted">&#9656; Aligning...</span> scope identified: Next.js blog with MDX
+<br/>
+<span class="muted">&#9656; Planning...</span> 4 sub-tasks decomposed
+<br/><br/>
+<span class="purple-text">&#9656; Dispatching agents:</span>
+<br/>
+&nbsp;&nbsp;Pane 1 &mdash; <span class="cmd">claude-code</span> &rarr; components &amp; pages
+<br/>
+&nbsp;&nbsp;Pane 2 &mdash; <span class="cmd">codex</span> &rarr; API routes &amp; data layer
+<br/>
+&nbsp;&nbsp;Pane 3 &mdash; <span class="cmd">claude-code</span> &rarr; tests &amp; CI
+<br/>
+&nbsp;&nbsp;Pane 4 &mdash; <span class="cmd">opencode</span> &rarr; styling &amp; layout
+<br/><br/>
+<span class="muted">&#9656; Monitoring... all agents running</span>
+<br/>
+<span class="green-text">&#10003; All 4 tasks completed. Report generated.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Agents -->
+  <section id="agents">
+    <p class="section-label reveal">Agents</p>
+    <h2 class="section-title reveal">Your AI workforce.</h2>
+    <p class="section-desc reveal">openMax supports three agent CLIs, each running interactively in its own pane.</p>
+    <div class="agent-cards">
+      <div class="agent-card reveal">
+        <div class="agent-icon">&#9672;</div>
+        <h3>Claude Code</h3>
+        <div class="agent-cmd">claude</div>
+        <p>Best for most coding tasks. Powered by Anthropic's Claude, excels at complex reasoning and code generation.</p>
+      </div>
+      <div class="agent-card reveal">
+        <div class="agent-icon">&#9670;</div>
+        <h3>Codex</h3>
+        <div class="agent-cmd">codex</div>
+        <p>OpenAI's Codex CLI. Great for API routes, data transformations, and quick scripting tasks.</p>
+      </div>
+      <div class="agent-card reveal">
+        <div class="agent-icon">&#9674;</div>
+        <h3>OpenCode</h3>
+        <div class="agent-cmd">opencode</div>
+        <p>Open-source coding agent. Lightweight and fast, ideal for styling, formatting, and utility work.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta">
+    <h2 class="section-title reveal">Ready to orchestrate?</h2>
+    <p class="section-desc reveal">
+      Install openMax and start building with multiple AI agents in parallel.
+    </p>
+    <div class="hero-actions reveal">
+      <a href="https://pypi.org/project/openmax/" class="btn btn-primary" target="_blank">Install openMax</a>
+      <a href="https://github.com/niceda/openMax" class="btn btn-secondary" target="_blank">Read the Docs &rarr;</a>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <p>
+      openMax &middot; MIT License &middot;
+      <a href="https://github.com/niceda/openMax" target="_blank">GitHub</a> &middot;
+      <a href="https://pypi.org/project/openmax/" target="_blank">PyPI</a>
+    </p>
+  </footer>
+
+  <script>
+    // Theme toggle
+    const toggle = document.getElementById('themeToggle');
+    const root = document.documentElement;
+
+    function setTheme(dark) {
+      root.setAttribute('data-theme', dark ? 'dark' : 'light');
+      toggle.innerHTML = dark ? '&#9788;' : '&#9789;';
+      localStorage.setItem('theme', dark ? 'dark' : 'light');
+    }
+
+    // Init theme — dark by default
+    const saved = localStorage.getItem('theme');
+    setTheme(saved ? saved === 'dark' : true);
+
+    toggle.addEventListener('click', () => {
+      const isDark = root.getAttribute('data-theme') === 'dark';
+      setTheme(!isDark);
+    });
+
+    // Copy button
+    document.getElementById('copyBtn').addEventListener('click', () => {
+      const text = document.getElementById('installText').textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('copyBtn');
+        btn.innerHTML = '&#10003;';
+        setTimeout(() => { btn.innerHTML = '&#x2398;'; }, 1500);
+      });
+    });
+
+    // Scroll reveal
+    const reveals = document.querySelectorAll('.reveal');
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+        }
+      });
+    }, { threshold: 0.1, rootMargin: '0px 0px -60px 0px' });
+
+    reveals.forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>
