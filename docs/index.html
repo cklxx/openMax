@@ -37,9 +37,9 @@
     }
 
     .nav-inner {
-      max-width: 1080px;
+      max-width: 1200px;
       margin: 0 auto;
-      padding: 0 24px;
+      padding: 0 clamp(24px, 4vw, 48px);
       height: 52px;
       display: flex;
       align-items: center;
@@ -77,6 +77,8 @@
 
     /* ---------- Hero ---------- */
     .hero {
+      max-width: none;
+      width: 100%;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
@@ -84,7 +86,20 @@
       justify-content: center;
       text-align: center;
       padding: 140px 24px 100px;
-      background: linear-gradient(180deg, #FFFFFF 0%, #F5F5F7 100%);
+      background: linear-gradient(180deg, #FFFFFF 0%, #f8f8fa 50%, #F5F5F7 100%);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -40%;
+      left: -10%;
+      width: 120%;
+      height: 100%;
+      background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(0, 113, 227, 0.04) 0%, transparent 70%);
+      pointer-events: none;
     }
 
     .hero-eyebrow {
@@ -194,8 +209,9 @@
     /* ---------- Install strip ---------- */
     .install-strip {
       background: #F5F5F7;
-      padding: 32px 24px;
+      padding: 40px 24px;
       text-align: center;
+      border-top: 1px solid rgba(0, 0, 0, 0.03);
     }
 
     .install-cmd {
@@ -228,9 +244,9 @@
 
     /* ---------- Sections ---------- */
     section {
-      max-width: 1080px;
+      max-width: 1200px;
       margin: 0 auto;
-      padding: 100px 24px;
+      padding: 100px clamp(24px, 4vw, 48px);
     }
 
     .section-eyebrow {
@@ -312,9 +328,9 @@
     }
 
     .workflow-inner {
-      max-width: 1080px;
+      max-width: 1200px;
       margin: 0 auto;
-      padding: 100px 24px;
+      padding: 100px clamp(24px, 4vw, 48px);
     }
 
     .steps {
@@ -500,6 +516,8 @@
 
     /* ---------- CTA ---------- */
     .cta {
+      max-width: none;
+      width: 100%;
       text-align: center;
       padding: 120px 24px;
       background: #F5F5F7;
@@ -525,8 +543,9 @@
     }
 
     .footer-inner {
-      max-width: 1080px;
+      max-width: 1200px;
       margin: 0 auto;
+      padding: 0 clamp(0px, 4vw, 24px);
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -596,7 +615,7 @@
       .agent-cards { grid-template-columns: 1fr; }
       .hero-actions { flex-direction: column; align-items: center; }
       .btn { width: 100%; max-width: 300px; justify-content: center; }
-      .footer-inner { justify-content: center; text-align: center; }
+      .footer-inner { justify-content: center; text-align: center; padding: 0; }
       .footer-links { justify-content: center; }
       .cta { padding: 80px 20px; }
     }
@@ -617,7 +636,7 @@
   </nav>
 
   <!-- Hero -->
-  <section class="hero" id="hero">
+  <div class="hero" id="hero">
     <div class="hero-eyebrow"><span class="status-dot"></span> Open Source &middot; MIT License</div>
     <h1>
       AI Agent Orchestration<br />
@@ -630,7 +649,7 @@
       <a href="https://pypi.org/project/openmax/" class="btn btn-primary" target="_blank">Get Started</a>
       <a href="https://github.com/niceda/openMax" class="btn btn-secondary" target="_blank">View on GitHub &rarr;</a>
     </div>
-  </section>
+  </div>
 
   <!-- Install -->
   <div class="install-strip">
@@ -796,7 +815,7 @@
   </section>
 
   <!-- CTA -->
-  <section class="cta">
+  <div class="cta">
     <h2 class="section-title reveal">Ready to orchestrate?</h2>
     <p class="section-desc reveal">
       Install openMax and start building with multiple AI agents in parallel.
@@ -805,7 +824,7 @@
       <a href="https://pypi.org/project/openmax/" class="btn btn-primary" target="_blank">Install openMax</a>
       <a href="https://github.com/niceda/openMax" class="btn btn-secondary" target="_blank">Read the Docs &rarr;</a>
     </div>
-  </section>
+  </div>
 
   <!-- Footer -->
   <footer>
