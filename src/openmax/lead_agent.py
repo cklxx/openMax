@@ -782,7 +782,8 @@ async def _run_lead_agent_async(
                             console.print(block.text)
                             _append_session_event("lead.message", {"text": block.text})
                         elif isinstance(block, ToolUseBlock):
-                            console.print(f"  [dim]⚙ {_format_tool_use(block.name, block.input)}[/dim]")
+                            formatted = _format_tool_use(block.name, block.input)
+                            console.print(f"  [dim]⚙ {formatted}[/dim]")
                 elif isinstance(msg, ResultMessage):
                     cost = msg.total_cost_usd or 0
                     console.print(
