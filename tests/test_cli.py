@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 from click.testing import CliRunner
 
-from openmax.agent_registry import AgentDefinition, built_in_agent_registry
 from openmax import cli
+from openmax.agent_registry import AgentDefinition, built_in_agent_registry
 from openmax.memory_system import MemoryStore
 
 

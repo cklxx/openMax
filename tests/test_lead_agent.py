@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import anyio
 
-from openmax.agent_registry import AgentDefinition, built_in_agent_registry
-from openmax.adapters.subprocess_adapter import SubprocessAdapter
 from openmax import lead_agent
+from openmax.adapters.subprocess_adapter import SubprocessAdapter
+from openmax.agent_registry import AgentDefinition, built_in_agent_registry
 from openmax.lead_agent import PlanResult, SubTask, TaskStatus
 from openmax.memory_system import MemoryStore
 from openmax.session_runtime import SessionStore

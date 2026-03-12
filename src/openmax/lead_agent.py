@@ -253,7 +253,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         if fallback is None:
             raise RuntimeError("No agents are configured")
         console.print(
-            f"  [yellow]⚠[/yellow] Agent '{agent_type}' is not configured, using '{fallback}' instead"
+            f"  [yellow]⚠[/yellow] Agent '{agent_type}' not configured, using '{fallback}' instead"
         )
         agent_type = fallback
         adapter = _agent_registry.get(agent_type)

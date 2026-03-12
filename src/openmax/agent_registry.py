@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 try:
     import tomllib
@@ -56,7 +56,7 @@ class AgentRegistry:
             return "claude-code"
         return next(iter(self._definitions), None)
 
-    def with_definition(self, definition: AgentDefinition) -> "AgentRegistry":
+    def with_definition(self, definition: AgentDefinition) -> AgentRegistry:
         updated = self.definitions()
         updated = [item for item in updated if item.name != definition.name]
         updated.append(definition)
@@ -144,7 +144,10 @@ def _definition_from_config(name: str, config: object, path: Path) -> AgentDefin
         raise AgentConfigError(f"Invalid config for agent '{name}' in {path}: must be a table")
 
     command = config.get("command")
-    if not isinstance(command, list) or not command or not all(isinstance(item, str) for item in command):
+    is_valid = (
+        isinstance(command, list) and command and all(isinstance(item, str) for item in command)
+    )
+    if not is_valid:
         raise AgentConfigError(
             f"Invalid config for agent '{name}' in {path}: command must be a non-empty string array"
         )
