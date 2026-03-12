@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.4
+
+- Agent window resized to 50% of screen (was 68%)
+- Review & Verify phase added to lead agent workflow
+- System prompt extracted to markdown, CEO-mindset rewrite
+- `wait` tool for throttled monitoring
+- Fix window resize targeting wrong window
+- Fix `datetime.UTC` for Python 3.10 compat
+- CLAUDE.md and AGENTS.md added
+- GitHub Pages deployment for landing page
+
 ## 0.1.3
 
 - Reliable cleanup: verify + retry killing panes, atexit safety net
