@@ -1,13 +1,28 @@
-# openMax
+<p align="center">
+  <img src="assets/banner.png" alt="openMax banner" width="100%" />
+</p>
 
-Multi AI Agent orchestration hub — dispatch interactive AI agents across terminal panes.
+<h1 align="center">openMax</h1>
 
-openMax is a lead-agent system that decomposes your task, spawns multiple AI coding agents (Claude Code, Codex, OpenCode, etc.) in separate [Kaku](https://github.com/niceda/kaku) terminal windows, monitors their progress, and reports results — all automatically.
+<p align="center">
+  <strong>Multi AI Agent orchestration hub</strong><br/>
+  Dispatch interactive AI agents across terminal panes — automatically.
+</p>
+
+<p align="center">
+  <a href="https://pypi.org/project/openmax/"><img src="https://img.shields.io/pypi/v/openmax.svg" alt="PyPI"/></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"/></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+"/></a>
+</p>
+
+---
+
+openMax is a lead-agent system that decomposes your task, spawns multiple AI coding agents (Claude Code, Codex, OpenCode, etc.) in one [Kaku](https://github.com/niceda/kaku) terminal window with smart pane layout, monitors their progress, and reports results — all automatically.
 
 ## How it works
 
 ```
-openmax run "用 Next.js 写个博客"
+openmax run "Build a blog with Next.js"
          │
          ▼
 ┌──────────────────────────────────────────────┐
@@ -18,17 +33,19 @@ openmax run "用 Next.js 写个博客"
 │  Phase 4: Monitor & correct                  │
 │  Phase 5: Summarize & report                 │
 └──────────┬───────────────────────────────────┘
-           │ kaku spawn --new-window
-           ├──────────────┬──────────────┐
-           ▼              ▼              ▼
-   ┌──────────────┐ ┌──────────┐ ┌──────────┐
-   │ Window 1      │ │ Window 2  │ │ Window 3  │
-   │ claude-code   │ │ codex     │ │ claude    │
-   │ "写组件"      │ │ "写API"   │ │ "写测试"  │
-   └──────────────┘ └──────────┘ └──────────┘
-         ↑              ↑              ↑
-     interactive    interactive    interactive
-     (用户可直接点进任意窗口干预 agent)
+           │ kaku cli spawn / split-pane
+           ▼
+   ┌────────────────────────────────────────┐
+   │  Kaku Window (auto grid layout)        │
+   │  ┌──────────────┬───────────────┐      │
+   │  │ claude-code   │ codex         │      │
+   │  │ "components"  │ "API routes"  │      │
+   │  ├──────────────┼───────────────┤      │
+   │  │ claude-code   │ opencode      │      │
+   │  │ "tests"       │ "styling"     │      │
+   │  └──────────────┴───────────────┘      │
+   └────────────────────────────────────────┘
+         ↑ click any pane to intervene
 ```
 
 ## Install
@@ -37,16 +54,11 @@ openmax run "用 Next.js 写个博客"
 pip install openmax
 ```
 
-or
-
-```bash
-uv pip install openmax
-```
-
 ### Prerequisites
 
+- **macOS** (Kaku is macOS only for now)
 - Python 3.10+
-- [Kaku](https://github.com/niceda/kaku) terminal (based on WezTerm)
+- [Kaku](https://github.com/niceda/kaku) terminal — auto-detected, prompts `brew install --cask kaku` if missing
 - At least one AI agent CLI installed:
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`)
   - [Codex](https://github.com/openai/codex) (`codex`)
@@ -57,13 +69,13 @@ uv pip install openmax
 ### Run a task
 
 ```bash
-openmax run "用 Next.js 写一个博客系统"
+openmax run "Build a blog with Next.js"
 ```
 
 The lead agent will:
 1. Restate and clarify your goal
 2. Decompose it into parallelizable sub-tasks
-3. Open a new Kaku window for each sub-task with the appropriate agent
+3. Open one Kaku window with smart grid layout — each agent gets its own pane
 4. Monitor each agent's output and intervene if needed
 5. Report completion with cost/token summary
 
@@ -71,13 +83,16 @@ The lead agent will:
 
 ```bash
 # Specify working directory
-openmax run "重构 API 模块" --cwd /path/to/project
+openmax run "Refactor the API module" --cwd /path/to/project
 
 # Use a specific model for the lead agent
-openmax run "写单元测试" --model claude-sonnet-4-20250514
+openmax run "Write unit tests" --model claude-sonnet-4-20250514
 
 # Limit agent loop turns
-openmax run "修复 bug" --max-turns 30
+openmax run "Fix the bug" --max-turns 30
+
+# Keep agent panes open after completion (don't auto-close)
+openmax run "Explore the codebase" --keep-panes
 ```
 
 ### List panes
@@ -101,7 +116,7 @@ openmax read-pane <pane_id>
 | OpenCode | `opencode` | Interactive | `opencode` |
 | Generic | `generic` | Interactive | `claude` |
 
-All agents run interactively — you can click into any Kaku window and type to intervene directly.
+All agents run interactively — click into any pane and type to intervene directly.
 
 ## Architecture
 
@@ -111,7 +126,7 @@ src/openmax/
 ├── lead_agent.py       # Lead agent: task decomposition + monitoring
 │                       #   Uses claude-agent-sdk with custom MCP tools
 ├── pane_manager.py     # Kaku window/pane lifecycle management
-├── kaku.py             # Kaku CLI availability check
+├── kaku.py             # Kaku detection + auto-install
 └── adapters/
     ├── base.py             # AgentAdapter ABC + AgentCommand
     ├── claude_code.py      # Claude Code adapter
@@ -126,7 +141,7 @@ The lead agent has 6 custom tools (via in-process SDK MCP server):
 
 | Tool | Description |
 |------|-------------|
-| `dispatch_agent` | Open a new Kaku window and start an agent with a prompt |
+| `dispatch_agent` | Dispatch an agent into a pane (shared window, auto grid layout) |
 | `read_pane_output` | Read an agent's terminal output to check progress |
 | `send_text_to_pane` | Send text to an agent (follow-up instructions, intervention) |
 | `list_managed_panes` | List all managed panes and their states |
@@ -135,9 +150,11 @@ The lead agent has 6 custom tools (via in-process SDK MCP server):
 
 ### Lifecycle
 
-- On completion or Ctrl-C, all managed Kaku windows/panes are automatically closed
-- SIGINT and SIGTERM are handled for clean shutdown
-- The `PaneManager` tracks window IDs, pane states (idle/running/done/error), and handles cleanup
+- All agents share one Kaku window with smart grid layout (auto split right/bottom)
+- Window auto-resizes to 68% of screen on creation
+- On completion or Ctrl-C, all managed panes are automatically closed
+- SIGINT, SIGTERM, and atexit handlers ensure clean shutdown
+- Use `--keep-panes` to preserve agent panes after the session ends
 
 ## License
 
