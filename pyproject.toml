@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "openmax"
+version = "0.1.0"
+description = "Multi AI Agent orchestration hub"
+requires-python = ">=3.10"
+dependencies = [
+    "claude-agent-sdk>=0.1.0",
+    "click>=8.0",
+    "rich>=13.0",
+]
+
+[project.scripts]
+openmax = "openmax.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/openmax"]
