@@ -76,6 +76,9 @@ You operate as a project manager following a strict management lifecycle:
 
 ## Phase 4: Monitor & Correct
 - Use `read_pane_output` to check each agent's progress.
+- **Monitor sparingly**: check each agent every 30-60 seconds, not continuously.
+  Frequent reads waste context and slow you down. Only increase frequency if
+  an agent appears stuck.
 - If an agent is stuck or off-track, use `send_text_to_pane` to intervene.
 - Use `mark_task_done` when a task is finished.
 

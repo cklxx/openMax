@@ -188,8 +188,11 @@ class PaneManager:
         if window_id is not None:
             self._windows[window_id] = win
             self._set_window_title(pane_id, title)
+            # Focus the agent pane so its window becomes frontmost,
+            # then resize window 1 (which is now the agent window).
+            self.activate_pane(pane_id)
             time.sleep(0.3)
-            self._resize_newest_window()
+            self._resize_frontmost_window()
 
         # Track pane
         pane = ManagedPane(
@@ -417,8 +420,8 @@ class PaneManager:
         )
 
     @staticmethod
-    def _resize_newest_window() -> None:
-        """Resize the frontmost kaku window to 80% of screen (macOS only)."""
+    def _resize_frontmost_window() -> None:
+        """Resize the frontmost kaku window to 68% of screen (macOS only)."""
         if platform.system() != "Darwin":
             return
         script = (
