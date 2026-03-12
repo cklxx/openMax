@@ -47,32 +47,63 @@ openmax run "Build a blog with Next.js"
 pip install openmax
 ```
 
-Requires macOS, Python 3.10+, [Kaku](https://github.com/niceda/kaku) (auto-prompted if missing), and at least one agent CLI (`claude`, `codex`, or `opencode`).
+**Requirements:**
+- macOS (Kaku is macOS-only)
+- Python 3.10+
+- [Kaku](https://github.com/niceda/kaku) terminal — auto-prompted via `brew install --cask kaku` if missing
+- At least one agent CLI: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`), [Codex](https://github.com/openai/codex) (`codex`), or [OpenCode](https://github.com/opencode-ai/opencode) (`opencode`)
 
 ## Usage
 
 ```bash
 openmax run "Build a blog with Next.js"
-openmax run "Refactor the API" --cwd /path/to/project
-openmax run "Write tests" --model claude-sonnet-4-20250514
-openmax run "Fix the bug" --max-turns 30
-openmax run "Explore" --keep-panes
 ```
 
+The lead agent (powered by [claude-agent-sdk](https://github.com/anthropics/claude-agent-sdk-python)) will:
+1. **Align** — clarify your goal, identify scope
+2. **Plan** — decompose into parallelizable sub-tasks
+3. **Dispatch** — spawn agents into Kaku panes (one window, auto grid layout)
+4. **Monitor** — read agent output, intervene if stuck or off-track
+5. **Report** — summarize results when all tasks complete
+
+### Options
+
 ```bash
-openmax panes              # list panes
-openmax read-pane <id>     # read pane output
+openmax run "task" --cwd /path/to/project   # set working directory
+openmax run "task" --model claude-sonnet-4-20250514  # lead agent model
+openmax run "task" --max-turns 30            # limit lead agent turns
+openmax run "task" --keep-panes              # keep panes open after exit
+```
+
+### Other commands
+
+```bash
+openmax panes              # list all Kaku panes
+openmax read-pane <id>     # print a pane's terminal output
+openmax --version          # show version
 ```
 
 ## Agents
 
-| Type | Command |
-|------|---------|
-| `claude-code` | `claude` |
-| `codex` | `codex` |
-| `opencode` | `opencode` |
+| Type | Command | Example |
+|------|---------|---------|
+| `claude-code` | `claude` | Best for most coding tasks |
+| `codex` | `codex` | OpenAI Codex CLI |
+| `opencode` | `opencode` | OpenCode CLI |
 
-All run interactively. Click any pane to intervene.
+All agents run interactively in their own pane. You can click into any pane and type to intervene at any time. The lead agent also monitors and sends corrections automatically.
+
+## How it works
+
+openMax uses a **lead agent** that has no direct access to files or code. Instead, it orchestrates through 6 tools:
+
+- **dispatch_agent** — spawn an agent in a Kaku pane
+- **read_pane_output** — check what an agent is doing
+- **send_text_to_pane** — send follow-up instructions
+- **list_managed_panes** — get pane states
+- **mark_task_done** / **report_completion** — track progress
+
+On exit (normal completion, Ctrl-C, or SIGTERM), all managed panes are killed automatically. Use `--keep-panes` to override.
 
 ## License
 
