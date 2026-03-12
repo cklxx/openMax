@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 import anyio
@@ -66,47 +67,11 @@ class PlanResult:
 
 # ── System prompt ─────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """\
-You are the Lead Agent of openMax, a multi-AI-agent orchestration system.
-You operate as a project manager following a strict management lifecycle:
+_PROMPT_DIR = Path(__file__).parent / "prompts"
 
-## Phase 1: Align Goal
-- Clarify the user's intent. Restate the goal precisely.
-- Identify constraints, scope boundaries, and success criteria.
 
-## Phase 2: Plan & Decompose
-- Break the goal into concrete, parallelizable sub-tasks.
-- For each sub-task, decide which agent type is best suited.
-
-## Phase 3: Dispatch
-- Use the `dispatch_agent` tool to assign each sub-task to an agent.
-- Each agent runs interactively in its own terminal pane.
-
-## Phase 4: Monitor & Correct
-- Use `read_pane_output` to check each agent's progress.
-- **Use `wait` between checks**: call `wait` (30-60s) before each `read_pane_output`.
-  Never read pane output in a tight loop — it wastes context and slows you down.
-- If an agent is stuck or off-track, use `send_text_to_pane` to intervene.
-- Use `mark_task_done` when a task is finished.
-
-## Phase 5: Summarize & Report
-- When all tasks are done, use `report_completion` to finalize.
-- Provide a summary of what was accomplished.
-- Call `record_phase_anchor` when you finish each lifecycle phase:
-  `align`, `plan`, `dispatch`, `monitor`, and `report`.
-
-## Available agent types:
-- "claude-code": Claude Code CLI — best for coding tasks, plan mode, full tool access.
-- "codex": OpenAI Codex CLI — good for code generation and review.
-- "opencode": OpenCode CLI — alternative coding assistant.
-- "generic": Falls back to interactive claude session.
-
-## Important:
-- Each agent runs interactively in a kaku terminal pane — users can click in and intervene.
-- Be decisive. Dispatch agents quickly after planning.
-- Monitor actively — read pane output to check progress.
-- Correct course when agents drift from the goal.
-"""
+def _load_system_prompt() -> str:
+    return (_PROMPT_DIR / "lead_agent.md").read_text()
 
 
 # ── Tool definitions ──────────────────────────────────────────────
@@ -461,6 +426,7 @@ async def _run_lead_agent_async(
 
     _pane_mgr = pane_mgr
     _cwd = cwd
+    normalized_cwd = str(Path(cwd).resolve())
     _agent_window_id = None
     _session_store = None
     _session_meta = None
@@ -478,8 +444,10 @@ async def _run_lead_agent_async(
             mismatch_details: list[str] = []
             if snapshot.meta.task != task:
                 mismatch_details.append(f"task requested='{task}' stored='{snapshot.meta.task}'")
-            if snapshot.meta.cwd != cwd:
-                mismatch_details.append(f"cwd requested='{cwd}' stored='{snapshot.meta.cwd}'")
+            if snapshot.meta.cwd != normalized_cwd:
+                mismatch_details.append(
+                    f"cwd requested='{normalized_cwd}' stored='{snapshot.meta.cwd}'"
+                )
             if mismatch_details:
                 details = "; ".join(mismatch_details)
                 console.print(f"[yellow]Resuming session with mismatch:[/yellow] {details}")
@@ -489,7 +457,7 @@ async def _run_lead_agent_async(
                         "details": details,
                         "requested_task": task,
                         "stored_task": snapshot.meta.task,
-                        "requested_cwd": cwd,
+                        "requested_cwd": normalized_cwd,
                         "stored_cwd": snapshot.meta.cwd,
                     },
                 )
@@ -537,7 +505,7 @@ async def _run_lead_agent_async(
     ]
 
     options = ClaudeAgentOptions(
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=_load_system_prompt(),
         mcp_servers={"openmax": server},
         allowed_tools=tool_names,
         disallowed_tools=[
