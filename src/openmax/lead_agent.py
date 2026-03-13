@@ -768,9 +768,6 @@ async def _run_lead_agent_async(
     startup_stage = "sdk_client_startup"
     startup_complete = False
     try:
-<<<<<<< HEAD
-        startup_stage = "sdk_client_startup"
-=======
         resume_context: str | None = None
         memory_context = runtime.memory_store.build_context(cwd=cwd, task=task)
         if session_id:
@@ -890,7 +887,6 @@ async def _run_lead_agent_async(
             )
         )
 
->>>>>>> 63446b5 (Refactor lead agent runtime state)
         async with ClaudeSDKClient(options=options) as client:
             startup_stage = "prompt_submission"
             await client.query(prompt)
