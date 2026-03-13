@@ -298,6 +298,47 @@ def test_runs_command_handles_empty_store(monkeypatch, tmp_path):
     assert "No sessions found." in result.output
 
 
+def test_runs_command_filters_by_status_and_limit(monkeypatch, tmp_path):
+    store = SessionStore(base_dir=tmp_path / "sessions")
+    completed = store.create_session("session-completed", "Completed task", str(tmp_path / "done"))
+    active_old = store.create_session("session-active-old", "Older active", str(tmp_path / "older"))
+    active_new = store.create_session("session-active-new", "Newest active", str(tmp_path / "newer"))
+    failed = store.create_session("session-failed", "Failed task", str(tmp_path / "failed"))
+
+    ordered = [
+        (completed, "completed", "2026-03-13T07:00:00+00:00"),
+        (active_old, "active", "2026-03-13T08:00:00+00:00"),
+        (active_new, "active", "2026-03-13T09:00:00+00:00"),
+        (failed, "failed", "2026-03-13T10:00:00+00:00"),
+    ]
+    for meta, status, updated_at in ordered:
+        meta.status = status
+        meta.updated_at = updated_at
+        store._write_meta(meta)
+
+    monkeypatch.setattr(cli, "SessionStore", lambda: store)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["runs", "--status", "active", "--limit", "1"])
+
+    assert result.exit_code == 0
+    assert "session-active-new" in result.output
+    assert "session-active-old" not in result.output
+    assert "session-completed" not in result.output
+    assert "session-failed" not in result.output
+
+
+def test_runs_command_rejects_invalid_status(monkeypatch, tmp_path):
+    store = SessionStore(base_dir=tmp_path / "sessions")
+    monkeypatch.setattr(cli, "SessionStore", lambda: store)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["runs", "--status", "broken"])
+
+    assert result.exit_code != 0
+    assert "Invalid value for '--status'" in result.output
+
+
 def test_inspect_command_prints_reconstructed_session(monkeypatch, tmp_path):
     store = SessionStore(base_dir=tmp_path / "sessions")
     meta = store.create_session("session-a", "Build API", str(tmp_path / "workspace"))
@@ -339,6 +380,130 @@ def test_inspect_command_prints_reconstructed_session(monkeypatch, tmp_path):
     assert "completion=100%" in result.output
     assert "Defined two workstreams" in result.output
     assert "API routes | done | codex | pane=11" in result.output
+
+
+def test_inspect_command_prints_richer_completed_timeline(monkeypatch, tmp_path):
+    store = SessionStore(base_dir=tmp_path / "sessions")
+    meta = store.create_session("session-completed", "Build API", str(tmp_path / "workspace"))
+    meta.status = "completed"
+    store._write_meta(meta)
+    store.append_event(
+        meta,
+        "phase.anchor",
+        anchor_payload(
+            phase="plan",
+            summary="Defined two workstreams",
+            tasks=[
+                {
+                    "name": "API routes",
+                    "agent_type": "codex",
+                    "prompt": "Implement API routes",
+                    "status": "running",
+                    "pane_id": 11,
+                    "pane_history": [11],
+                }
+            ],
+            completion_pct=40,
+        ),
+    )
+    store.append_event(
+        meta,
+        "tool.dispatch_agent",
+        {
+            "task_name": "API routes",
+            "agent_type": "codex",
+            "prompt": "Implement API routes",
+            "pane_id": 11,
+        },
+    )
+    store.append_event(meta, "tool.read_pane_output", {"pane_id": 11})
+    store.append_event(meta, "tool.mark_task_done", {"task_name": "API routes"})
+    store.append_event(
+        meta,
+        "tool.report_completion",
+        {"completion_pct": 100, "notes": "All subtasks closed"},
+    )
+    store.append_event(meta, "session.completed", {"total_subtasks": 1, "done_subtasks": 1})
+
+    monkeypatch.setattr(cli, "SessionStore", lambda: store)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["inspect", "session-completed"])
+
+    assert result.exit_code == 0
+    assert "Outcome" in result.output
+    assert "status=completed" in result.output
+    assert "summary=Session completed" in result.output
+    assert "Recent activity" in result.output
+    assert "Read pane 11 output" in result.output
+    assert "Reported completion at 100%" in result.output
+    assert "Anchors" in result.output
+    assert "Subtasks" in result.output
+
+
+def test_inspect_command_prints_failure_summary_for_aborted_session(monkeypatch, tmp_path):
+    store = SessionStore(base_dir=tmp_path / "sessions")
+    meta = store.create_session("session-aborted", "Build UI", str(tmp_path / "workspace"))
+    meta.status = "aborted"
+    store._write_meta(meta)
+    store.append_event(
+        meta,
+        "phase.anchor",
+        anchor_payload(
+            phase="monitor",
+            summary="Waiting on UI validation",
+            tasks=[],
+            completion_pct=60,
+        ),
+    )
+    store.append_event(
+        meta,
+        "session.aborted",
+        {"reason": "Operator cancelled after validation stalled"},
+    )
+
+    monkeypatch.setattr(cli, "SessionStore", lambda: store)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["inspect", "session-aborted"])
+
+    assert result.exit_code == 0
+    assert "status=aborted" in result.output
+    assert "summary=Session aborted: Operator cancelled after validation stalled" in result.output
+    assert "Recent activity" in result.output
+    assert "Waiting on UI validation" in result.output
+
+
+def test_inspect_command_prints_failure_summary_for_startup_failed_session(
+    monkeypatch, tmp_path
+):
+    store = SessionStore(base_dir=tmp_path / "sessions")
+    meta = store.create_session("session-failed", "Bootstrap me", str(tmp_path / "workspace"))
+    meta.status = "failed"
+    store._write_meta(meta)
+    store.append_event(
+        meta,
+        "session.startup_failed",
+        {
+            "category": "authentication",
+            "stage": "sdk_client_startup",
+            "detail": "Authentication required",
+            "remediation": "Run `claude auth login` and retry.",
+        },
+    )
+
+    monkeypatch.setattr(cli, "SessionStore", lambda: store)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["inspect", "session-failed"])
+
+    assert result.exit_code == 0
+    assert "status=failed" in result.output
+    assert (
+        "summary=Lead agent startup failed [authentication] during sdk_client_startup: "
+        "Authentication required" in result.output
+    )
+    assert "Recent activity" in result.output
 
 
 def test_inspect_command_reports_missing_session(monkeypatch, tmp_path):

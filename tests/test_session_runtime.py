@@ -191,3 +191,118 @@ def test_session_store_lists_recent_sessions_in_updated_order(tmp_path):
 
     assert [session.session_id for session in sessions] == ["session-new", "session-old"]
 
+
+def test_session_store_filters_sessions_by_status_before_limit(tmp_path):
+    store = SessionStore(base_dir=tmp_path)
+    completed = store.create_session("session-completed", "Completed task", str(tmp_path))
+    active_old = store.create_session("session-active-old", "Active old", str(tmp_path))
+    active_new = store.create_session("session-active-new", "Active new", str(tmp_path))
+    failed = store.create_session("session-failed", "Failed task", str(tmp_path))
+
+    metas = [
+        (completed, "completed", datetime(2026, 3, 13, 7, 0, tzinfo=timezone.utc)),
+        (active_old, "active", datetime(2026, 3, 13, 8, 0, tzinfo=timezone.utc)),
+        (active_new, "active", datetime(2026, 3, 13, 9, 0, tzinfo=timezone.utc)),
+        (failed, "failed", datetime(2026, 3, 13, 10, 0, tzinfo=timezone.utc)),
+    ]
+    for meta, status, updated_at in metas:
+        meta.status = status
+        meta.updated_at = updated_at.isoformat()
+        store._meta_path(meta.session_id).write_text(
+            json.dumps(meta.__dict__, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    sessions = store.list_sessions(status="active", limit=1)
+
+    assert [session.session_id for session in sessions] == ["session-active-new"]
+
+
+def test_session_store_reconstructs_terminal_outcome_and_timeline(tmp_path):
+    store = SessionStore(base_dir=tmp_path)
+
+    completed = store.create_session("session-completed", "Build API", str(tmp_path))
+    completed.status = "completed"
+    store._write_meta(completed)
+    store.append_event(
+        completed,
+        "phase.anchor",
+        anchor_payload(
+            phase="plan",
+            summary="Defined two workstreams",
+            tasks=[],
+            completion_pct=40,
+        ),
+    )
+    store.append_event(
+        completed,
+        "tool.dispatch_agent",
+        {
+            "task_name": "API routes",
+            "agent_type": "codex",
+            "prompt": "Implement API routes",
+            "pane_id": 11,
+        },
+    )
+    store.append_event(
+        completed,
+        "tool.report_completion",
+        {"completion_pct": 100, "notes": "All subtasks closed"},
+    )
+    store.append_event(
+        completed,
+        "session.completed",
+        {"total_subtasks": 1, "done_subtasks": 1},
+    )
+
+    aborted = store.create_session("session-aborted", "Build UI", str(tmp_path))
+    aborted.status = "aborted"
+    store._write_meta(aborted)
+    store.append_event(
+        aborted,
+        "phase.anchor",
+        anchor_payload(
+            phase="monitor",
+            summary="Waiting on UI validation",
+            tasks=[],
+            completion_pct=60,
+        ),
+    )
+    store.append_event(
+        aborted,
+        "session.aborted",
+        {"reason": "Operator cancelled after validation stalled"},
+    )
+
+    failed = store.create_session("session-failed", "Bootstrap me", str(tmp_path))
+    failed.status = "failed"
+    store._write_meta(failed)
+    store.append_event(
+        failed,
+        "session.startup_failed",
+        {
+            "category": "authentication",
+            "stage": "sdk_client_startup",
+            "detail": "Authentication required",
+            "remediation": "Run `claude auth login` and retry.",
+        },
+    )
+
+    completed_snapshot = store.load_snapshot("session-completed")
+    aborted_snapshot = store.load_snapshot("session-aborted")
+    failed_snapshot = store.load_snapshot("session-failed")
+
+    assert completed_snapshot.plan.completion_pct == 100
+    assert completed_snapshot.plan.outcome_summary == "Session completed"
+    assert "Phase plan: Defined two workstreams" in completed_snapshot.plan.recent_activity
+    assert completed_snapshot.plan.recent_activity[-1] == "Session completed"
+
+    assert aborted_snapshot.plan.outcome_summary == (
+        "Session aborted: Operator cancelled after validation stalled"
+    )
+    assert "Phase monitor: Waiting on UI validation" in aborted_snapshot.plan.recent_activity
+
+    assert failed_snapshot.plan.outcome_summary == (
+        "Lead agent startup failed [authentication] during sdk_client_startup: "
+        "Authentication required"
+    )

@@ -83,6 +83,7 @@ class ReconstructedPlan:
     recent_activity: list[str]
     completion_pct: int | None = None
     report_notes: str | None = None
+    outcome_summary: str | None = None
 
 
 @dataclass
@@ -209,7 +210,12 @@ class SessionStore:
         plan = ContextBuilder().reconstruct_plan(meta, events)
         return SessionSnapshot(meta=meta, events=events, plan=plan)
 
-    def list_sessions(self, *, limit: int | None = None) -> list[SessionMeta]:
+    def list_sessions(
+        self,
+        *,
+        status: str | None = None,
+        limit: int | None = None,
+    ) -> list[SessionMeta]:
         if not self.base_dir.exists():
             return []
 
@@ -229,6 +235,8 @@ class SessionStore:
             ),
             reverse=True,
         )
+        if status is not None:
+            sessions = [meta for meta in sessions if meta.status == status]
         if limit is not None:
             return sessions[:limit]
         return sessions
@@ -265,6 +273,7 @@ class ContextBuilder:
         latest_phase = meta.latest_phase
         completion_pct: int | None = None
         report_notes: str | None = None
+        outcome_summary: str | None = None
 
         for event in events:
             event_type = event.event_type
@@ -273,16 +282,23 @@ class ContextBuilder:
             if event_type == "phase.anchor":
                 anchor_tasks = _task_states_from_payload(payload.get("tasks"))
                 latest_phase = str(payload.get("phase") or latest_phase or "")
+                anchor_summary = str(payload.get("summary", "")).strip()
+                anchor_completion = _coerce_int(payload.get("completion_pct"))
                 for task in anchor_tasks:
                     tasks[task.name] = task
                 anchors.append(
                     PhaseAnchor(
                         phase=str(payload.get("phase", "unknown")),
-                        summary=str(payload.get("summary", "")).strip(),
+                        summary=anchor_summary,
                         timestamp=event.timestamp,
-                        completion_pct=_coerce_int(payload.get("completion_pct")),
+                        completion_pct=anchor_completion,
                         tasks=anchor_tasks,
                     )
+                )
+                if anchor_completion is not None:
+                    completion_pct = anchor_completion
+                recent_activity.append(
+                    f"Phase {payload.get('phase', 'unknown')}: {anchor_summary or 'no summary'}"
                 )
                 if len(anchors) > 12:
                     anchors = anchors[-12:]
@@ -374,28 +390,21 @@ class ContextBuilder:
 
             if event_type == "session.completed":
                 completion_pct = completion_pct if completion_pct is not None else 100
-                recent_activity.append("Session completed")
+                outcome_summary = "Session completed"
+                recent_activity.append(outcome_summary)
                 continue
 
             if event_type == "session.aborted":
                 reason = str(payload.get("reason", "")).strip()
-                recent_activity.append(
+                outcome_summary = (
                     f"Session aborted: {reason}" if reason else "Session aborted"
                 )
+                recent_activity.append(outcome_summary)
                 continue
 
             if event_type == "session.startup_failed":
-                category = str(payload.get("category", "")).strip()
-                detail = str(payload.get("detail", "")).strip()
-                stage = str(payload.get("stage", "")).strip()
-                description = "Lead agent startup failed"
-                if category:
-                    description += f" [{category}]"
-                if stage:
-                    description += f" during {stage}"
-                if detail:
-                    description += f": {detail}"
-                recent_activity.append(description)
+                outcome_summary = _describe_startup_failure(payload)
+                recent_activity.append(outcome_summary)
                 continue
 
             if event_type == "session.resume_mismatch":
@@ -418,6 +427,7 @@ class ContextBuilder:
             recent_activity=recent_activity[-20:],
             completion_pct=completion_pct,
             report_notes=report_notes,
+            outcome_summary=outcome_summary,
         )
 
     def build_prompt_context(
@@ -588,3 +598,17 @@ def _parse_timestamp(value: str) -> datetime:
         return datetime.fromisoformat(value)
     except ValueError:
         return datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _describe_startup_failure(payload: dict[str, Any]) -> str:
+    category = str(payload.get("category", "")).strip()
+    detail = str(payload.get("detail", "")).strip()
+    stage = str(payload.get("stage", "")).strip()
+    description = "Lead agent startup failed"
+    if category:
+        description += f" [{category}]"
+    if stage:
+        description += f" during {stage}"
+    if detail:
+        description += f": {detail}"
+    return description

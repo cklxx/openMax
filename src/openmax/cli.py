@@ -68,6 +68,18 @@ def _render_subtask_counts(snapshot: SessionSnapshot) -> str:
     return " | ".join(parts)
 
 
+def _describe_outcome(snapshot: SessionSnapshot) -> str:
+    if snapshot.plan.outcome_summary:
+        return snapshot.plan.outcome_summary
+    if snapshot.meta.status == "completed":
+        return "Session completed"
+    if snapshot.meta.status == "aborted":
+        return "Session aborted"
+    if snapshot.meta.status == "failed":
+        return "Session failed"
+    return "Session active"
+
+
 @click.group()
 @click.version_option(version=None, package_name="openmax", prog_name="openmax")
 def main() -> None:
@@ -279,15 +291,21 @@ def list_agents(cwd: str | None) -> None:
 
 @main.command("runs")
 @click.option(
+    "--status",
+    default=None,
+    type=click.Choice(["active", "completed", "failed", "aborted"], case_sensitive=False),
+    help="Filter sessions by persisted status",
+)
+@click.option(
     "--limit",
     default=10,
     type=click.IntRange(min=1),
     help="Maximum number of recent sessions to show",
 )
-def runs(limit: int) -> None:
+def runs(status: str | None, limit: int) -> None:
     """List recent persisted sessions."""
     store = SessionStore()
-    sessions = store.list_sessions(limit=limit)
+    sessions = store.list_sessions(status=status.lower() if status else None, limit=limit)
     if not sessions:
         console.print("[yellow]No sessions found.[/yellow]")
         return
@@ -347,10 +365,21 @@ def inspect(session_id: str) -> None:
                 f"completion={_format_completion(plan.completion_pct)}",
                 f"subtasks={_render_subtask_counts(snapshot)}",
             ]
-        )
+        ),
+        soft_wrap=True,
     )
+    console.print("[bold]Outcome[/bold]")
+    console.print(f"status={meta.status}", soft_wrap=True, markup=False)
+    console.print(f"summary={_describe_outcome(snapshot)}", soft_wrap=True, markup=False)
     if plan.report_notes:
-        console.print(f"[bold]Report:[/bold] {plan.report_notes}")
+        console.print(f"[bold]Report:[/bold] {plan.report_notes}", soft_wrap=True)
+
+    console.print("[bold]Recent activity[/bold]")
+    if not plan.recent_activity:
+        console.print("- none")
+    else:
+        for item in plan.recent_activity[-8:]:
+            console.print(f"- {item}", soft_wrap=True, markup=False)
 
     anchors = plan.anchors[-_ANCHOR_PREVIEW_LIMIT:]
     console.print("[bold]Anchors[/bold]")
