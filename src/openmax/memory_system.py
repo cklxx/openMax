@@ -47,10 +47,35 @@ class MemoryEntry:
     task: str
     summary: str
     insights: list[str] = field(default_factory=list)
+    workspace_facts: list[str] = field(default_factory=list)
+    lessons: list[str] = field(default_factory=list)
+    performance_signals: list[dict[str, Any]] = field(default_factory=list)
     confidence: int | None = None
     completion_pct: int | None = None
     source: str = "system"
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_payload(cls, item: dict[str, Any]) -> "MemoryEntry":
+        kind = item.get("kind", "lesson")
+        if kind not in {"lesson", "run_summary"}:
+            kind = "lesson"
+        metadata = item.get("metadata", {})
+        return cls(
+            memory_id=str(item.get("memory_id", uuid.uuid4().hex)),
+            created_at=str(item.get("created_at", utc_now_iso())),
+            kind=kind,
+            task=str(item.get("task", "")).strip(),
+            summary=str(item.get("summary", "")).strip(),
+            insights=_coerce_string_list(item.get("insights")),
+            workspace_facts=_coerce_string_list(item.get("workspace_facts")),
+            lessons=_coerce_string_list(item.get("lessons")),
+            performance_signals=_coerce_signal_list(item.get("performance_signals")),
+            confidence=_coerce_int(item.get("confidence")),
+            completion_pct=_coerce_int(item.get("completion_pct")),
+            source=str(item.get("source", "system")).strip() or "system",
+            metadata=metadata if isinstance(metadata, dict) else {},
+        )
 
 
 @dataclass
@@ -62,6 +87,7 @@ class MemoryContext:
 @dataclass
 class StrategyAdvice:
     agent_lines: list[str] = field(default_factory=list)
+    fact_lines: list[str] = field(default_factory=list)
     execution_lines: list[str] = field(default_factory=list)
     risk_lines: list[str] = field(default_factory=list)
 
@@ -97,6 +123,7 @@ class MemoryStore:
             task=task,
             summary=lesson.strip(),
             insights=insights,
+            lessons=[lesson.strip()],
             confidence=confidence,
             source=source,
             metadata={
@@ -141,6 +168,15 @@ class MemoryStore:
             task=task,
             summary=notes.strip(),
             insights=insights[:6],
+            workspace_facts=_derive_workspace_facts(
+                task=task,
+                anchor_summaries=anchor_summaries,
+                subtasks=subtasks,
+            ),
+            performance_signals=_derive_performance_signals(
+                subtasks=subtasks,
+                completion_pct=completion_pct,
+            ),
             completion_pct=completion_pct,
             source="report_completion",
             metadata={
@@ -164,15 +200,16 @@ class MemoryStore:
         entries = raw.get("entries", [])
         if not isinstance(entries, list):
             return []
-        return [MemoryEntry(**item) for item in entries if isinstance(item, dict)]
+        return [MemoryEntry.from_payload(item) for item in entries if isinstance(item, dict)]
 
     def render_workspace_memories(self, cwd: str, limit: int = 10) -> list[str]:
         entries = list(reversed(self.load_entries(cwd)))[0:limit]
         lines: list[str] = []
         advice = self.derive_strategy(cwd=cwd, task="")
-        if advice.agent_lines or advice.execution_lines or advice.risk_lines:
+        if advice.agent_lines or advice.fact_lines or advice.execution_lines or advice.risk_lines:
             lines.append("Strategy:")
             lines.extend(advice.agent_lines[:2])
+            lines.extend(advice.fact_lines[:2])
             lines.extend(advice.execution_lines[:2])
             lines.extend(advice.risk_lines[:2])
         for entry in entries:
@@ -185,6 +222,12 @@ class MemoryStore:
             lines.append(f"- {entry.summary}{suffix}")
             for insight in entry.insights[:2]:
                 lines.append(f"  {insight}")
+            for fact in self._entry_facts(entry)[:1]:
+                lines.append(f"  fact: {fact}")
+            for signal in self._entry_performance_signals(entry)[:1]:
+                detail = str(signal.get("detail", "")).strip()
+                if detail:
+                    lines.append(f"  signal: {detail}")
         return lines
 
     def build_context(self, *, cwd: str, task: str, limit: int = 4) -> MemoryContext | None:
@@ -206,6 +249,9 @@ class MemoryStore:
         if advice.agent_lines:
             lines.append("Recommended agent choices:")
             lines.extend(advice.agent_lines[:3])
+        if advice.fact_lines:
+            lines.append("Workspace facts:")
+            lines.extend(advice.fact_lines[:3])
         if advice.execution_lines:
             lines.append("Execution guidance:")
             lines.extend(advice.execution_lines[:3])
@@ -238,19 +284,31 @@ class MemoryStore:
 
         ranked = self._rank_entries(records, task) if task else list(reversed(records))
         focus = ranked[:8]
+        fact_lines: list[str] = []
         execution_lines: list[str] = []
         risk_lines: list[str] = []
 
         for entry in focus:
-            if entry.kind == "lesson":
-                execution_lines.append(f"- {entry.summary}")
+            lessons = self._entry_lessons(entry)
+            if lessons:
+                execution_lines.extend(f"- {lesson}" for lesson in lessons[:2])
             elif entry.summary:
                 execution_lines.append(f"- Reuse pattern: {entry.summary}")
 
-            combined_text = " ".join([entry.summary, *entry.insights]).lower()
+            facts = self._entry_facts(entry)
+            fact_lines.extend(f"- {fact}" for fact in facts[:2])
+
+            combined_text = " ".join(
+                [entry.summary, *entry.insights, *lessons, *facts]
+            ).lower()
             risk_tokens = ("avoid", "drift", "stuck", "fail", "retry")
             if any(token in combined_text for token in risk_tokens):
                 risk_lines.append(f"- Watch for: {entry.summary}")
+            for signal in self._entry_performance_signals(entry):
+                detail = str(signal.get("detail", "")).strip()
+                outcome = str(signal.get("outcome", "")).lower()
+                if outcome == "negative" and detail:
+                    risk_lines.append(f"- {detail}")
 
         ranked_agents = self.derive_agent_rankings(cwd=cwd, task=task, entries=records)
         agent_lines = [
@@ -261,6 +319,7 @@ class MemoryStore:
 
         return StrategyAdvice(
             agent_lines=_dedupe(agent_lines)[:3],
+            fact_lines=_dedupe(fact_lines)[:3],
             execution_lines=_dedupe(execution_lines)[:4],
             risk_lines=_dedupe(risk_lines)[:3],
         )
@@ -343,7 +402,19 @@ class MemoryStore:
 
     def _score_entry(self, entry: MemoryEntry, task: str) -> int:
         task_terms = _keywords(task)
-        entry_terms = _keywords(entry.task + " " + entry.summary + " " + " ".join(entry.insights))
+        entry_text = " ".join(
+            [
+                entry.task,
+                entry.summary,
+                " ".join(entry.insights),
+                " ".join(entry.workspace_facts),
+                " ".join(entry.lessons),
+                " ".join(
+                    str(signal.get("detail", "")) for signal in entry.performance_signals
+                ),
+            ]
+        )
+        entry_terms = _keywords(entry_text)
         overlap = len(task_terms & entry_terms)
         score = overlap
         if entry.kind == "lesson":
@@ -362,7 +433,9 @@ class MemoryStore:
         scores: dict[str, float],
         reasons: dict[str, list[str]],
     ) -> None:
-        combined = " ".join([entry.task, entry.summary, *entry.insights]).lower()
+        combined = " ".join(
+            [entry.task, entry.summary, *entry.insights, *self._entry_lessons(entry)]
+        ).lower()
         scope_bonus = self._scope_bonus(entry, task_scope)
         for agent in ("claude-code", "codex", "opencode", "generic"):
             mentions_agent = agent in combined
@@ -389,24 +462,22 @@ class MemoryStore:
         scores: dict[str, float],
         reasons: dict[str, list[str]],
     ) -> None:
-        subtasks = entry.metadata.get("subtasks", [])
-        if not isinstance(subtasks, list):
-            subtasks = []
         scope_bonus = self._scope_bonus(entry, task_scope)
-        for task_info in subtasks:
-            if not isinstance(task_info, dict):
-                continue
-            agent = str(task_info.get("agent_type", "")).strip()
+        for signal in self._entry_performance_signals(entry):
+            agent = str(signal.get("agent_type", "")).strip()
             if not agent:
                 continue
-            status = str(task_info.get("status", "")).lower()
-            task_text = " ".join(str(task_info.get(field, "")) for field in ("name", "prompt"))
+            status = str(signal.get("status", "")).lower()
+            task_text = " ".join(
+                str(signal.get(field, "")) for field in ("task_name", "prompt", "detail")
+            )
             overlap = len(task_terms & _keywords(task_text or entry.task))
             relevance = 1 + overlap
             if status == "done":
                 scores[agent] += base_weight * relevance + 2 + scope_bonus
                 reasons[agent].append(
-                    f"{agent} completed '{task_info.get('name', 'unknown')}' successfully"
+                    str(signal.get("detail", "")).strip()
+                    or f"{agent} completed '{signal.get('task_name', 'unknown')}' successfully"
                 )
             elif status in {"error", "failed"}:
                 scores[agent] -= base_weight * relevance + 1 + scope_bonus
@@ -450,6 +521,72 @@ class MemoryStore:
         if distance <= 16:
             return 1
         return 0
+
+    @staticmethod
+    def _entry_lessons(entry: MemoryEntry) -> list[str]:
+        if entry.lessons:
+            return entry.lessons
+        if entry.kind == "lesson" and entry.summary:
+            return [entry.summary]
+        return []
+
+    @staticmethod
+    def _entry_facts(entry: MemoryEntry) -> list[str]:
+        if entry.workspace_facts:
+            return entry.workspace_facts
+
+        facts: list[str] = []
+        for insight in entry.insights:
+            normalized = insight.strip()
+            if normalized.startswith("Completed '"):
+                continue
+            facts.append(normalized)
+
+        scope = entry.metadata.get("code_scope", [])
+        if isinstance(scope, list) and scope:
+            facts.append("Relevant scope: " + ", ".join(str(item) for item in scope[:4]))
+        return _dedupe(facts)
+
+    @staticmethod
+    def _entry_performance_signals(entry: MemoryEntry) -> list[dict[str, Any]]:
+        if entry.performance_signals:
+            return entry.performance_signals
+
+        subtasks = entry.metadata.get("subtasks", [])
+        if not isinstance(subtasks, list):
+            return []
+
+        signals: list[dict[str, Any]] = []
+        for task_info in subtasks:
+            if not isinstance(task_info, dict):
+                continue
+            agent = str(task_info.get("agent_type", "")).strip()
+            status = str(task_info.get("status", "")).strip().lower()
+            task_name = str(task_info.get("name", "")).strip()
+            prompt = str(task_info.get("prompt", "")).strip()
+            if not agent and not status:
+                continue
+            if status == "done":
+                verb = "completed"
+            elif status in {"error", "failed"}:
+                verb = "failed on"
+            else:
+                verb = "worked on"
+            signals.append(
+                {
+                    "agent_type": agent,
+                    "status": status,
+                    "task_name": task_name,
+                    "prompt": prompt,
+                    "outcome": (
+                        "positive"
+                        if status == "done"
+                        else "negative" if status in {"error", "failed"} else "neutral"
+                    ),
+                    "detail": f"{agent} {verb} '{task_name or 'unknown'}'".strip(),
+                }
+            )
+        return signals
 
 
 def serialize_subtasks(tasks: list[Any]) -> list[dict[str, Any]]:
@@ -535,3 +672,87 @@ def _dedupe(items: list[str]) -> list[str]:
         seen.add(normalized)
         result.append(normalized)
     return result
+
+
+def _coerce_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    for item in value:
+        text = str(item).strip()
+        if text:
+            result.append(text)
+    return result
+
+
+def _coerce_signal_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _coerce_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _derive_workspace_facts(
+    *,
+    task: str,
+    anchor_summaries: list[str],
+    subtasks: list[dict[str, Any]],
+) -> list[str]:
+    facts = list(anchor_summaries)
+    scope = infer_code_scope(task, *anchor_summaries, subtasks=subtasks)
+    if scope:
+        facts.append("Relevant scope: " + ", ".join(scope[:4]))
+    return _dedupe(facts)[:4]
+
+
+def _derive_performance_signals(
+    *,
+    subtasks: list[dict[str, Any]],
+    completion_pct: int,
+) -> list[dict[str, Any]]:
+    signals: list[dict[str, Any]] = []
+    for task_info in subtasks[:12]:
+        if not isinstance(task_info, dict):
+            continue
+        agent = str(task_info.get("agent_type", "")).strip()
+        status = str(task_info.get("status", "")).strip().lower()
+        task_name = str(task_info.get("name", "")).strip()
+        prompt = str(task_info.get("prompt", "")).strip()
+        if not agent and not status:
+            continue
+        if status == "done":
+            outcome = "positive"
+            verb = "completed"
+        elif status in {"error", "failed"}:
+            outcome = "negative"
+            verb = "failed on"
+        else:
+            outcome = "neutral"
+            verb = "worked on"
+
+        detail = f"{agent} {verb} '{task_name or 'unknown'}'"
+        if completion_pct < 100 and status == "done":
+            detail += f" during a {completion_pct}% run"
+        signals.append(
+            {
+                "agent_type": agent,
+                "status": status,
+                "task_name": task_name,
+                "prompt": prompt,
+                "outcome": outcome,
+                "detail": detail,
+            }
+        )
+    return signals[:8]
