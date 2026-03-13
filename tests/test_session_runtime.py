@@ -122,3 +122,26 @@ def test_context_builder_compacts_large_history_and_keeps_open_tasks(tmp_path):
     assert result.compaction_summary is not None
     assert "still-open" in result.text
     assert "Completed subtasks count" in result.text
+
+
+def test_session_store_reconstructs_startup_failure_activity(tmp_path):
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("session-d", "Bootstrap me", str(tmp_path))
+
+    store.append_event(
+        meta,
+        "session.startup_failed",
+        {
+            "category": "authentication",
+            "stage": "sdk_client_startup",
+            "detail": "Authentication required",
+            "remediation": "Run `claude auth login` and retry.",
+        },
+    )
+
+    snapshot = store.load_snapshot("session-d")
+
+    assert snapshot.plan.recent_activity[-1] == (
+        "Lead agent startup failed [authentication] during sdk_client_startup: "
+        "Authentication required"
+    )

@@ -323,6 +323,20 @@ class ContextBuilder:
                 )
                 continue
 
+            if event_type == "session.startup_failed":
+                category = str(payload.get("category", "")).strip()
+                detail = str(payload.get("detail", "")).strip()
+                stage = str(payload.get("stage", "")).strip()
+                description = "Lead agent startup failed"
+                if category:
+                    description += f" [{category}]"
+                if stage:
+                    description += f" during {stage}"
+                if detail:
+                    description += f": {detail}"
+                recent_activity.append(description)
+                continue
+
             if event_type == "session.resume_mismatch":
                 details = str(payload.get("details", "")).strip()
                 recent_activity.append(

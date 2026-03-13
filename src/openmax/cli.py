@@ -12,7 +12,7 @@ from rich.console import Console
 
 from openmax.agent_registry import AgentConfigError, load_agent_registry
 from openmax.kaku import ensure_kaku, is_kaku_available
-from openmax.lead_agent import run_lead_agent
+from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
 from openmax.memory_system import MemoryStore
 from openmax.pane_manager import PaneManager
 
@@ -123,26 +123,29 @@ def run(
     signal.signal(signal.SIGTERM, _cleanup_and_exit)
 
     try:
-        plan = run_lead_agent(
-            task=task,
-            pane_mgr=pane_mgr,
-            cwd=cwd,
-            model=model,
-            max_turns=max_turns,
-            session_id=session_id,
-            resume=resume,
-            allowed_agents=allowed_agents,
-            agent_registry=agent_registry,
-        )
-
-        # Session complete — show final summary before cleanup
-        summary = pane_mgr.summary()
-        console.print(
-            f"\n[bold green]Done.[/bold green] "
-            f"{len(plan.subtasks)} sub-tasks | "
-            f"{summary['total_windows']} windows | "
-            f"{summary['done']} done"
-        )
+        try:
+            plan = run_lead_agent(
+                task=task,
+                pane_mgr=pane_mgr,
+                cwd=cwd,
+                model=model,
+                max_turns=max_turns,
+                session_id=session_id,
+                resume=resume,
+                allowed_agents=allowed_agents,
+                agent_registry=agent_registry,
+            )
+        except LeadAgentStartupError as exc:
+            raise SystemExit(1) from exc
+        else:
+            # Session complete — show final summary before cleanup
+            summary = pane_mgr.summary()
+            console.print(
+                f"\n[bold green]Done.[/bold green] "
+                f"{len(plan.subtasks)} sub-tasks | "
+                f"{summary['total_windows']} windows | "
+                f"{summary['done']} done"
+            )
     finally:
         signal.signal(signal.SIGINT, previous_sigint)
         signal.signal(signal.SIGTERM, previous_sigterm)

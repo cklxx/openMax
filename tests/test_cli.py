@@ -6,6 +6,7 @@ from click.testing import CliRunner
 
 from openmax import cli
 from openmax.agent_registry import AgentDefinition, built_in_agent_registry
+from openmax.lead_agent import LeadAgentStartupError
 from openmax.memory_system import MemoryStore
 
 
@@ -165,6 +166,29 @@ def test_agents_option_accepts_configured_agent(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert captured["allowed_agents"] == ["remote-codex", "codex"]
+
+
+def test_run_exits_non_zero_on_lead_agent_startup_failure(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "ensure_kaku", lambda: True)
+    monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+
+    def fake_run_lead_agent(**kwargs):
+        raise LeadAgentStartupError(
+            category="authentication",
+            stage="sdk_client_startup",
+            detail="Authentication required",
+            remediation="Run `claude auth login` and retry.",
+        )
+
+    monkeypatch.setattr(cli, "run_lead_agent", fake_run_lead_agent)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["run", "Build feature", "--cwd", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Done." not in result.output
+    assert "Closing managed panes" in result.output
 
 
 def test_memories_command_prints_workspace_memory(monkeypatch, tmp_path):

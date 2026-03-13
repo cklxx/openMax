@@ -68,6 +68,41 @@ class PlanResult:
     subtasks: list[SubTask] = field(default_factory=list)
 
 
+@dataclass
+class LeadAgentStartupError(RuntimeError):
+    category: str
+    stage: str
+    detail: str
+    remediation: str
+
+    def __post_init__(self) -> None:
+        super().__init__(self.detail)
+
+    @property
+    def heading(self) -> str:
+        if self.category == "authentication":
+            return "Lead agent authentication failed"
+        if self.category == "bootstrap":
+            return "Lead agent bootstrap failed"
+        return "Lead agent startup failed"
+
+    def console_message(self) -> str:
+        return (
+            f"[bold red]{self.heading}[/bold red]\n"
+            f"Stage: {self.stage}\n"
+            f"Details: {self.detail}\n"
+            f"Remediation: {self.remediation}"
+        )
+
+    def event_payload(self) -> dict[str, Any]:
+        return {
+            "category": self.category,
+            "stage": self.stage,
+            "detail": self.detail,
+            "remediation": self.remediation,
+        }
+
+
 # ── System prompt ─────────────────────────────────────────────────
 
 _PROMPT_DIR = Path(__file__).parent / "prompts"
@@ -314,6 +349,76 @@ def _remember_run_summary(notes: str, completion_pct: int) -> None:
         subtasks=serialize_subtasks(_plan.subtasks),
         anchors=anchors,
     )
+
+
+def _classify_startup_failure(exc: Exception, stage: str) -> LeadAgentStartupError | None:
+    detail = " ".join(str(exc).split()).strip() or exc.__class__.__name__
+    normalized = detail.lower()
+
+    auth_markers = (
+        "auth",
+        "login",
+        "logged out",
+        "unauthorized",
+        "forbidden",
+        "credential",
+        "api key",
+        "access token",
+        "token expired",
+        "permission denied",
+        "401",
+        "403",
+    )
+    bootstrap_markers = (
+        "bootstrap",
+        "startup",
+        "start",
+        "initialize",
+        "initialise",
+        "handshake",
+        "failed to launch",
+        "failed to start",
+        "timed out",
+        "timeout",
+        "connection refused",
+        "broken pipe",
+        "transport",
+    )
+
+    if any(marker in normalized for marker in auth_markers):
+        return LeadAgentStartupError(
+            category="authentication",
+            stage=stage,
+            detail=detail,
+            remediation=(
+                "Refresh Claude authentication in this shell, then retry. "
+                "If needed, run `claude auth login` and confirm the account has access."
+            ),
+        )
+
+    if any(marker in normalized for marker in bootstrap_markers):
+        return LeadAgentStartupError(
+            category="bootstrap",
+            stage=stage,
+            detail=detail,
+            remediation=(
+                "Verify the Claude CLI can start cleanly in this environment, then retry. "
+                "Check local shell setup, network access, and any required agent tooling."
+            ),
+        )
+
+    if stage != "response_stream":
+        return LeadAgentStartupError(
+            category="startup",
+            stage=stage,
+            detail=detail,
+            remediation=(
+                "Retry after confirming the Claude CLI starts successfully in this shell. "
+                "If the problem persists, inspect local environment and dependency setup."
+            ),
+        )
+
+    return None
 
 
 @tool(
@@ -777,11 +882,17 @@ async def _run_lead_agent_async(
         )
     )
 
+    startup_stage = "sdk_client_startup"
+    startup_complete = False
     try:
+        startup_stage = "sdk_client_startup"
         async with ClaudeSDKClient(options=options) as client:
+            startup_stage = "prompt_submission"
             await client.query(prompt)
 
+            startup_stage = "response_stream"
             async for msg in client.receive_response():
+                startup_complete = True
                 if isinstance(msg, AssistantMessage):
                     for block in msg.content:
                         if isinstance(block, TextBlock) and block.text.strip():
@@ -816,8 +927,16 @@ async def _run_lead_agent_async(
             )
         return _plan
     except Exception as exc:
+        startup_failure = None if startup_complete else _classify_startup_failure(exc, startup_stage)
+        if startup_failure is not None:
+            console.print(Panel(startup_failure.console_message(), border_style="red"))
         if _session_meta is not None and _session_store is not None:
-            _session_meta.status = "aborted"
+            _session_meta.status = "failed" if startup_failure is not None else "aborted"
             _session_store.save_meta(_session_meta)
-            _append_session_event("session.aborted", {"reason": str(exc)})
+            if startup_failure is not None:
+                _append_session_event("session.startup_failed", startup_failure.event_payload())
+            else:
+                _append_session_event("session.aborted", {"reason": str(exc)})
+        if startup_failure is not None:
+            raise startup_failure from exc
         raise

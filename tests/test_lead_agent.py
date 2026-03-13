@@ -7,7 +7,7 @@ import anyio
 from openmax import lead_agent
 from openmax.adapters.subprocess_adapter import SubprocessAdapter
 from openmax.agent_registry import AgentDefinition, built_in_agent_registry
-from openmax.lead_agent import PlanResult, SubTask, TaskStatus
+from openmax.lead_agent import LeadAgentStartupError, PlanResult, SubTask, TaskStatus
 from openmax.memory_system import MemoryStore
 from openmax.session_runtime import SessionStore
 
@@ -68,6 +68,31 @@ def _teardown_session():
     lead_agent._pane_mgr = None
     lead_agent._agent_window_id = None
     lead_agent._agent_registry = built_in_agent_registry()
+
+
+class FailingClaudeClient:
+    def __init__(self, options, error: Exception, fail_stage: str) -> None:
+        self.options = options
+        self._error = error
+        self._fail_stage = fail_stage
+
+    async def __aenter__(self):
+        if self._fail_stage == "enter":
+            raise self._error
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+    async def query(self, prompt):
+        if self._fail_stage == "query":
+            raise self._error
+
+    async def receive_response(self):
+        if self._fail_stage == "stream":
+            raise self._error
+        if False:
+            yield None
 
 
 def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
@@ -315,3 +340,59 @@ def test_dispatch_agent_falls_back_when_agent_not_configured(monkeypatch, tmp_pa
     assert lead_agent._plan.subtasks[0].agent_type == "claude-code"
 
     _teardown_session()
+
+
+def test_run_lead_agent_records_structured_auth_startup_failure(monkeypatch, tmp_path):
+    store = SessionStore(base_dir=tmp_path / "sessions")
+    memory_store = MemoryStore(base_dir=tmp_path / "memory")
+    monkeypatch.setattr(lead_agent, "SessionStore", lambda: store)
+    monkeypatch.setattr(lead_agent, "MemoryStore", lambda: memory_store)
+    monkeypatch.setattr(lead_agent, "ClaudeSDKClient", lambda options: FailingClaudeClient(options, RuntimeError("Authentication required. Please login."), "enter"))
+
+    try:
+        lead_agent.run_lead_agent(
+            task="Build feature",
+            pane_mgr=DummyPaneManager(),
+            cwd=str(tmp_path),
+            session_id="startup-auth-failure",
+        )
+    except LeadAgentStartupError as exc:
+        assert exc.category == "authentication"
+        assert exc.stage == "sdk_client_startup"
+        assert "claude auth login" in exc.remediation
+    else:
+        raise AssertionError("Expected LeadAgentStartupError")
+
+    meta = store.load_meta("startup-auth-failure")
+    events = store.load_events("startup-auth-failure")
+
+    assert meta.status == "failed"
+    assert [event.event_type for event in events][-1] == "session.startup_failed"
+    assert events[-1].payload["category"] == "authentication"
+    assert events[-1].payload["stage"] == "sdk_client_startup"
+    assert "login" in events[-1].payload["detail"].lower()
+
+
+def test_run_lead_agent_records_structured_bootstrap_failure(monkeypatch, tmp_path):
+    store = SessionStore(base_dir=tmp_path / "sessions")
+    memory_store = MemoryStore(base_dir=tmp_path / "memory")
+    monkeypatch.setattr(lead_agent, "SessionStore", lambda: store)
+    monkeypatch.setattr(lead_agent, "MemoryStore", lambda: memory_store)
+    monkeypatch.setattr(lead_agent, "ClaudeSDKClient", lambda options: FailingClaudeClient(options, RuntimeError("Bootstrap timed out while starting transport"), "query"))
+
+    try:
+        lead_agent.run_lead_agent(
+            task="Build feature",
+            pane_mgr=DummyPaneManager(),
+            cwd=str(tmp_path),
+            session_id="startup-bootstrap-failure",
+        )
+    except LeadAgentStartupError as exc:
+        assert exc.category == "bootstrap"
+        assert exc.stage == "prompt_submission"
+    else:
+        raise AssertionError("Expected LeadAgentStartupError")
+
+    events = store.load_events("startup-bootstrap-failure")
+    assert events[-1].event_type == "session.startup_failed"
+    assert events[-1].payload["category"] == "bootstrap"
