@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import sys
+import time
 from types import SimpleNamespace
 
-from openmax.pane_backend import KakuPaneBackend, PaneInfo
+import pytest
+
+from openmax.pane_backend import HeadlessPaneBackend, KakuPaneBackend, PaneInfo
 from openmax.pane_manager import ManagedPane, ManagedWindow, PaneManager, PaneState
 
 
@@ -70,6 +74,15 @@ class FakeBackend:
 
     def resize_frontmost_window(self) -> None:
         self.calls.append(("resize_frontmost_window",))
+
+
+def _wait_until(predicate, timeout: float = 3.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.05)
+    raise AssertionError("condition not met before timeout")
 
 
 def test_create_window_tracks_window_and_uses_backend(monkeypatch):
@@ -154,6 +167,56 @@ def test_cleanup_all_retries_tracked_stragglers(monkeypatch):
         ("list_panes",),
         ("kill_pane", 12),
     ]
+    assert manager.panes == {}
+    assert manager.windows == {}
+
+
+def test_headless_backend_manager_tracks_windows_and_cleans_up(monkeypatch):
+    backend = HeadlessPaneBackend()
+    manager = PaneManager(backend=backend)
+    monkeypatch.setattr("openmax.pane_manager.time.sleep", lambda _seconds: None)
+
+    command = [
+        sys.executable,
+        "-u",
+        "-c",
+        "import time; time.sleep(30)",
+    ]
+
+    first = manager.create_window(
+        command=command,
+        purpose="API",
+        agent_type="codex",
+        title="headless",
+        cwd="/tmp",
+    )
+    second = manager.add_pane(
+        window_id=first.window_id,
+        command=command,
+        purpose="UI",
+        agent_type="claude-code",
+        cwd="/tmp",
+    )
+
+    _wait_until(lambda: len(backend.list_panes()) == 2)
+
+    summary = manager.summary()
+
+    assert first.window_id is not None
+    assert second.window_id == first.window_id
+    assert summary["total_windows"] == 1
+    assert summary["total_panes"] == 2
+    assert summary["running"] == 2
+    assert summary["windows"][0]["pane_count"] == 2
+    assert [pane["purpose"] for pane in summary["windows"][0]["panes"]] == ["API", "UI"]
+
+    monkeypatch.setattr(
+        "openmax.pane_manager.KakuPaneBackend.list_panes",
+        lambda self: pytest.fail("cleanup_all should use the injected backend"),
+    )
+    manager.cleanup_all()
+
+    _wait_until(lambda: backend.list_panes() == [])
     assert manager.panes == {}
     assert manager.windows == {}
 
