@@ -289,29 +289,65 @@ def recommendation_eval(cwd: str | None) -> None:
     cwd = _resolve_cwd(cwd)
 
     store = MemoryStore()
-    evaluation = store.evaluate_recommendations_offline(cwd=cwd)
-    if evaluation.total_runs == 0:
+    report = store.evaluate_recommendations_against_baseline(cwd=cwd)
+    if report.strategy.total_runs == 0:
         console.print("[yellow]No structured run summaries available yet.[/yellow]")
         return
 
     console.print(f"[bold]Offline recommendation eval for {cwd}[/bold]")
     console.print(
-        " | ".join(
+        "Strategy: "
+        + " | ".join(
             [
-                f"runs={evaluation.total_runs}",
-                f"evaluated={evaluation.evaluated_runs}",
-                f"covered={evaluation.covered_runs}",
-                f"hits={evaluation.hit_runs}",
+                f"runs={report.strategy.total_runs}",
+                f"evaluated={report.strategy.evaluated_runs}",
+                f"covered={report.strategy.covered_runs}",
+                f"hits={report.strategy.hit_runs}",
             ]
         )
     )
     console.print(
-        " | ".join(
+        "  "
+        + " | ".join(
             [
-                f"coverage={evaluation.coverage:.0%}",
-                f"hit_rate={evaluation.hit_rate:.0%}",
-                f"avg_completion={evaluation.average_completion_pct:.1f}%",
-                f"avg_failure_rate={evaluation.average_failure_rate:.0%}",
+                f"coverage={report.strategy.coverage:.0%}",
+                f"hit_rate={report.strategy.hit_rate:.0%}",
+                f"avg_completion={report.strategy.average_completion_pct:.1f}%",
+                f"avg_failure_rate={report.strategy.average_failure_rate:.0%}",
+            ]
+        )
+    )
+    console.print(
+        "Baseline: "
+        + " | ".join(
+            [
+                f"policy={report.baseline.label}",
+                f"runs={report.baseline.total_runs}",
+                f"evaluated={report.baseline.evaluated_runs}",
+                f"covered={report.baseline.covered_runs}",
+                f"hits={report.baseline.hit_runs}",
+            ]
+        )
+    )
+    console.print(
+        "  "
+        + " | ".join(
+            [
+                f"coverage={report.baseline.coverage:.0%}",
+                f"hit_rate={report.baseline.hit_rate:.0%}",
+                f"avg_completion={report.baseline.average_completion_pct:.1f}%",
+                f"avg_failure_rate={report.baseline.average_failure_rate:.0%}",
+            ]
+        )
+    )
+    console.print(
+        "Delta: "
+        + " | ".join(
+            [
+                f"coverage_delta={report.coverage_delta:+.0%}",
+                f"hit_rate_lift={report.hit_rate_lift:+.0%}",
+                f"completion_delta={report.completion_pct_delta:+.1f}pts",
+                f"failure_rate_delta={report.failure_rate_delta:+.0%}",
             ]
         )
     )

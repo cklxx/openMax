@@ -10,7 +10,7 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 MemoryKind = Literal["lesson", "run_summary"]
 _MAX_ENTRIES_PER_WORKSPACE = 50
@@ -123,6 +123,17 @@ class RecommendationOfflineEval:
     hit_rate: float
     average_completion_pct: float
     average_failure_rate: float
+    label: str = "strategy"
+
+
+@dataclass
+class RecommendationOfflineEvalReport:
+    strategy: RecommendationOfflineEval
+    baseline: RecommendationOfflineEval
+    coverage_delta: float
+    hit_rate_lift: float
+    completion_pct_delta: float
+    failure_rate_delta: float
 
 
 class MemoryStore:
@@ -481,6 +492,56 @@ class MemoryStore:
         )
 
     def evaluate_recommendations_offline(self, *, cwd: str) -> RecommendationOfflineEval:
+        return self._evaluate_recommendation_policy(
+            cwd=cwd,
+            label="strategy",
+            history_selector=lambda run_entries, index, entry: [
+                candidate
+                for candidate in run_entries[:index]
+                if self._is_relevant_scorecard_entry(candidate, entry.task)
+            ],
+            predictor=lambda history, task: self._top_scorecard_agent(
+                cwd=cwd,
+                task=task,
+                history=history,
+            ),
+        )
+
+    def evaluate_recommendations_against_baseline(
+        self,
+        *,
+        cwd: str,
+    ) -> RecommendationOfflineEvalReport:
+        strategy = self.evaluate_recommendations_offline(cwd=cwd)
+        baseline = self._evaluate_recommendation_policy(
+            cwd=cwd,
+            label="global_top_agent",
+            history_selector=lambda run_entries, index, _entry: run_entries[:index],
+            predictor=lambda history, _task: self._top_global_agent(history),
+        )
+        return RecommendationOfflineEvalReport(
+            strategy=strategy,
+            baseline=baseline,
+            coverage_delta=round(strategy.coverage - baseline.coverage, 2),
+            hit_rate_lift=round(strategy.hit_rate - baseline.hit_rate, 2),
+            completion_pct_delta=round(
+                strategy.average_completion_pct - baseline.average_completion_pct,
+                2,
+            ),
+            failure_rate_delta=round(
+                strategy.average_failure_rate - baseline.average_failure_rate,
+                2,
+            ),
+        )
+
+    def _evaluate_recommendation_policy(
+        self,
+        *,
+        cwd: str,
+        label: str,
+        history_selector: Callable[[list[MemoryEntry], int, MemoryEntry], list[MemoryEntry]],
+        predictor: Callable[[list[MemoryEntry], str], str | None],
+    ) -> RecommendationOfflineEval:
         records = self.load_entries(cwd)
         run_entries = [
             entry
@@ -497,6 +558,7 @@ class MemoryStore:
                 hit_rate=0.0,
                 average_completion_pct=0.0,
                 average_failure_rate=0.0,
+                label=label,
             )
 
         covered_runs = 0
@@ -505,31 +567,21 @@ class MemoryStore:
         failure_total = 0.0
 
         for index, entry in enumerate(run_entries):
-            history = [
-                candidate
-                for candidate in run_entries[:index]
-                if self._is_relevant_scorecard_entry(candidate, entry.task)
-            ]
+            history = history_selector(run_entries, index, entry)
             if not history:
                 continue
 
-            scorecard = self.derive_agent_scorecard(
-                cwd=cwd,
-                task=entry.task,
-                entries=history,
-                limit=1,
-            )
-            if not scorecard:
+            predicted_agent = predictor(history, entry.task)
+            if not predicted_agent:
                 continue
 
             covered_runs += 1
-            top_agent = scorecard[0].agent_type
             expected_agents = self._expected_agents_for_entry(entry)
-            if top_agent in expected_agents:
+            if predicted_agent in expected_agents:
                 hit_runs += 1
 
             completion_total += float(entry.completion_pct or 0)
-            failure_total += self._observed_failure_rate(entry, top_agent)
+            failure_total += self._observed_failure_rate(entry, predicted_agent)
 
         evaluated_runs = max(len(run_entries) - 1, 0)
         coverage = round(covered_runs / evaluated_runs, 2) if evaluated_runs else 0.0
@@ -549,7 +601,75 @@ class MemoryStore:
             hit_rate=hit_rate,
             average_completion_pct=average_completion_pct,
             average_failure_rate=average_failure_rate,
+            label=label,
         )
+
+    def _top_scorecard_agent(
+        self,
+        *,
+        cwd: str,
+        task: str,
+        history: list[MemoryEntry],
+    ) -> str | None:
+        scorecard = self.derive_agent_scorecard(
+            cwd=cwd,
+            task=task,
+            entries=history,
+            limit=1,
+        )
+        if not scorecard:
+            return None
+        return scorecard[0].agent_type
+
+    @staticmethod
+    def _top_global_agent(history: list[MemoryEntry]) -> str | None:
+        aggregated: dict[str, dict[str, int]] = {}
+        for entry in history:
+            for stat in MemoryStore._entry_agent_stats(entry):
+                agent = str(stat.get("agent_type", "")).strip()
+                if not agent:
+                    continue
+                record = aggregated.setdefault(
+                    agent,
+                    {
+                        "success_count": 0,
+                        "failure_count": 0,
+                        "incomplete_count": 0,
+                        "total_count": 0,
+                    },
+                )
+                record["success_count"] += max(_coerce_int(stat.get("success_count")) or 0, 0)
+                record["failure_count"] += max(_coerce_int(stat.get("failure_count")) or 0, 0)
+                record["incomplete_count"] += max(
+                    _coerce_int(stat.get("incomplete_count")) or 0,
+                    0,
+                )
+                record["total_count"] += max(
+                    _coerce_int(stat.get("total_count"))
+                    or (
+                        max(_coerce_int(stat.get("success_count")) or 0, 0)
+                        + max(_coerce_int(stat.get("failure_count")) or 0, 0)
+                        + max(_coerce_int(stat.get("incomplete_count")) or 0, 0)
+                    ),
+                    0,
+                )
+
+        if not aggregated:
+            return None
+
+        ranked = sorted(
+            aggregated.items(),
+            key=lambda item: (
+                item[1]["success_count"] / max(item[1]["total_count"], 1),
+                item[1]["success_count"],
+                -item[1]["failure_count"],
+                -item[1]["incomplete_count"],
+                item[1]["total_count"],
+                item[0],
+            ),
+            reverse=True,
+        )
+        return ranked[0][0]
 
     def derive_agent_rankings(
         self,

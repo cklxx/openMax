@@ -335,8 +335,11 @@ def test_recommendation_eval_command_prints_offline_metrics(monkeypatch, tmp_pat
 
     assert result.exit_code == 0
     assert "Offline recommendation eval" in result.output
+    assert "Strategy:" in result.output
+    assert "Baseline:" in result.output
     assert "coverage=100%" in result.output
     assert "hit_rate=100%" in result.output
+    assert "hit_rate_lift=" in result.output
 
 
 def test_list_agents_includes_configured_agents(monkeypatch, tmp_path):
