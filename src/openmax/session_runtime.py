@@ -75,12 +75,26 @@ class PhaseAnchor:
 
 
 @dataclass
+class RunScorecard:
+    status: str
+    success: bool
+    failure: bool
+    duration_seconds: int | None
+    subtask_count: int
+    done_subtask_count: int
+    manual_intervention_count: int
+    completion_pct: int | None = None
+    startup_failure_category: str | None = None
+
+
+@dataclass
 class ReconstructedPlan:
     goal: str
     latest_phase: str | None
     subtasks: list[SubtaskState]
     anchors: list[PhaseAnchor]
     recent_activity: list[str]
+    scorecard: RunScorecard
     completion_pct: int | None = None
     report_notes: str | None = None
     outcome_summary: str | None = None
@@ -274,6 +288,8 @@ class ContextBuilder:
         completion_pct: int | None = None
         report_notes: str | None = None
         outcome_summary: str | None = None
+        manual_intervention_count = 0
+        startup_failure_category: str | None = None
 
         for event in events:
             event_type = event.event_type
@@ -355,6 +371,7 @@ class ContextBuilder:
                 continue
 
             if event_type == "tool.send_text_to_pane":
+                manual_intervention_count += 1
                 text = str(payload.get("text", "")).strip()
                 pane_id = _coerce_int(payload.get("pane_id"))
                 if text:
@@ -403,6 +420,7 @@ class ContextBuilder:
                 continue
 
             if event_type == "session.startup_failed":
+                startup_failure_category = str(payload.get("category", "")).strip() or None
                 outcome_summary = _describe_startup_failure(payload)
                 recent_activity.append(outcome_summary)
                 continue
@@ -419,12 +437,25 @@ class ContextBuilder:
                 if summary:
                     recent_activity.append(f"Compacted context: {summary}")
 
+        if completion_pct is None and meta.status == "completed":
+            completion_pct = 100
+
+        scorecard = _build_run_scorecard(
+            meta=meta,
+            events=events,
+            tasks=list(tasks.values()),
+            completion_pct=completion_pct,
+            manual_intervention_count=manual_intervention_count,
+            startup_failure_category=startup_failure_category,
+        )
+
         return ReconstructedPlan(
             goal=meta.task,
             latest_phase=latest_phase,
             subtasks=list(tasks.values()),
             anchors=anchors,
             recent_activity=recent_activity[-20:],
+            scorecard=scorecard,
             completion_pct=completion_pct,
             report_notes=report_notes,
             outcome_summary=outcome_summary,
@@ -612,3 +643,40 @@ def _describe_startup_failure(payload: dict[str, Any]) -> str:
     if detail:
         description += f": {detail}"
     return description
+
+
+def _build_run_scorecard(
+    *,
+    meta: SessionMeta,
+    events: list[LeadEvent],
+    tasks: list[SubtaskState],
+    completion_pct: int | None,
+    manual_intervention_count: int,
+    startup_failure_category: str | None,
+) -> RunScorecard:
+    terminal_time = _resolve_terminal_timestamp(meta, events)
+    created_at = _parse_timestamp(meta.created_at)
+    duration_seconds: int | None = None
+    if terminal_time is not None:
+        duration_seconds = max(int((terminal_time - created_at).total_seconds()), 0)
+
+    done_subtask_count = sum(1 for task in tasks if task.status == "done")
+    return RunScorecard(
+        status=meta.status,
+        success=meta.status == "completed",
+        failure=meta.status in {"failed", "aborted"},
+        duration_seconds=duration_seconds,
+        subtask_count=len(tasks),
+        done_subtask_count=done_subtask_count,
+        manual_intervention_count=manual_intervention_count,
+        completion_pct=completion_pct,
+        startup_failure_category=startup_failure_category,
+    )
+
+
+def _resolve_terminal_timestamp(meta: SessionMeta, events: list[LeadEvent]) -> datetime | None:
+    candidates = [_parse_timestamp(meta.updated_at)]
+    candidates.extend(_parse_timestamp(event.timestamp) for event in events if event.timestamp)
+    if not candidates:
+        return None
+    return max(candidates)

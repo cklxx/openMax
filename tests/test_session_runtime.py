@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+import openmax.session_runtime as session_runtime
 from openmax.session_runtime import ContextBuilder, SessionStore, anchor_payload
 from openmax.session_runtime import (
     LeadAgentRuntime,
@@ -306,3 +307,81 @@ def test_session_store_reconstructs_terminal_outcome_and_timeline(tmp_path):
         "Lead agent startup failed [authentication] during sdk_client_startup: "
         "Authentication required"
     )
+
+
+def test_session_store_derives_run_scorecard_from_existing_session_data(monkeypatch, tmp_path):
+    timestamps = iter(
+        [
+            "2026-03-13T12:01:00+00:00",
+            "2026-03-13T12:02:00+00:00",
+            "2026-03-13T12:03:00+00:00",
+            "2026-03-13T12:04:00+00:00",
+        ]
+    )
+    monkeypatch.setattr(session_runtime, "utc_now_iso", lambda: next(timestamps))
+
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("session-scorecard", "Build API", str(tmp_path))
+    meta.status = "completed"
+    meta.created_at = "2026-03-13T12:00:00+00:00"
+    meta.updated_at = "2026-03-13T12:00:00+00:00"
+    store._write_meta(meta)
+
+    store.append_event(
+        meta,
+        "tool.dispatch_agent",
+        {
+            "task_name": "API routes",
+            "agent_type": "codex",
+            "prompt": "Implement API routes",
+            "pane_id": 11,
+        },
+    )
+    store.append_event(meta, "tool.send_text_to_pane", {"pane_id": 11, "text": "Re-run the tests"})
+    store.append_event(meta, "tool.mark_task_done", {"task_name": "API routes"})
+    store.append_event(
+        meta,
+        "tool.report_completion",
+        {"completion_pct": 100, "notes": "All subtasks closed"},
+    )
+
+    snapshot = store.load_snapshot("session-scorecard")
+
+    assert snapshot.plan.scorecard.status == "completed"
+    assert snapshot.plan.scorecard.success is True
+    assert snapshot.plan.scorecard.failure is False
+    assert snapshot.plan.scorecard.duration_seconds == 240
+    assert snapshot.plan.scorecard.subtask_count == 1
+    assert snapshot.plan.scorecard.done_subtask_count == 1
+    assert snapshot.plan.scorecard.manual_intervention_count == 1
+    assert snapshot.plan.scorecard.completion_pct == 100
+    assert snapshot.plan.scorecard.startup_failure_category is None
+
+
+def test_session_store_derives_failed_scorecard_for_startup_failure(tmp_path):
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("session-startup-failed", "Bootstrap me", str(tmp_path))
+    meta.status = "failed"
+    meta.created_at = "2026-03-13T12:00:00+00:00"
+    meta.updated_at = "2026-03-13T12:00:05+00:00"
+    store._write_meta(meta)
+    store.append_event(
+        meta,
+        "session.startup_failed",
+        {
+            "category": "authentication",
+            "stage": "sdk_client_startup",
+            "detail": "Authentication required",
+            "remediation": "Run `claude auth login` and retry.",
+        },
+    )
+
+    snapshot = store.load_snapshot("session-startup-failed")
+
+    assert snapshot.plan.scorecard.status == "failed"
+    assert snapshot.plan.scorecard.success is False
+    assert snapshot.plan.scorecard.failure is True
+    assert snapshot.plan.scorecard.subtask_count == 0
+    assert snapshot.plan.scorecard.done_subtask_count == 0
+    assert snapshot.plan.scorecard.manual_intervention_count == 0
+    assert snapshot.plan.scorecard.startup_failure_category == "authentication"
