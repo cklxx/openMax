@@ -2,20 +2,11 @@
 
 from __future__ import annotations
 
-import json
-import platform
-import subprocess
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from urllib.parse import unquote, urlparse
 
-_KAKU_CLI_PREFIX = ["kaku", "cli"]
-
-
-def _wrap_command_clean_env(command: list[str]) -> list[str]:
-    """Wrap a command to run without CLAUDECODE env var."""
-    return ["env", "-u", "CLAUDECODE", "-u", "CLAUDE_CODE_ENTRYPOINT"] + command
+from openmax.pane_backend import KakuPaneBackend, PaneBackend, PaneInfo
 
 
 class PaneState(str, Enum):
@@ -47,21 +38,7 @@ class ManagedWindow:
     created_at: float = field(default_factory=time.time)
 
 
-@dataclass
-class KakuPaneInfo:
-    """Raw pane info from kaku cli list."""
-
-    window_id: int
-    tab_id: int
-    pane_id: int
-    workspace: str
-    rows: int
-    cols: int
-    title: str
-    cwd: str
-    is_active: bool
-    is_zoomed: bool
-    cursor_visibility: str
+KakuPaneInfo = PaneInfo
 
 
 # ── Layout strategy ───────────────────────────────────────────────
@@ -99,7 +76,8 @@ class PaneManager:
     - Layout: how panes are arranged within a window
     """
 
-    def __init__(self) -> None:
+    def __init__(self, backend: PaneBackend | None = None) -> None:
+        self._backend = backend or KakuPaneBackend()
         self._panes: dict[int, ManagedPane] = {}
         self._windows: dict[int, ManagedWindow] = {}
 
@@ -122,29 +100,7 @@ class PaneManager:
     @staticmethod
     def list_all_panes() -> list[KakuPaneInfo]:
         """List all kaku panes (not just managed ones)."""
-        result = PaneManager._run_kaku(["list", "--format", "json"])
-        raw = json.loads(result.stdout)
-        panes = []
-        for p in raw:
-            cwd = p.get("cwd", "")
-            if cwd.startswith("file://"):
-                cwd = unquote(urlparse(cwd).path)
-            panes.append(
-                KakuPaneInfo(
-                    window_id=p["window_id"],
-                    tab_id=p["tab_id"],
-                    pane_id=p["pane_id"],
-                    workspace=p.get("workspace", ""),
-                    rows=p["size"]["rows"],
-                    cols=p["size"]["cols"],
-                    title=p.get("title", ""),
-                    cwd=cwd,
-                    is_active=p.get("is_active", False),
-                    is_zoomed=p.get("is_zoomed", False),
-                    cursor_visibility=p.get("cursor_visibility", ""),
-                )
-            )
-        return panes
+        return KakuPaneBackend().list_panes()
 
     # ── High-level: create window with first pane ──────────────────
 
@@ -160,14 +116,7 @@ class PaneManager:
 
         Returns the ManagedPane for the first pane.
         """
-        args = ["spawn", "--new-window"]
-        if cwd:
-            args.extend(["--cwd", cwd])
-        args.append("--")
-        args.extend(_wrap_command_clean_env(command))
-
-        result = self._run_kaku(args)
-        pane_id = int(result.stdout.strip())
+        pane_id = self._backend.spawn_window(command, cwd=cwd)
         window_id = self._find_pane_window(pane_id)
 
         # Track window
@@ -183,7 +132,7 @@ class PaneManager:
             # then resize window 1 (which is now the agent window).
             self.activate_pane(pane_id)
             time.sleep(0.3)
-            self._resize_frontmost_window()
+            self._backend.resize_frontmost_window()
 
         # Track pane
         pane = ManagedPane(
@@ -218,23 +167,7 @@ class PaneManager:
         index = len(win.pane_ids)
         target_pane, direction = _pick_split(win.pane_ids, index)
 
-        args = ["split-pane"]
-        args.extend(["--pane-id", str(target_pane)])
-        if direction == "right":
-            args.append("--right")
-        elif direction == "bottom":
-            args.append("--bottom")
-        elif direction == "left":
-            args.append("--left")
-        elif direction == "top":
-            args.append("--top")
-        if cwd:
-            args.extend(["--cwd", cwd])
-        args.append("--")
-        args.extend(_wrap_command_clean_env(command))
-
-        result = self._run_kaku(args)
-        pane_id = int(result.stdout.strip())
+        pane_id = self._backend.split_pane(target_pane, direction, command, cwd=cwd)
 
         # Track
         win.pane_ids.append(pane_id)
@@ -253,26 +186,19 @@ class PaneManager:
     def send_text(self, pane_id: int, text: str, submit: bool = True) -> None:
         """Send text to a pane as paste, then optionally press Enter."""
         content = text.rstrip("\n").rstrip("\r")
-        self._run_kaku(["send-text", "--pane-id", str(pane_id), "--", content])
+        self._backend.send_text(pane_id, content)
 
         if submit:
             time.sleep(0.5)
-            self._run_kaku(
-                ["send-text", "--pane-id", str(pane_id), "--no-paste"],
-                input_text="\r",
-            )
+            self._backend.send_enter(pane_id)
 
     def get_text(self, pane_id: int, start_line: int | None = None) -> str:
         """Read text content from a pane."""
-        args = ["get-text", "--pane-id", str(pane_id)]
-        if start_line is not None:
-            args.extend(["--start-line", str(start_line)])
-        result = self._run_kaku(args)
-        return result.stdout
+        return self._backend.get_text(pane_id, start_line=start_line)
 
     def activate_pane(self, pane_id: int) -> None:
         """Focus a pane."""
-        self._run_kaku(["activate-pane", "--pane-id", str(pane_id)], check=False)
+        self._backend.activate_pane(pane_id)
 
     def kill_pane(self, pane_id: int) -> None:
         """Kill a pane and remove from tracking."""
@@ -292,14 +218,14 @@ class PaneManager:
 
     def is_pane_alive(self, pane_id: int) -> bool:
         try:
-            return any(p.pane_id == pane_id for p in self.list_all_panes())
+            return any(p.pane_id == pane_id for p in self._list_all_panes())
         except RuntimeError:
             return False
 
     def refresh_states(self) -> None:
         """Check all managed panes and update states for dead ones."""
         try:
-            alive_ids = {p.pane_id for p in self.list_all_panes()}
+            alive_ids = {p.pane_id for p in self._list_all_panes()}
         except RuntimeError:
             return
         for pane_id, pane in list(self._panes.items()):
@@ -352,7 +278,7 @@ class PaneManager:
         # that trap signals).  Re-check and retry once.
         time.sleep(0.5)
         try:
-            alive_ids = {p.pane_id for p in self.list_all_panes()}
+            alive_ids = {p.pane_id for p in self._list_all_panes()}
         except RuntimeError:
             alive_ids = set()
 
@@ -372,29 +298,12 @@ class PaneManager:
 
     # ── Internal helpers ───────────────────────────────────────────
 
-    @staticmethod
-    def _run_kaku(
-        args: list[str],
-        *,
-        input_text: str | None = None,
-        timeout: float | None = None,
-        check: bool = True,
-    ) -> subprocess.CompletedProcess[str]:
-        result = subprocess.run(
-            [*_KAKU_CLI_PREFIX, *args],
-            input=input_text,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        if check and result.returncode != 0:
-            command_name = " ".join(args[:2]).strip()
-            raise RuntimeError(f"kaku {command_name} failed: {result.stderr}")
-        return result
+    def _list_all_panes(self) -> list[KakuPaneInfo]:
+        return self._backend.list_panes()
 
     def _find_pane_window(self, pane_id: int) -> int | None:
         try:
-            for p in self.list_all_panes():
+            for p in self._list_all_panes():
                 if p.pane_id == pane_id:
                     return p.window_id
         except RuntimeError:
@@ -402,37 +311,7 @@ class PaneManager:
         return None
 
     def _set_window_title(self, pane_id: int, title: str) -> None:
-        self._run_kaku(
-            ["set-window-title", "--pane-id", str(pane_id), title],
-            check=False,
-        )
+        self._backend.set_window_title(pane_id, title)
 
     def _kill_pane_process(self, pane_id: int) -> None:
-        self._run_kaku(["kill-pane", "--pane-id", str(pane_id)], check=False)
-
-    @staticmethod
-    def _resize_frontmost_window() -> None:
-        """Resize the frontmost kaku window to 50% of screen (macOS only)."""
-        if platform.system() != "Darwin":
-            return
-        script = (
-            'tell application "Finder"\n'
-            "  set {_x, _y, sw, sh} to bounds of window of desktop\n"
-            "end tell\n"
-            "set w to round (sw * 0.5)\n"
-            "set h to round (sh * 0.5)\n"
-            "set xOff to round ((sw - w) / 2)\n"
-            "set yOff to round ((sh - h) / 2)\n"
-            'tell application "System Events"\n'
-            '  tell process "kaku-gui"\n'
-            "    set position of window 1 to {xOff, yOff}\n"
-            "    set size of window 1 to {w, h}\n"
-            "  end tell\n"
-            "end tell"
-        )
-        subprocess.run(
-            ["osascript", "-e", script],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
+        self._backend.kill_pane(pane_id)
