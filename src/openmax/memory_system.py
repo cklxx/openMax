@@ -113,6 +113,18 @@ class AgentScorecard:
     reasons: list[str] = field(default_factory=list)
 
 
+@dataclass
+class RecommendationOfflineEval:
+    total_runs: int
+    evaluated_runs: int
+    covered_runs: int
+    hit_runs: int
+    coverage: float
+    hit_rate: float
+    average_completion_pct: float
+    average_failure_rate: float
+
+
 class MemoryStore:
     """Store and retrieve workspace-scoped memory entries."""
 
@@ -468,6 +480,77 @@ class MemoryStore:
             risk_lines=_dedupe(risk_lines)[:3],
         )
 
+    def evaluate_recommendations_offline(self, *, cwd: str) -> RecommendationOfflineEval:
+        records = self.load_entries(cwd)
+        run_entries = [
+            entry
+            for entry in records
+            if entry.kind == "run_summary" and self._entry_agent_stats(entry)
+        ]
+        if not run_entries:
+            return RecommendationOfflineEval(
+                total_runs=0,
+                evaluated_runs=0,
+                covered_runs=0,
+                hit_runs=0,
+                coverage=0.0,
+                hit_rate=0.0,
+                average_completion_pct=0.0,
+                average_failure_rate=0.0,
+            )
+
+        covered_runs = 0
+        hit_runs = 0
+        completion_total = 0.0
+        failure_total = 0.0
+
+        for index, entry in enumerate(run_entries):
+            history = [
+                candidate
+                for candidate in run_entries[:index]
+                if self._is_relevant_scorecard_entry(candidate, entry.task)
+            ]
+            if not history:
+                continue
+
+            scorecard = self.derive_agent_scorecard(
+                cwd=cwd,
+                task=entry.task,
+                entries=history,
+                limit=1,
+            )
+            if not scorecard:
+                continue
+
+            covered_runs += 1
+            top_agent = scorecard[0].agent_type
+            expected_agents = self._expected_agents_for_entry(entry)
+            if top_agent in expected_agents:
+                hit_runs += 1
+
+            completion_total += float(entry.completion_pct or 0)
+            failure_total += self._observed_failure_rate(entry, top_agent)
+
+        evaluated_runs = max(len(run_entries) - 1, 0)
+        coverage = round(covered_runs / evaluated_runs, 2) if evaluated_runs else 0.0
+        hit_rate = round(hit_runs / covered_runs, 2) if covered_runs else 0.0
+        average_completion_pct = (
+            round(completion_total / covered_runs, 2) if covered_runs else 0.0
+        )
+        average_failure_rate = (
+            round(failure_total / covered_runs, 2) if covered_runs else 0.0
+        )
+        return RecommendationOfflineEval(
+            total_runs=len(run_entries),
+            evaluated_runs=evaluated_runs,
+            covered_runs=covered_runs,
+            hit_runs=hit_runs,
+            coverage=coverage,
+            hit_rate=hit_rate,
+            average_completion_pct=average_completion_pct,
+            average_failure_rate=average_failure_rate,
+        )
+
     def derive_agent_rankings(
         self,
         *,
@@ -790,6 +873,74 @@ class MemoryStore:
             performance_signals=performance_signals,
             completion_pct=entry.completion_pct,
         )
+
+    @staticmethod
+    def _expected_agents_for_entry(entry: MemoryEntry) -> set[str]:
+        ranked: list[tuple[tuple[float, int, int, int], str]] = []
+        for stat in MemoryStore._entry_agent_stats(entry):
+            agent = str(stat.get("agent_type", "")).strip()
+            if not agent:
+                continue
+            success_count = max(_coerce_int(stat.get("success_count")) or 0, 0)
+            failure_count = max(_coerce_int(stat.get("failure_count")) or 0, 0)
+            incomplete_count = max(_coerce_int(stat.get("incomplete_count")) or 0, 0)
+            total_count = max(
+                _coerce_int(stat.get("total_count"))
+                or success_count + failure_count + incomplete_count,
+                0,
+            )
+            if total_count <= 0:
+                continue
+            success_rate = stat.get("success_rate")
+            try:
+                normalized_rate = float(success_rate)
+            except (TypeError, ValueError):
+                normalized_rate = success_count / total_count
+            score = (
+                normalized_rate,
+                success_count,
+                -failure_count,
+                -incomplete_count,
+            )
+            ranked.append((score, agent))
+
+        if not ranked:
+            return set()
+        best_score = max(score for score, _agent in ranked)
+        return {agent for score, agent in ranked if score == best_score}
+
+    def _is_relevant_scorecard_entry(self, entry: MemoryEntry, task: str) -> bool:
+        task_scope = infer_code_scope(task)
+        scope_bonus = self._scope_bonus(entry, task_scope)
+        entry_text = " ".join(
+            [
+                entry.task,
+                entry.summary,
+                " ".join(entry.workspace_facts),
+                " ".join(str(stat.get("detail", "")) for stat in self._entry_agent_stats(entry)),
+            ]
+        )
+        task_terms = _keywords(task)
+        overlap = len(task_terms & _keywords(entry_text))
+        return overlap > 0 or scope_bonus > 0
+
+    @staticmethod
+    def _observed_failure_rate(entry: MemoryEntry, agent_type: str) -> float:
+        for stat in MemoryStore._entry_agent_stats(entry):
+            agent = str(stat.get("agent_type", "")).strip()
+            if agent != agent_type:
+                continue
+            failure_count = max(_coerce_int(stat.get("failure_count")) or 0, 0)
+            incomplete_count = max(_coerce_int(stat.get("incomplete_count")) or 0, 0)
+            total_count = max(
+                _coerce_int(stat.get("total_count"))
+                or failure_count + incomplete_count,
+                0,
+            )
+            if total_count <= 0:
+                return 0.0
+            return round((failure_count + incomplete_count) / total_count, 2)
+        return 1.0
 
 
 def serialize_subtasks(tasks: list[Any]) -> list[dict[str, Any]]:

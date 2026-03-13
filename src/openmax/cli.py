@@ -282,6 +282,41 @@ def recommend_agents(task: str, cwd: str | None, limit: int) -> None:
             console.print(f"  {reason}")
 
 
+@main.command("recommendation-eval")
+@click.option("--cwd", default=None, help="Workspace to inspect memory for")
+def recommendation_eval(cwd: str | None) -> None:
+    """Evaluate structured recommendation quality from workspace memory."""
+    cwd = _resolve_cwd(cwd)
+
+    store = MemoryStore()
+    evaluation = store.evaluate_recommendations_offline(cwd=cwd)
+    if evaluation.total_runs == 0:
+        console.print("[yellow]No structured run summaries available yet.[/yellow]")
+        return
+
+    console.print(f"[bold]Offline recommendation eval for {cwd}[/bold]")
+    console.print(
+        " | ".join(
+            [
+                f"runs={evaluation.total_runs}",
+                f"evaluated={evaluation.evaluated_runs}",
+                f"covered={evaluation.covered_runs}",
+                f"hits={evaluation.hit_runs}",
+            ]
+        )
+    )
+    console.print(
+        " | ".join(
+            [
+                f"coverage={evaluation.coverage:.0%}",
+                f"hit_rate={evaluation.hit_rate:.0%}",
+                f"avg_completion={evaluation.average_completion_pct:.1f}%",
+                f"avg_failure_rate={evaluation.average_failure_rate:.0%}",
+            ]
+        )
+    )
+
+
 @main.command("list-agents")
 @click.option("--cwd", default=None, help="Working directory used for workspace agent config")
 def list_agents(cwd: str | None) -> None:

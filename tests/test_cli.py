@@ -294,6 +294,50 @@ def test_recommend_agents_command_prints_rankings(monkeypatch, tmp_path):
     assert "codex" in result.output
 
 
+def test_recommendation_eval_command_prints_offline_metrics(monkeypatch, tmp_path):
+    store = MemoryStore(base_dir=tmp_path / "memory")
+    cwd = str(tmp_path / "workspace")
+    store.record_run_summary(
+        cwd=cwd,
+        task="Build src/api/routes.py endpoints",
+        notes="API route outcomes.",
+        completion_pct=100,
+        subtasks=[
+            {
+                "name": "API routes",
+                "agent_type": "codex",
+                "status": "done",
+                "prompt": "Update src/api/routes.py",
+            }
+        ],
+        anchors=[{"summary": "API work succeeded in src/api/routes.py"}],
+    )
+    store.record_run_summary(
+        cwd=cwd,
+        task="Add tests for src/api/routes.py",
+        notes="API test outcomes.",
+        completion_pct=100,
+        subtasks=[
+            {
+                "name": "API tests",
+                "agent_type": "codex",
+                "status": "done",
+                "prompt": "Update tests/test_routes.py",
+            }
+        ],
+        anchors=[{"summary": "API test work stayed near src/api/routes.py"}],
+    )
+    monkeypatch.setattr(cli, "MemoryStore", lambda: store)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["recommendation-eval", "--cwd", cwd])
+
+    assert result.exit_code == 0
+    assert "Offline recommendation eval" in result.output
+    assert "coverage=100%" in result.output
+    assert "hit_rate=100%" in result.output
+
+
 def test_list_agents_includes_configured_agents(monkeypatch, tmp_path):
     registry = built_in_agent_registry().with_definition(
         AgentDefinition(

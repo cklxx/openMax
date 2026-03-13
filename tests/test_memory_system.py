@@ -456,6 +456,136 @@ def test_render_workspace_memories_includes_structured_agent_scorecard(tmp_path)
     assert any("generic" in line and "0/3" in line for line in lines)
 
 
+def test_recommendation_offline_eval_uses_structured_scorecards(tmp_path):
+    store = MemoryStore(base_dir=tmp_path)
+    cwd = str(tmp_path / "workspace")
+    workspace_path = store._workspace_path(cwd)
+    workspace_path.parent.mkdir(parents=True, exist_ok=True)
+    workspace_path.write_text(
+        json.dumps(
+            {
+                "cwd": cwd,
+                "entries": [
+                    {
+                        "memory_id": "docs-seed",
+                        "created_at": "2026-03-10T00:00:00+00:00",
+                        "kind": "run_summary",
+                        "task": "Refresh docs landing page",
+                        "summary": "Docs outcomes.",
+                        "workspace_facts": ["Relevant scope: docs, index.html"],
+                        "agent_stats": [
+                            {
+                                "agent_type": "claude-code",
+                                "success_count": 2,
+                                "failure_count": 0,
+                                "incomplete_count": 0,
+                                "total_count": 2,
+                                "success_rate": 1.0,
+                                "detail": "claude-code succeeded on 2 of 2 similar subtasks",
+                            }
+                        ],
+                        "completion_pct": 100,
+                        "metadata": {"code_scope": ["docs", "index.html"]},
+                    },
+                    {
+                        "memory_id": "api-seed",
+                        "created_at": "2026-03-11T00:00:00+00:00",
+                        "kind": "run_summary",
+                        "task": "Implement src/api/routes.py endpoints",
+                        "summary": "API route outcomes.",
+                        "workspace_facts": ["Relevant scope: api, routes.py"],
+                        "agent_stats": [
+                            {
+                                "agent_type": "codex",
+                                "success_count": 2,
+                                "failure_count": 0,
+                                "incomplete_count": 0,
+                                "total_count": 2,
+                                "success_rate": 1.0,
+                                "detail": "codex succeeded on 2 of 2 similar subtasks",
+                            }
+                        ],
+                        "completion_pct": 100,
+                        "metadata": {"code_scope": ["api", "routes.py"]},
+                    },
+                    {
+                        "memory_id": "api-handlers",
+                        "created_at": "2026-03-12T00:00:00+00:00",
+                        "kind": "run_summary",
+                        "task": "Refactor src/api/routes.py handlers",
+                        "summary": "Handler outcomes.",
+                        "workspace_facts": ["Relevant scope: api, routes.py"],
+                        "agent_stats": [
+                            {
+                                "agent_type": "codex",
+                                "success_count": 1,
+                                "failure_count": 0,
+                                "incomplete_count": 0,
+                                "total_count": 1,
+                                "success_rate": 1.0,
+                                "detail": "codex succeeded on 1 of 1 similar subtasks",
+                            },
+                            {
+                                "agent_type": "generic",
+                                "success_count": 0,
+                                "failure_count": 1,
+                                "incomplete_count": 0,
+                                "total_count": 1,
+                                "success_rate": 0.0,
+                                "detail": "generic failed on 1 of 1 similar subtasks",
+                            },
+                        ],
+                        "completion_pct": 80,
+                        "metadata": {"code_scope": ["api", "routes.py", "handlers"]},
+                    },
+                    {
+                        "memory_id": "api-tests",
+                        "created_at": "2026-03-13T00:00:00+00:00",
+                        "kind": "run_summary",
+                        "task": "Add tests for src/api/routes.py",
+                        "summary": "API test outcomes.",
+                        "workspace_facts": ["Relevant scope: api, routes.py, tests"],
+                        "agent_stats": [
+                            {
+                                "agent_type": "codex",
+                                "success_count": 1,
+                                "failure_count": 0,
+                                "incomplete_count": 0,
+                                "total_count": 1,
+                                "success_rate": 1.0,
+                                "detail": "codex succeeded on 1 of 1 similar subtasks",
+                            },
+                            {
+                                "agent_type": "generic",
+                                "success_count": 0,
+                                "failure_count": 2,
+                                "incomplete_count": 0,
+                                "total_count": 2,
+                                "success_rate": 0.0,
+                                "detail": "generic failed on 2 of 2 similar subtasks",
+                            },
+                        ],
+                        "completion_pct": 90,
+                        "metadata": {"code_scope": ["api", "routes.py", "tests"]},
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    evaluation = store.evaluate_recommendations_offline(cwd=cwd)
+
+    assert evaluation.total_runs == 4
+    assert evaluation.evaluated_runs == 3
+    assert evaluation.covered_runs == 2
+    assert evaluation.hit_runs == 2
+    assert evaluation.coverage == 0.67
+    assert evaluation.hit_rate == 1.0
+    assert evaluation.average_completion_pct == 85.0
+    assert evaluation.average_failure_rate == 0.0
+
+
 def test_memory_store_loads_legacy_entries_without_structured_fields(tmp_path):
     store = MemoryStore(base_dir=tmp_path)
     cwd = str(tmp_path / "workspace")
