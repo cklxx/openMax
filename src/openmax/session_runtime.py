@@ -209,6 +209,30 @@ class SessionStore:
         plan = ContextBuilder().reconstruct_plan(meta, events)
         return SessionSnapshot(meta=meta, events=events, plan=plan)
 
+    def list_sessions(self, *, limit: int | None = None) -> list[SessionMeta]:
+        if not self.base_dir.exists():
+            return []
+
+        sessions: list[SessionMeta] = []
+        for meta_path in self.base_dir.glob("*/meta.json"):
+            try:
+                data = json.loads(meta_path.read_text(encoding="utf-8"))
+                sessions.append(SessionMeta(**data))
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                continue
+
+        sessions.sort(
+            key=lambda meta: (
+                _parse_timestamp(meta.updated_at),
+                _parse_timestamp(meta.created_at),
+                meta.session_id,
+            ),
+            reverse=True,
+        )
+        if limit is not None:
+            return sessions[:limit]
+        return sessions
+
     def session_exists(self, session_id: str) -> bool:
         return self._meta_path(session_id).exists()
 
@@ -557,3 +581,10 @@ def _coerce_int(value: Any) -> int | None:
     if isinstance(value, str) and value.isdigit():
         return int(value)
     return None
+
+
+def _parse_timestamp(value: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return datetime.min.replace(tzinfo=timezone.utc)

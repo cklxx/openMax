@@ -6,6 +6,8 @@ import atexit
 import os
 import signal
 import sys
+from collections import Counter
+from datetime import datetime, timezone
 
 import click
 from rich.console import Console
@@ -15,8 +17,10 @@ from openmax.kaku import ensure_kaku, is_kaku_available
 from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
 from openmax.memory_system import MemoryStore
 from openmax.pane_manager import PaneManager
+from openmax.session_runtime import SessionSnapshot, SessionStore
 
 console = Console()
+_ANCHOR_PREVIEW_LIMIT = 5
 
 
 def _resolve_cwd(cwd: str | None) -> str:
@@ -40,6 +44,28 @@ def _parse_allowed_agents(agents: str | None, available_agents: set[str]) -> lis
             f"Valid types: {', '.join(sorted(available_agents))}"
         )
     return parsed
+
+
+def _format_timestamp(value: str) -> str:
+    try:
+        dt = datetime.fromisoformat(value).astimezone(timezone.utc)
+    except ValueError:
+        return value
+    return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def _format_completion(value: int | None) -> str:
+    return f"{value}%" if value is not None else "n/a"
+
+
+def _render_subtask_counts(snapshot: SessionSnapshot) -> str:
+    counts = Counter(task.status for task in snapshot.plan.subtasks)
+    parts = [f"{len(snapshot.plan.subtasks)} total"]
+    for status in ("running", "pending", "done", "error"):
+        count = counts.get(status, 0)
+        if count:
+            parts.append(f"{count} {status}")
+    return " | ".join(parts)
 
 
 @click.group()
@@ -249,3 +275,101 @@ def list_agents(cwd: str | None) -> None:
     for definition in registry.definitions():
         source = "built-in" if definition.built_in else definition.source
         console.print(f"- {definition.name} [dim]({source})[/dim]")
+
+
+@main.command("runs")
+@click.option(
+    "--limit",
+    default=10,
+    type=click.IntRange(min=1),
+    help="Maximum number of recent sessions to show",
+)
+def runs(limit: int) -> None:
+    """List recent persisted sessions."""
+    store = SessionStore()
+    sessions = store.list_sessions(limit=limit)
+    if not sessions:
+        console.print("[yellow]No sessions found.[/yellow]")
+        return
+
+    console.print("[bold]Recent sessions[/bold]")
+    for meta in sessions:
+        latest_phase = meta.latest_phase or "unknown"
+        completion = None
+        try:
+            snapshot = store.load_snapshot(meta.session_id)
+            latest_phase = snapshot.plan.latest_phase or latest_phase
+            completion = snapshot.plan.completion_pct
+        except RuntimeError:
+            pass
+        console.print(
+            " | ".join(
+                [
+                    meta.session_id,
+                    meta.status,
+                    f"phase={latest_phase}",
+                    f"completion={_format_completion(completion)}",
+                    f"updated={_format_timestamp(meta.updated_at)}",
+                    meta.task,
+                ]
+            )
+        )
+
+
+@main.command()
+@click.argument("session_id")
+def inspect(session_id: str) -> None:
+    """Inspect a persisted session."""
+    store = SessionStore()
+    try:
+        snapshot = store.load_snapshot(session_id)
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    meta = snapshot.meta
+    plan = snapshot.plan
+    console.print(f"[bold]Session:[/bold] {meta.session_id}")
+    console.print(f"[bold]Task:[/bold] {meta.task}")
+    console.print(f"[bold]Workspace:[/bold] {meta.cwd}")
+    console.print(
+        " | ".join(
+            [
+                f"status={meta.status}",
+                f"created={_format_timestamp(meta.created_at)}",
+                f"updated={_format_timestamp(meta.updated_at)}",
+            ]
+        )
+    )
+    console.print(
+        " | ".join(
+            [
+                f"latest_phase={plan.latest_phase or 'unknown'}",
+                f"completion={_format_completion(plan.completion_pct)}",
+                f"subtasks={_render_subtask_counts(snapshot)}",
+            ]
+        )
+    )
+    if plan.report_notes:
+        console.print(f"[bold]Report:[/bold] {plan.report_notes}")
+
+    anchors = plan.anchors[-_ANCHOR_PREVIEW_LIMIT:]
+    console.print("[bold]Anchors[/bold]")
+    if not anchors:
+        console.print("- none")
+    else:
+        for anchor in anchors:
+            summary = anchor.summary or "no summary"
+            console.print(
+                f"- {anchor.phase} | {_format_timestamp(anchor.timestamp)} | {summary}"
+            )
+
+    console.print("[bold]Subtasks[/bold]")
+    if not plan.subtasks:
+        console.print("- none")
+        return
+
+    for task in plan.subtasks:
+        parts = [task.name, task.status, task.agent_type]
+        if task.pane_id is not None:
+            parts.append(f"pane={task.pane_id}")
+        console.print(f"- {' | '.join(parts)}")

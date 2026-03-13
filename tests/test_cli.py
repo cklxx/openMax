@@ -8,6 +8,7 @@ from openmax import cli
 from openmax.agent_registry import AgentDefinition, built_in_agent_registry
 from openmax.lead_agent import LeadAgentStartupError
 from openmax.memory_system import MemoryStore
+from openmax.session_runtime import SessionStore, anchor_payload
 
 
 class DummyPaneManager:
@@ -252,3 +253,100 @@ def test_list_agents_includes_configured_agents(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert "remote-codex" in result.output
+
+
+def test_runs_command_prints_recent_sessions(monkeypatch, tmp_path):
+    store = SessionStore(base_dir=tmp_path / "sessions")
+    older = store.create_session("session-old", "Older task", str(tmp_path / "older"))
+    older.latest_phase = "plan"
+    store._write_meta(older)
+    store.append_event(
+        older,
+        "tool.report_completion",
+        {"completion_pct": 25, "notes": "Started"},
+    )
+
+    newer = store.create_session("session-new", "Newer task", str(tmp_path / "newer"))
+    newer.latest_phase = "monitor"
+    store._write_meta(newer)
+    store.append_event(
+        newer,
+        "tool.report_completion",
+        {"completion_pct": 75, "notes": "Almost there"},
+    )
+
+    monkeypatch.setattr(cli, "SessionStore", lambda: store)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["runs"])
+
+    assert result.exit_code == 0
+    assert "Recent sessions" in result.output
+    assert result.output.index("session-new") < result.output.index("session-old")
+    assert "completion=75%" in result.output
+    assert "phase=monitor" in result.output
+
+
+def test_runs_command_handles_empty_store(monkeypatch, tmp_path):
+    store = SessionStore(base_dir=tmp_path / "sessions")
+    monkeypatch.setattr(cli, "SessionStore", lambda: store)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["runs"])
+
+    assert result.exit_code == 0
+    assert "No sessions found." in result.output
+
+
+def test_inspect_command_prints_reconstructed_session(monkeypatch, tmp_path):
+    store = SessionStore(base_dir=tmp_path / "sessions")
+    meta = store.create_session("session-a", "Build API", str(tmp_path / "workspace"))
+    store.append_event(
+        meta,
+        "phase.anchor",
+        anchor_payload(
+            phase="plan",
+            summary="Defined two workstreams",
+            tasks=[
+                {
+                    "name": "API routes",
+                    "agent_type": "codex",
+                    "prompt": "Implement API routes",
+                    "status": "running",
+                    "pane_id": 11,
+                    "pane_history": [11],
+                }
+            ],
+            completion_pct=40,
+        ),
+    )
+    store.append_event(meta, "tool.mark_task_done", {"task_name": "API routes"})
+    store.append_event(
+        meta,
+        "tool.report_completion",
+        {"completion_pct": 100, "notes": "All subtasks closed"},
+    )
+
+    monkeypatch.setattr(cli, "SessionStore", lambda: store)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["inspect", "session-a"])
+
+    assert result.exit_code == 0
+    assert "Session: session-a" in result.output
+    assert "Task: Build API" in result.output
+    assert "latest_phase=plan" in result.output
+    assert "completion=100%" in result.output
+    assert "Defined two workstreams" in result.output
+    assert "API routes | done | codex | pane=11" in result.output
+
+
+def test_inspect_command_reports_missing_session(monkeypatch, tmp_path):
+    store = SessionStore(base_dir=tmp_path / "sessions")
+    monkeypatch.setattr(cli, "SessionStore", lambda: store)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["inspect", "missing-session"])
+
+    assert result.exit_code != 0
+    assert "Session 'missing-session' was not found." in result.output

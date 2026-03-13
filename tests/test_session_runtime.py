@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from openmax.session_runtime import ContextBuilder, SessionStore, anchor_payload
@@ -166,3 +169,25 @@ def test_lead_agent_runtime_binding_is_scoped():
 
     with pytest.raises(RuntimeError, match="not initialized"):
         get_lead_agent_runtime()
+
+
+def test_session_store_lists_recent_sessions_in_updated_order(tmp_path):
+    store = SessionStore(base_dir=tmp_path)
+    older = store.create_session("session-old", "Old task", str(tmp_path))
+    newer = store.create_session("session-new", "New task", str(tmp_path))
+
+    older.updated_at = datetime(2026, 3, 13, 8, 0, tzinfo=timezone.utc).isoformat()
+    newer.updated_at = (datetime(2026, 3, 13, 8, 0, tzinfo=timezone.utc) + timedelta(hours=1)).isoformat()
+    store._meta_path(older.session_id).write_text(
+        json.dumps(older.__dict__, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    store._meta_path(newer.session_id).write_text(
+        json.dumps(newer.__dict__, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    sessions = store.list_sessions()
+
+    assert [session.session_id for session in sessions] == ["session-new", "session-old"]
+
