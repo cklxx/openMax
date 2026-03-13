@@ -16,6 +16,7 @@ from openmax.agent_registry import AgentConfigError, load_agent_registry
 from openmax.kaku import ensure_kaku, is_kaku_available
 from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
 from openmax.memory_system import MemoryStore
+from openmax.pane_backend import resolve_pane_backend_name
 from openmax.pane_manager import PaneManager
 from openmax.session_runtime import SessionSnapshot, SessionStore
 
@@ -104,6 +105,13 @@ def main() -> None:
     default=None,
     help="Comma-separated list of allowed agent names (built-in or configured)",
 )
+@click.option(
+    "--pane-backend",
+    "pane_backend_name",
+    type=click.Choice(["kaku", "headless"], case_sensitive=False),
+    default=None,
+    help="Pane backend to use (defaults to OPENMAX_PANE_BACKEND or kaku)",
+)
 def run(
     task: str,
     cwd: str | None,
@@ -113,9 +121,11 @@ def run(
     session_id: str | None,
     resume: bool,
     agents: str | None,
+    pane_backend_name: str | None,
 ) -> None:
     """Decompose TASK and dispatch sub-agents in Kaku panes."""
     cwd = _resolve_cwd(cwd)
+    pane_backend_name = resolve_pane_backend_name(pane_backend_name)
 
     if resume and not session_id:
         raise click.UsageError("--resume requires --session-id")
@@ -128,10 +138,10 @@ def run(
     available_agents = set(agent_registry.names())
     allowed_agents = _parse_allowed_agents(agents, available_agents)
 
-    if not ensure_kaku():
+    if pane_backend_name == "kaku" and not ensure_kaku():
         raise SystemExit(1)
 
-    pane_mgr = PaneManager()
+    pane_mgr = PaneManager(backend_name=pane_backend_name)
 
     # Safety net: atexit ensures cleanup even on unhandled exceptions
     _cleaned_up = False

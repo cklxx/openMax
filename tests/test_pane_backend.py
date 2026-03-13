@@ -5,7 +5,13 @@ import time
 
 import pytest
 
-from openmax.pane_backend import HeadlessPaneBackend, PaneBackendError
+from openmax.pane_backend import (
+    HeadlessPaneBackend,
+    KakuPaneBackend,
+    PaneBackendError,
+    create_pane_backend,
+    resolve_pane_backend_name,
+)
 
 
 def _wait_until(predicate, timeout: float = 3.0) -> None:
@@ -64,3 +70,27 @@ def test_headless_backend_get_text_for_unknown_pane_raises_stable_error():
 
     with pytest.raises(PaneBackendError, match="unknown pane: 999"):
         backend.get_text(999)
+
+
+def test_resolve_pane_backend_name_defaults_to_kaku(monkeypatch):
+    monkeypatch.delenv("OPENMAX_PANE_BACKEND", raising=False)
+
+    assert resolve_pane_backend_name() == "kaku"
+
+
+def test_resolve_pane_backend_name_uses_env_and_normalizes_case(monkeypatch):
+    monkeypatch.setenv("OPENMAX_PANE_BACKEND", "HEADLESS")
+
+    assert resolve_pane_backend_name() == "headless"
+
+
+def test_resolve_pane_backend_name_rejects_unknown_value(monkeypatch):
+    monkeypatch.setenv("OPENMAX_PANE_BACKEND", "broken")
+
+    with pytest.raises(ValueError, match="Unknown pane backend: broken"):
+        resolve_pane_backend_name()
+
+
+def test_create_pane_backend_builds_requested_backend():
+    assert isinstance(create_pane_backend("headless"), HeadlessPaneBackend)
+    assert isinstance(create_pane_backend("kaku"), KakuPaneBackend)

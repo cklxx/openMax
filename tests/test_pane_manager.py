@@ -221,6 +221,12 @@ def test_headless_backend_manager_tracks_windows_and_cleans_up(monkeypatch):
     assert manager.windows == {}
 
 
+def test_pane_manager_can_select_headless_backend_by_name():
+    manager = PaneManager(backend_name="headless")
+
+    assert isinstance(manager._backend, HeadlessPaneBackend)
+
+
 def test_kaku_backend_spawn_window_preserves_command_wrapping(monkeypatch):
     backend = KakuPaneBackend()
     calls: list[tuple] = []

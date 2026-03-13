@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 
-from openmax.pane_backend import KakuPaneBackend, PaneBackend, PaneInfo
+from openmax.pane_backend import KakuPaneBackend, PaneBackend, PaneInfo, create_pane_backend
 
 
 class PaneState(str, Enum):
@@ -76,8 +76,14 @@ class PaneManager:
     - Layout: how panes are arranged within a window
     """
 
-    def __init__(self, backend: PaneBackend | None = None) -> None:
-        self._backend = backend or KakuPaneBackend()
+    def __init__(
+        self,
+        backend: PaneBackend | None = None,
+        backend_name: str | None = None,
+    ) -> None:
+        if backend is not None and backend_name is not None:
+            raise ValueError("Pass either backend or backend_name, not both")
+        self._backend = backend or create_pane_backend(backend_name)
         self._panes: dict[int, ManagedPane] = {}
         self._windows: dict[int, ManagedWindow] = {}
 

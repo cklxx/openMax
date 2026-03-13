@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import json
+import os
 import platform
 import subprocess
 import threading
 from dataclasses import dataclass, field
 from itertools import count
-from typing import Literal, Protocol
+from typing import Literal, Protocol, cast
 from urllib.parse import unquote, urlparse
 
 _KAKU_CLI_PREFIX = ["kaku", "cli"]
 
 SplitDirection = Literal["right", "bottom", "left", "top"]
+PaneBackendName = Literal["kaku", "headless"]
+_VALID_BACKEND_NAMES = {"kaku", "headless"}
 
 
 class PaneBackendError(RuntimeError):
@@ -65,6 +68,23 @@ class PaneBackend(Protocol):
     def kill_pane(self, pane_id: int) -> None: ...
 
     def resize_frontmost_window(self) -> None: ...
+
+
+def resolve_pane_backend_name(name: str | None = None) -> PaneBackendName:
+    """Resolve a pane backend name from an explicit value or environment."""
+    raw_value = name if name is not None else os.environ.get("OPENMAX_PANE_BACKEND", "kaku")
+    normalized = raw_value.strip().lower()
+    if normalized not in _VALID_BACKEND_NAMES:
+        raise ValueError(f"Unknown pane backend: {raw_value}")
+    return cast(PaneBackendName, normalized)
+
+
+def create_pane_backend(name: str | None = None) -> PaneBackend:
+    """Create a pane backend instance for the selected backend name."""
+    resolved = resolve_pane_backend_name(name)
+    if resolved == "headless":
+        return HeadlessPaneBackend()
+    return KakuPaneBackend()
 
 
 @dataclass

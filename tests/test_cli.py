@@ -8,10 +8,15 @@ from openmax import cli
 from openmax.agent_registry import AgentDefinition, built_in_agent_registry
 from openmax.lead_agent import LeadAgentStartupError
 from openmax.memory_system import MemoryStore
+from openmax.pane_backend import HeadlessPaneBackend, KakuPaneBackend
 from openmax.session_runtime import SessionStore, anchor_payload
 
 
 class DummyPaneManager:
+    def __init__(self, *args, **kwargs) -> None:
+        self.args = args
+        self.kwargs = kwargs
+
     def summary(self) -> dict:
         return {"total_windows": 0, "done": 0}
 
@@ -37,6 +42,7 @@ def test_run_help():
     assert "--keep-panes" in result.output
     assert "--session-id" in result.output
     assert "--agents" in result.output
+    assert "--pane-backend" in result.output
 
 
 def test_resume_requires_session_id():
@@ -79,6 +85,57 @@ def test_run_forwards_session_options(monkeypatch, tmp_path):
     assert captured["session_id"] == "sess-123"
     assert captured["resume"] is True
     assert captured["cwd"] == str(tmp_path.resolve())
+
+
+def test_run_uses_headless_backend_without_checking_kaku(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        cli,
+        "ensure_kaku",
+        lambda: (_ for _ in ()).throw(AssertionError("ensure_kaku should not run")),
+    )
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+
+    captured: dict[str, object] = {}
+
+    def fake_run_lead_agent(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(subtasks=[])
+
+    monkeypatch.setattr(cli, "run_lead_agent", fake_run_lead_agent)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        ["run", "Build feature", "--cwd", str(tmp_path), "--pane-backend", "headless"],
+    )
+
+    assert result.exit_code == 0
+    assert isinstance(captured["pane_mgr"]._backend, HeadlessPaneBackend)
+
+
+def test_run_uses_kaku_backend_by_default(monkeypatch, tmp_path):
+    ensure_calls: list[str] = []
+    monkeypatch.setattr(
+        cli,
+        "ensure_kaku",
+        lambda: ensure_calls.append("called") or True,
+    )
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+
+    captured: dict[str, object] = {}
+
+    def fake_run_lead_agent(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(subtasks=[])
+
+    monkeypatch.setattr(cli, "run_lead_agent", fake_run_lead_agent)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["run", "Build feature", "--cwd", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert ensure_calls == ["called"]
+    assert isinstance(captured["pane_mgr"]._backend, KakuPaneBackend)
 
 
 def test_agents_option_rejects_unknown_type(monkeypatch):
