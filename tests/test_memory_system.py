@@ -277,6 +277,185 @@ def test_agent_rankings_use_explicit_agent_stats_from_structured_memory(tmp_path
     assert "Prefer codex" in context.text
 
 
+def test_agent_scorecard_aggregates_structured_outcomes_for_similar_work(tmp_path):
+    store = MemoryStore(base_dir=tmp_path)
+    cwd = str(tmp_path / "workspace")
+    workspace_path = store._workspace_path(cwd)
+    workspace_path.parent.mkdir(parents=True, exist_ok=True)
+    workspace_path.write_text(
+        json.dumps(
+            {
+                "cwd": cwd,
+                "entries": [
+                    {
+                        "memory_id": "score-codex-1",
+                        "created_at": "2026-03-10T00:00:00+00:00",
+                        "kind": "run_summary",
+                        "task": "Implement src/api/routes.py tests",
+                        "summary": "Structured API route outcomes.",
+                        "workspace_facts": ["Relevant scope: api, routes.py"],
+                        "agent_stats": [
+                            {
+                                "agent_type": "codex",
+                                "success_count": 3,
+                                "failure_count": 0,
+                                "incomplete_count": 0,
+                                "total_count": 3,
+                                "success_rate": 1.0,
+                                "detail": "codex succeeded on 3 of 3 similar subtasks",
+                            }
+                        ],
+                        "metadata": {"code_scope": ["api", "routes.py", "tests"]},
+                    },
+                    {
+                        "memory_id": "score-codex-2",
+                        "created_at": "2026-03-11T00:00:00+00:00",
+                        "kind": "run_summary",
+                        "task": "Refactor src/api/routes.py handlers",
+                        "summary": "More API route outcomes.",
+                        "workspace_facts": ["Relevant scope: api, routes.py"],
+                        "agent_stats": [
+                            {
+                                "agent_type": "codex",
+                                "success_count": 2,
+                                "failure_count": 0,
+                                "incomplete_count": 0,
+                                "total_count": 2,
+                                "success_rate": 1.0,
+                                "detail": "codex succeeded on 2 of 2 similar subtasks",
+                            }
+                        ],
+                        "metadata": {"code_scope": ["api", "routes.py", "handlers"]},
+                    },
+                    {
+                        "memory_id": "score-generic",
+                        "created_at": "2026-03-12T00:00:00+00:00",
+                        "kind": "run_summary",
+                        "task": "Implement src/api/routes.py tests",
+                        "summary": "generic drifted on API route retries.",
+                        "workspace_facts": ["Relevant scope: api, routes.py"],
+                        "agent_stats": [
+                            {
+                                "agent_type": "generic",
+                                "success_count": 0,
+                                "failure_count": 2,
+                                "incomplete_count": 1,
+                                "total_count": 3,
+                                "success_rate": 0.0,
+                                "detail": "generic failed on 2 of 3 similar subtasks",
+                            }
+                        ],
+                        "metadata": {"code_scope": ["api", "routes.py", "tests"]},
+                    },
+                    {
+                        "memory_id": "score-docs",
+                        "created_at": "2026-03-12T12:00:00+00:00",
+                        "kind": "run_summary",
+                        "task": "Refresh docs landing page",
+                        "summary": "Docs outcomes.",
+                        "workspace_facts": ["Relevant scope: docs, index.html"],
+                        "agent_stats": [
+                            {
+                                "agent_type": "claude-code",
+                                "success_count": 4,
+                                "failure_count": 0,
+                                "incomplete_count": 0,
+                                "total_count": 4,
+                                "success_rate": 1.0,
+                                "detail": "claude-code succeeded on 4 of 4 similar subtasks",
+                            }
+                        ],
+                        "metadata": {"code_scope": ["docs", "index.html"]},
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    scorecard = store.derive_agent_scorecard(
+        cwd=cwd,
+        task="Refactor src/api/routes.py tests",
+    )
+
+    assert scorecard
+    assert scorecard[0].agent_type == "codex"
+    assert scorecard[0].success_count == 5
+    assert scorecard[0].total_count == 5
+    assert scorecard[0].success_rate == 1.0
+    assert scorecard[0].recommendation_score > 0
+    assert scorecard[0].reasons[0] == "codex succeeded on 3 of 3 similar subtasks"
+    assert any(item.agent_type == "generic" for item in scorecard)
+    generic = next(item for item in scorecard if item.agent_type == "generic")
+    assert generic.failure_count == 2
+    assert generic.incomplete_count == 1
+    assert generic.recommendation_score < scorecard[0].recommendation_score
+
+
+def test_render_workspace_memories_includes_structured_agent_scorecard(tmp_path):
+    store = MemoryStore(base_dir=tmp_path)
+    cwd = str(tmp_path / "workspace")
+    workspace_path = store._workspace_path(cwd)
+    workspace_path.parent.mkdir(parents=True, exist_ok=True)
+    workspace_path.write_text(
+        json.dumps(
+            {
+                "cwd": cwd,
+                "entries": [
+                    {
+                        "memory_id": "score-codex",
+                        "created_at": "2026-03-10T00:00:00+00:00",
+                        "kind": "run_summary",
+                        "task": "Implement src/api/routes.py tests",
+                        "summary": "Structured feedback captured for API route work.",
+                        "workspace_facts": ["Relevant scope: api, routes.py"],
+                        "agent_stats": [
+                            {
+                                "agent_type": "codex",
+                                "success_count": 3,
+                                "failure_count": 0,
+                                "incomplete_count": 0,
+                                "total_count": 3,
+                                "success_rate": 1.0,
+                                "detail": "codex succeeded on 3 of 3 similar subtasks",
+                            }
+                        ],
+                        "metadata": {"code_scope": ["api", "routes.py", "tests"]},
+                    },
+                    {
+                        "memory_id": "score-generic",
+                        "created_at": "2026-03-11T00:00:00+00:00",
+                        "kind": "run_summary",
+                        "task": "Implement src/api/routes.py tests",
+                        "summary": "Structured feedback captured for API route work.",
+                        "workspace_facts": ["Relevant scope: api, routes.py"],
+                        "agent_stats": [
+                            {
+                                "agent_type": "generic",
+                                "success_count": 0,
+                                "failure_count": 2,
+                                "incomplete_count": 1,
+                                "total_count": 3,
+                                "success_rate": 0.0,
+                                "detail": "generic failed on 2 of 3 similar subtasks",
+                            }
+                        ],
+                        "metadata": {"code_scope": ["api", "routes.py", "tests"]},
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    lines = store.render_workspace_memories(cwd, limit=5)
+
+    assert "Agent scorecard:" in lines
+    assert any("codex" in line and "5.0" not in line for line in lines)
+    assert any("codex" in line and "3/3" in line for line in lines)
+    assert any("generic" in line and "0/3" in line for line in lines)
+
+
 def test_memory_store_loads_legacy_entries_without_structured_fields(tmp_path):
     store = MemoryStore(base_dir=tmp_path)
     cwd = str(tmp_path / "workspace")

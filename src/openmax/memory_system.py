@@ -101,6 +101,18 @@ class AgentRecommendation:
     reasons: list[str] = field(default_factory=list)
 
 
+@dataclass
+class AgentScorecard:
+    agent_type: str
+    recommendation_score: float
+    success_count: int
+    failure_count: int
+    incomplete_count: int
+    total_count: int
+    success_rate: float
+    reasons: list[str] = field(default_factory=list)
+
+
 class MemoryStore:
     """Store and retrieve workspace-scoped memory entries."""
 
@@ -218,6 +230,20 @@ class MemoryStore:
             lines.extend(advice.fact_lines[:2])
             lines.extend(advice.execution_lines[:2])
             lines.extend(advice.risk_lines[:2])
+        scorecard = self.derive_agent_scorecard(cwd=cwd, task="", limit=3)
+        if scorecard:
+            lines.append("Agent scorecard:")
+            for item in scorecard:
+                line = (
+                    f"- {item.agent_type}: "
+                    f"{item.success_count}/{item.total_count} succeeded"
+                )
+                if item.failure_count:
+                    line += f", {item.failure_count} failed"
+                if item.incomplete_count:
+                    line += f", {item.incomplete_count} incomplete"
+                line += f", score {item.recommendation_score:.1f}"
+                lines.append(line)
         for entry in entries:
             suffix = f" ({entry.kind})"
             if entry.completion_pct is not None:
@@ -276,6 +302,118 @@ class MemoryStore:
                 lines.append(f"  {insight}")
 
         return MemoryContext(text="\n".join(lines), matched_entries=len(selected))
+
+    def derive_agent_scorecard(
+        self,
+        *,
+        cwd: str,
+        task: str,
+        entries: list[MemoryEntry] | None = None,
+        limit: int = 4,
+    ) -> list[AgentScorecard]:
+        records = list(entries if entries is not None else self.load_entries(cwd))
+        if not records:
+            return []
+
+        task_terms = _keywords(task)
+        task_scope = infer_code_scope(task)
+        aggregated: dict[str, dict[str, Any]] = {}
+
+        for index, entry in enumerate(records):
+            agent_stats = self._entry_agent_stats(entry)
+            if not agent_stats:
+                continue
+
+            scope_bonus = self._scope_bonus(entry, task_scope)
+            entry_relevance = self._score_entry(entry, task)
+            if task and entry_relevance <= 0 and scope_bonus <= 0:
+                continue
+
+            base_weight = max(float(entry_relevance), 1.0)
+            base_weight += self._recency_bonus(index, len(records))
+
+            for stat in agent_stats:
+                agent = str(stat.get("agent_type", "")).strip()
+                if not agent:
+                    continue
+
+                success_count = max(_coerce_int(stat.get("success_count")) or 0, 0)
+                failure_count = max(_coerce_int(stat.get("failure_count")) or 0, 0)
+                incomplete_count = max(_coerce_int(stat.get("incomplete_count")) or 0, 0)
+                total_count = max(
+                    _coerce_int(stat.get("total_count"))
+                    or success_count + failure_count + incomplete_count,
+                    0,
+                )
+                if total_count <= 0:
+                    continue
+
+                success_rate = stat.get("success_rate")
+                try:
+                    normalized_rate = float(success_rate)
+                except (TypeError, ValueError):
+                    normalized_rate = success_count / total_count
+
+                task_text = " ".join(
+                    str(stat.get(field, ""))
+                    for field in ("detail", "task_name", "prompt", "scope")
+                )
+                overlap = len(task_terms & _keywords(task_text or entry.task))
+                relevance = 1 + overlap if task else 1.0
+                positive_weight = success_count * (base_weight * relevance + 1.5)
+                positive_weight += normalized_rate * (2 + max(scope_bonus, 0.0))
+                negative_weight = failure_count * (base_weight * relevance + 1.0)
+                negative_weight += incomplete_count * max(base_weight * 0.5, 0.5)
+
+                record = aggregated.setdefault(
+                    agent,
+                    {
+                        "agent_type": agent,
+                        "recommendation_score": 0.0,
+                        "success_count": 0,
+                        "failure_count": 0,
+                        "incomplete_count": 0,
+                        "total_count": 0,
+                        "reasons": [],
+                    },
+                )
+                record["recommendation_score"] += positive_weight - negative_weight + scope_bonus
+                record["success_count"] += success_count
+                record["failure_count"] += failure_count
+                record["incomplete_count"] += incomplete_count
+                record["total_count"] += total_count
+
+                detail = str(stat.get("detail", "")).strip()
+                if detail:
+                    record["reasons"].append(detail)
+
+        ranked = sorted(
+            aggregated.values(),
+            key=lambda item: (
+                item["recommendation_score"],
+                item["success_count"],
+                -item["failure_count"],
+                item["total_count"],
+                item["agent_type"],
+            ),
+            reverse=True,
+        )
+        return [
+            AgentScorecard(
+                agent_type=str(item["agent_type"]),
+                recommendation_score=round(float(item["recommendation_score"]), 2),
+                success_count=int(item["success_count"]),
+                failure_count=int(item["failure_count"]),
+                incomplete_count=int(item["incomplete_count"]),
+                total_count=int(item["total_count"]),
+                success_rate=round(
+                    int(item["success_count"]) / max(int(item["total_count"]), 1),
+                    2,
+                ),
+                reasons=_dedupe([str(reason) for reason in item["reasons"]])[:3],
+            )
+            for item in ranked[:limit]
+        ]
 
     def derive_strategy(
         self,
