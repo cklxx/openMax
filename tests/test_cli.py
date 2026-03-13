@@ -389,6 +389,53 @@ def test_runs_command_prints_recent_sessions(monkeypatch, tmp_path):
     assert "phase=monitor" in result.output
 
 
+def test_runs_command_prints_scorecard_signals(monkeypatch, tmp_path):
+    timestamps = iter(
+        [
+            "2026-03-13T12:01:00+00:00",
+            "2026-03-13T12:02:00+00:00",
+            "2026-03-13T12:03:00+00:00",
+        ]
+    )
+    monkeypatch.setattr(session_runtime, "utc_now_iso", lambda: next(timestamps))
+
+    store = SessionStore(base_dir=tmp_path / "sessions")
+    meta = store.create_session("session-scorecard", "Build API", str(tmp_path / "workspace"))
+    meta.status = "completed"
+    meta.latest_phase = "monitor"
+    meta.created_at = "2026-03-13T12:00:00+00:00"
+    meta.updated_at = "2026-03-13T12:00:00+00:00"
+    store._write_meta(meta)
+    store.append_event(
+        meta,
+        "tool.dispatch_agent",
+        {
+            "task_name": "API routes",
+            "agent_type": "codex",
+            "prompt": "Implement API routes",
+            "pane_id": 11,
+        },
+    )
+    store.append_event(meta, "tool.send_text_to_pane", {"pane_id": 11, "text": "Re-run the tests"})
+    store.append_event(
+        meta,
+        "tool.report_completion",
+        {"completion_pct": 100, "notes": "All subtasks closed"},
+    )
+
+    monkeypatch.setattr(cli, "SessionStore", lambda: store)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["runs", "--limit", "1"])
+
+    assert result.exit_code == 0
+    assert "session-scorecard | completed | phase=monitor" in result.output
+    assert (
+        "scorecard=status=completed | completion=100% | duration=180s | "
+        "subtasks=0/1 done | interventions=1 | startup_failure=n/a" in result.output
+    )
+
+
 def test_runs_command_handles_empty_store(monkeypatch, tmp_path):
     store = SessionStore(base_dir=tmp_path / "sessions")
     monkeypatch.setattr(cli, "SessionStore", lambda: store)
@@ -585,8 +632,8 @@ def test_inspect_command_prints_run_scorecard(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert "Scorecard" in result.output
-    assert "status=completed | success=yes | failure=no | completion=100%" in result.output
-    assert "duration=240s | subtasks=1/1 done | interventions=1 | startup_failure=n/a" in result.output
+    assert "status=completed | completion=100% | duration=240s" in result.output
+    assert "subtasks=1/1 done | interventions=1 | startup_failure=n/a" in result.output
 
 
 def test_inspect_command_prints_failure_summary_for_aborted_session(monkeypatch, tmp_path):

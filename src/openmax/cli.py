@@ -59,10 +59,6 @@ def _format_completion(value: int | None) -> str:
     return f"{value}%" if value is not None else "n/a"
 
 
-def _format_duration_seconds(value: int | None) -> str:
-    return f"{value}s" if value is not None else "n/a"
-
-
 def _render_subtask_counts(snapshot: SessionSnapshot) -> str:
     counts = Counter(task.status for task in snapshot.plan.subtasks)
     parts = [f"{len(snapshot.plan.subtasks)} total"]
@@ -83,10 +79,6 @@ def _describe_outcome(snapshot: SessionSnapshot) -> str:
     if snapshot.meta.status == "failed":
         return "Session failed"
     return "Session active"
-
-
-def _yes_no(value: bool) -> str:
-    return "yes" if value else "no"
 
 
 @click.group()
@@ -367,10 +359,15 @@ def runs(status: str | None, limit: int) -> None:
     for meta in sessions:
         latest_phase = meta.latest_phase or "unknown"
         completion = None
+        scorecard_surface: str | None = None
         try:
             snapshot = store.load_snapshot(meta.session_id)
             latest_phase = snapshot.plan.latest_phase or latest_phase
             completion = snapshot.plan.completion_pct
+            scorecard_surface = (
+                f"scorecard={snapshot.plan.scorecard.surface_summary} | "
+                f"{snapshot.plan.scorecard.surface_details}"
+            )
         except RuntimeError:
             pass
         console.print(
@@ -385,6 +382,8 @@ def runs(status: str | None, limit: int) -> None:
                 ]
             )
         )
+        if scorecard_surface is not None:
+            console.print(scorecard_surface, soft_wrap=True, markup=False)
 
 
 @main.command()
@@ -429,27 +428,12 @@ def inspect(session_id: str) -> None:
 
     console.print("[bold]Scorecard[/bold]")
     console.print(
-        " | ".join(
-            [
-                f"status={plan.scorecard.status}",
-                f"success={_yes_no(plan.scorecard.success)}",
-                f"failure={_yes_no(plan.scorecard.failure)}",
-                f"completion={_format_completion(plan.scorecard.completion_pct)}",
-            ]
-        ),
+        plan.scorecard.surface_summary,
         soft_wrap=True,
         markup=False,
     )
     console.print(
-        " | ".join(
-            [
-                f"duration={_format_duration_seconds(plan.scorecard.duration_seconds)}",
-                f"subtasks={plan.scorecard.done_subtask_count}/{plan.scorecard.subtask_count} done",
-                f"interventions={plan.scorecard.manual_intervention_count}",
-                "startup_failure="
-                + (plan.scorecard.startup_failure_category or "n/a"),
-            ]
-        ),
+        plan.scorecard.surface_details,
         soft_wrap=True,
         markup=False,
     )

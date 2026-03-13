@@ -356,9 +356,16 @@ def test_session_store_derives_run_scorecard_from_existing_session_data(monkeypa
     assert snapshot.plan.scorecard.manual_intervention_count == 1
     assert snapshot.plan.scorecard.completion_pct == 100
     assert snapshot.plan.scorecard.startup_failure_category is None
+    assert snapshot.plan.scorecard.surface_summary == "status=completed | completion=100% | duration=240s"
+    assert (
+        snapshot.plan.scorecard.surface_details
+        == "subtasks=1/1 done | interventions=1 | startup_failure=n/a"
+    )
 
 
-def test_session_store_derives_failed_scorecard_for_startup_failure(tmp_path):
+def test_session_store_derives_failed_scorecard_for_startup_failure(monkeypatch, tmp_path):
+    monkeypatch.setattr(session_runtime, "utc_now_iso", lambda: "2026-03-13T12:00:05+00:00")
+
     store = SessionStore(base_dir=tmp_path)
     meta = store.create_session("session-startup-failed", "Bootstrap me", str(tmp_path))
     meta.status = "failed"
@@ -385,3 +392,8 @@ def test_session_store_derives_failed_scorecard_for_startup_failure(tmp_path):
     assert snapshot.plan.scorecard.done_subtask_count == 0
     assert snapshot.plan.scorecard.manual_intervention_count == 0
     assert snapshot.plan.scorecard.startup_failure_category == "authentication"
+    assert snapshot.plan.scorecard.surface_summary == "status=failed | completion=n/a | duration=5s"
+    assert (
+        snapshot.plan.scorecard.surface_details
+        == "subtasks=0/0 done | interventions=0 | startup_failure=authentication"
+    )

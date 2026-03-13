@@ -86,6 +86,26 @@ class RunScorecard:
     completion_pct: int | None = None
     startup_failure_category: str | None = None
 
+    @property
+    def surface_summary(self) -> str:
+        return " | ".join(
+            [
+                f"status={self.status}",
+                f"completion={_format_scorecard_completion(self.completion_pct)}",
+                f"duration={_format_scorecard_duration(self.duration_seconds)}",
+            ]
+        )
+
+    @property
+    def surface_details(self) -> str:
+        return " | ".join(
+            [
+                f"subtasks={self.done_subtask_count}/{self.subtask_count} done",
+                f"interventions={self.manual_intervention_count}",
+                "startup_failure=" + (self.startup_failure_category or "n/a"),
+            ]
+        )
+
 
 @dataclass
 class ReconstructedPlan:
@@ -672,6 +692,14 @@ def _build_run_scorecard(
         completion_pct=completion_pct,
         startup_failure_category=startup_failure_category,
     )
+
+
+def _format_scorecard_completion(value: int | None) -> str:
+    return f"{value}%" if value is not None else "n/a"
+
+
+def _format_scorecard_duration(value: int | None) -> str:
+    return f"{value}s" if value is not None else "n/a"
 
 
 def _resolve_terminal_timestamp(meta: SessionMeta, events: list[LeadEvent]) -> datetime | None:
