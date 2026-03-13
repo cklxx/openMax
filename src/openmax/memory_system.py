@@ -50,6 +50,7 @@ class MemoryEntry:
     workspace_facts: list[str] = field(default_factory=list)
     lessons: list[str] = field(default_factory=list)
     performance_signals: list[dict[str, Any]] = field(default_factory=list)
+    agent_stats: list[dict[str, Any]] = field(default_factory=list)
     confidence: int | None = None
     completion_pct: int | None = None
     source: str = "system"
@@ -71,6 +72,7 @@ class MemoryEntry:
             workspace_facts=_coerce_string_list(item.get("workspace_facts")),
             lessons=_coerce_string_list(item.get("lessons")),
             performance_signals=_coerce_signal_list(item.get("performance_signals")),
+            agent_stats=_coerce_stat_list(item.get("agent_stats")),
             confidence=_coerce_int(item.get("confidence")),
             completion_pct=_coerce_int(item.get("completion_pct")),
             source=str(item.get("source", "system")).strip() or "system",
@@ -174,6 +176,10 @@ class MemoryStore:
                 subtasks=subtasks,
             ),
             performance_signals=_derive_performance_signals(
+                subtasks=subtasks,
+                completion_pct=completion_pct,
+            ),
+            agent_stats=_derive_agent_stats(
                 subtasks=subtasks,
                 completion_pct=completion_pct,
             ),
@@ -412,6 +418,7 @@ class MemoryStore:
                 " ".join(
                     str(signal.get("detail", "")) for signal in entry.performance_signals
                 ),
+                " ".join(str(stat.get("detail", "")) for stat in self._entry_agent_stats(entry)),
             ]
         )
         entry_terms = _keywords(entry_text)
@@ -463,6 +470,51 @@ class MemoryStore:
         reasons: dict[str, list[str]],
     ) -> None:
         scope_bonus = self._scope_bonus(entry, task_scope)
+        agent_stats = self._entry_agent_stats(entry)
+        if agent_stats:
+            for stat in agent_stats:
+                agent = str(stat.get("agent_type", "")).strip()
+                if not agent:
+                    continue
+                task_text = " ".join(
+                    str(stat.get(field, ""))
+                    for field in ("detail", "task_name", "prompt", "scope")
+                )
+                overlap = len(task_terms & _keywords(task_text or entry.task))
+                relevance = 1 + overlap
+                success_count = max(_coerce_int(stat.get("success_count")) or 0, 0)
+                failure_count = max(_coerce_int(stat.get("failure_count")) or 0, 0)
+                incomplete_count = max(_coerce_int(stat.get("incomplete_count")) or 0, 0)
+                total_count = max(
+                    _coerce_int(stat.get("total_count"))
+                    or success_count + failure_count + incomplete_count,
+                    0,
+                )
+                success_rate = stat.get("success_rate")
+                try:
+                    normalized_rate = float(success_rate)
+                except (TypeError, ValueError):
+                    normalized_rate = (
+                        success_count / total_count if total_count else 0.0
+                    )
+
+                positive_weight = success_count * (base_weight * relevance + 1.5)
+                positive_weight += normalized_rate * (2 + max(scope_bonus, 0.0))
+                negative_weight = failure_count * (base_weight * relevance + 1.0)
+                negative_weight += incomplete_count * max(base_weight * 0.5, 0.5)
+                scores[agent] += positive_weight - negative_weight + scope_bonus
+
+                if success_count > 0:
+                    detail = str(stat.get("detail", "")).strip()
+                    reasons[agent].append(
+                        detail
+                        or (
+                            f"{agent} succeeded on {success_count} of "
+                            f"{total_count or success_count} similar subtasks"
+                        )
+                    )
+            return
+
         for signal in self._entry_performance_signals(entry):
             agent = str(signal.get("agent_type", "")).strip()
             if not agent:
@@ -588,6 +640,19 @@ class MemoryStore:
             )
         return signals
 
+    @staticmethod
+    def _entry_agent_stats(entry: MemoryEntry) -> list[dict[str, Any]]:
+        if entry.agent_stats:
+            return entry.agent_stats
+
+        performance_signals = MemoryStore._entry_performance_signals(entry)
+        if not performance_signals:
+            return []
+        return _aggregate_agent_stats(
+            performance_signals=performance_signals,
+            completion_pct=entry.completion_pct,
+        )
+
 
 def serialize_subtasks(tasks: list[Any]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
@@ -691,6 +756,12 @@ def _coerce_signal_list(value: Any) -> list[dict[str, Any]]:
     return [item for item in value if isinstance(item, dict)]
 
 
+def _coerce_stat_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
 def _coerce_int(value: Any) -> int | None:
     if value is None or value == "":
         return None
@@ -756,3 +827,68 @@ def _derive_performance_signals(
             }
         )
     return signals[:8]
+
+
+def _derive_agent_stats(
+    *,
+    subtasks: list[dict[str, Any]],
+    completion_pct: int,
+) -> list[dict[str, Any]]:
+    performance_signals = _derive_performance_signals(
+        subtasks=subtasks,
+        completion_pct=completion_pct,
+    )
+    return _aggregate_agent_stats(
+        performance_signals=performance_signals,
+        completion_pct=completion_pct,
+    )
+
+
+def _aggregate_agent_stats(
+    *,
+    performance_signals: list[dict[str, Any]],
+    completion_pct: int | None,
+) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for signal in performance_signals:
+        agent = str(signal.get("agent_type", "")).strip()
+        if not agent:
+            continue
+        status = str(signal.get("status", "")).strip().lower()
+        record = grouped.setdefault(
+            agent,
+            {
+                "agent_type": agent,
+                "success_count": 0,
+                "failure_count": 0,
+                "incomplete_count": 0,
+                "total_count": 0,
+                "success_rate": 0.0,
+                "completion_pct": completion_pct,
+                "detail": "",
+            },
+        )
+        record["total_count"] += 1
+        if status == "done":
+            record["success_count"] += 1
+        elif status in {"error", "failed"}:
+            record["failure_count"] += 1
+        else:
+            record["incomplete_count"] += 1
+
+    results: list[dict[str, Any]] = []
+    for agent, record in grouped.items():
+        total_count = max(int(record["total_count"]), 1)
+        success_count = int(record["success_count"])
+        failure_count = int(record["failure_count"])
+        record["success_rate"] = round(success_count / total_count, 2)
+        if failure_count:
+            record["detail"] = (
+                f"{agent} failed on {failure_count} of {total_count} similar subtasks"
+            )
+        else:
+            record["detail"] = (
+                f"{agent} succeeded on {success_count} of {total_count} similar subtasks"
+            )
+        results.append(record)
+    return results
