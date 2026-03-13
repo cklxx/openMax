@@ -32,10 +32,14 @@ from openmax.memory_system import MemoryStore, serialize_subtasks
 from openmax.pane_manager import PaneManager
 from openmax.session_runtime import (
     ContextBuilder,
+    LeadAgentRuntime,
     SessionMeta,
     SessionSnapshot,
     SessionStore,
     anchor_payload,
+    bind_lead_agent_runtime,
+    get_lead_agent_runtime,
+    reset_lead_agent_runtime,
     serialize_tasks,
 )
 
@@ -225,49 +229,45 @@ def _format_tool_use(tool_name: str, tool_input: dict[str, Any] | None = None) -
 
 # ── Tool definitions ──────────────────────────────────────────────
 
-# These are module-level so they can capture the shared state via closure
-_pane_mgr: PaneManager | None = None
-_plan: PlanResult | None = None
-_cwd: str = ""
-_agent_window_id: int | None = None  # the shared window for all agent panes
-_session_store: SessionStore | None = None
-_session_meta: SessionMeta | None = None
-_memory_store: MemoryStore | None = None
-_allowed_agents: list[str] | None = None  # None = all allowed; order = preference
-_agent_registry: AgentRegistry = built_in_agent_registry()
+def _runtime() -> LeadAgentRuntime:
+    return get_lead_agent_runtime()
 
 
 def _append_session_event(event_type: str, payload: dict[str, Any] | None = None) -> None:
-    if _session_store is None or _session_meta is None:
+    runtime = _runtime()
+    if runtime.session_store is None or runtime.session_meta is None:
         return
-    _session_store.append_event(_session_meta, event_type, payload)
+    runtime.session_store.append_event(runtime.session_meta, event_type, payload)
 
 
 def _update_session_phase(phase: str | None) -> None:
-    if _session_store is None or _session_meta is None or not phase:
+    runtime = _runtime()
+    if runtime.session_store is None or runtime.session_meta is None or not phase:
         return
-    _session_meta.latest_phase = phase
-    _session_store.save_meta(_session_meta)
+    runtime.session_meta.latest_phase = phase
+    runtime.session_store.save_meta(runtime.session_meta)
 
 
 def _upsert_subtask(subtask: SubTask) -> None:
-    if _plan is None:
+    runtime = _runtime()
+    if runtime.plan is None:
         raise RuntimeError("Lead agent plan is not initialized")
-    for index, existing in enumerate(_plan.subtasks):
+    for index, existing in enumerate(runtime.plan.subtasks):
         if existing.name == subtask.name:
-            _plan.subtasks[index] = subtask
+            runtime.plan.subtasks[index] = subtask
             return
-    _plan.subtasks.append(subtask)
+    runtime.plan.subtasks.append(subtask)
 
 
 def _record_phase_anchor(phase: str, summary: str, completion_pct: int | None = None) -> None:
-    if _plan is None:
+    runtime = _runtime()
+    if runtime.plan is None:
         return
     normalized_phase = phase.strip().lower()
     payload = anchor_payload(
         phase=normalized_phase,
         summary=summary.strip(),
-        tasks=serialize_tasks(_plan.subtasks),
+        tasks=serialize_tasks(runtime.plan.subtasks),
         completion_pct=completion_pct,
     )
     _append_session_event("phase.anchor", payload)
@@ -334,19 +334,20 @@ def _build_lead_prompt(
 
 
 def _remember_run_summary(notes: str, completion_pct: int) -> None:
-    if _memory_store is None or _plan is None:
+    runtime = _runtime()
+    if runtime.memory_store is None or runtime.plan is None:
         return
     anchors: list[dict[str, Any]] = []
-    if _session_store is not None and _session_meta is not None:
-        for event in _session_store.load_events(_session_meta.session_id):
+    if runtime.session_store is not None and runtime.session_meta is not None:
+        for event in runtime.session_store.load_events(runtime.session_meta.session_id):
             if event.event_type == "phase.anchor":
                 anchors.append(event.payload)
-    _memory_store.record_run_summary(
-        cwd=_cwd,
-        task=_plan.goal,
+    runtime.memory_store.record_run_summary(
+        cwd=runtime.cwd,
+        task=runtime.plan.goal,
         notes=notes,
         completion_pct=completion_pct,
-        subtasks=serialize_subtasks(_plan.subtasks),
+        subtasks=serialize_subtasks(runtime.plan.subtasks),
         anchors=anchors,
     )
 
@@ -427,10 +428,11 @@ def _classify_startup_failure(exc: Exception, stage: str) -> LeadAgentStartupErr
     {"task": str},
 )
 async def get_agent_recommendations(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
     task = args["task"]
-    if _memory_store is None:
+    if runtime.memory_store is None:
         return {"content": [{"type": "text", "text": "[]"}]}
-    rankings = _memory_store.derive_agent_rankings(cwd=_cwd, task=task)
+    rankings = runtime.memory_store.derive_agent_rankings(cwd=runtime.cwd, task=task)
     payload = [
         {
             "agent_type": item.agent_type,
@@ -453,60 +455,59 @@ async def get_agent_recommendations(args: dict[str, Any]) -> dict[str, Any]:
     },
 )
 async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
     task_name = args["task_name"]
     agent_type = args.get("agent_type", "claude-code")
     prompt = args["prompt"]
 
-    global _agent_window_id
-
     # Enforce allowed agents constraint
-    if _allowed_agents:
-        if agent_type not in _allowed_agents:
-            fallback = _allowed_agents[0]
+    if runtime.allowed_agents:
+        if agent_type not in runtime.allowed_agents:
+            fallback = runtime.allowed_agents[0]
             console.print(
                 f"  [yellow]⚠[/yellow] Agent '{agent_type}' not allowed, using '{fallback}' instead"
             )
             agent_type = fallback
 
-    adapter = _agent_registry.get(agent_type)
+    adapter = runtime.agent_registry.get(agent_type)
     if adapter is None:
-        fallback = _agent_registry.default_agent_name()
+        fallback = runtime.agent_registry.default_agent_name()
         if fallback is None:
             raise RuntimeError("No agents are configured")
         console.print(
             f"  [yellow]⚠[/yellow] Agent '{agent_type}' not configured, using '{fallback}' instead"
         )
         agent_type = fallback
-        adapter = _agent_registry.get(agent_type)
+        adapter = runtime.agent_registry.get(agent_type)
     if adapter is None:
         raise RuntimeError(f"Agent '{agent_type}' is unavailable")
 
-    cmd_spec = adapter.get_command(prompt, cwd=_cwd)
+    cmd_spec = adapter.get_command(prompt, cwd=runtime.cwd)
 
-    if _agent_window_id is None:
+    if runtime.agent_window_id is None:
         # First agent → create a new window
-        pane = _pane_mgr.create_window(
+        pane = runtime.pane_mgr.create_window(
             command=cmd_spec.launch_cmd,
             purpose=task_name,
             agent_type=agent_type,
-            title=f"openMax: {_plan.goal[:40]}",
-            cwd=_cwd,
+            title=f"openMax: {runtime.plan.goal[:40]}",
+            cwd=runtime.cwd,
         )
-        _agent_window_id = pane.window_id
+        runtime.agent_window_id = pane.window_id
     else:
         # Subsequent agents → add pane to the same window (auto layout)
-        pane = _pane_mgr.add_pane(
-            window_id=_agent_window_id,
+        pane = runtime.pane_mgr.add_pane(
+            window_id=runtime.agent_window_id,
             command=cmd_spec.launch_cmd,
             purpose=task_name,
             agent_type=agent_type,
-            cwd=_cwd,
+            cwd=runtime.cwd,
         )
 
     # For interactive agents, send the initial prompt after CLI starts
     if cmd_spec.interactive and cmd_spec.initial_input:
         await anyio.sleep(cmd_spec.ready_delay_seconds)
-        _pane_mgr.send_text(pane.pane_id, cmd_spec.initial_input)
+        runtime.pane_mgr.send_text(pane.pane_id, cmd_spec.initial_input)
 
     subtask = SubTask(
         name=task_name,
@@ -518,12 +519,12 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     _upsert_subtask(subtask)
 
     # Show layout info
-    win = _pane_mgr.windows.get(_agent_window_id)
+    win = runtime.pane_mgr.windows.get(runtime.agent_window_id)
     pane_count = len(win.pane_ids) if win else 1
     console.print(
         f"  [green]✓[/green] Dispatched [bold]{task_name}[/bold] "
         f"→ pane {pane.pane_id} ({agent_type}) "
-        f"[dim][window {_agent_window_id}, {pane_count} panes][/dim]"
+        f"[dim][window {runtime.agent_window_id}, {pane_count} panes][/dim]"
     )
     _append_session_event(
         "tool.dispatch_agent",
@@ -532,7 +533,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
             "agent_type": agent_type,
             "prompt": prompt,
             "pane_id": pane.pane_id,
-            "window_id": _agent_window_id,
+            "window_id": runtime.agent_window_id,
             "panes_in_window": pane_count,
         },
     )
@@ -545,7 +546,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
                     {
                         "status": "dispatched",
                         "pane_id": pane.pane_id,
-                        "window_id": _agent_window_id,
+                        "window_id": runtime.agent_window_id,
                         "agent_type": agent_type,
                         "task_name": task_name,
                         "panes_in_window": pane_count,
@@ -562,9 +563,10 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     {"pane_id": int},
 )
 async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
     pane_id = args["pane_id"]
     try:
-        text = _pane_mgr.get_text(pane_id)
+        text = runtime.pane_mgr.get_text(pane_id)
         lines = text.splitlines()
         if len(lines) > 150:
             text = "\n".join(lines[-150:])
@@ -586,9 +588,10 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
     {"pane_id": int, "text": str},
 )
 async def send_text_to_pane(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
     pane_id = args["pane_id"]
     text = args["text"]
-    _pane_mgr.send_text(pane_id, text)
+    runtime.pane_mgr.send_text(pane_id, text)
     console.print(f"  [yellow]→[/yellow] Sent to pane {pane_id}: {text[:80]}")
     _append_session_event(
         "tool.send_text_to_pane",
@@ -606,8 +609,9 @@ async def send_text_to_pane(args: dict[str, Any]) -> dict[str, Any]:
     {},
 )
 async def list_managed_panes(args: dict[str, Any]) -> dict[str, Any]:
-    _pane_mgr.refresh_states()
-    summary = _pane_mgr.summary()
+    runtime = _runtime()
+    runtime.pane_mgr.refresh_states()
+    summary = runtime.pane_mgr.summary()
     return {"content": [{"type": "text", "text": json.dumps(summary, ensure_ascii=False)}]}
 
 
@@ -617,8 +621,9 @@ async def list_managed_panes(args: dict[str, Any]) -> dict[str, Any]:
     {"task_name": str},
 )
 async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
     task_name = args["task_name"]
-    for st in _plan.subtasks:
+    for st in runtime.plan.subtasks:
         if st.name == task_name:
             st.status = TaskStatus.DONE
             console.print(f"  [green]✓✓[/green] [bold]{task_name}[/bold] done")
@@ -652,14 +657,15 @@ async def record_phase_anchor(args: dict[str, Any]) -> dict[str, Any]:
     {"lesson": str, "rationale": str, "confidence": int},
 )
 async def remember_learning(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
     lesson = args["lesson"]
     rationale = args.get("rationale", "")
     confidence = args.get("confidence")
-    if _memory_store is None:
+    if runtime.memory_store is None:
         return {"content": [{"type": "text", "text": "Memory store unavailable"}]}
-    _memory_store.record_lesson(
-        cwd=_cwd,
-        task=_plan.goal,
+    runtime.memory_store.record_lesson(
+        cwd=runtime.cwd,
+        task=runtime.plan.goal,
         lesson=lesson,
         rationale=rationale,
         confidence=confidence,
@@ -748,144 +754,143 @@ async def _run_lead_agent_async(
     allowed_agents: list[str] | None = None,
     agent_registry: AgentRegistry | None = None,
 ) -> PlanResult:
-    global _pane_mgr, _plan, _cwd, _agent_window_id, _session_store, _session_meta
-    global _memory_store, _allowed_agents, _agent_registry
-
-    _pane_mgr = pane_mgr
-    _cwd = cwd
     normalized_cwd = str(Path(cwd).resolve())
-    _agent_window_id = None
-    _session_store = None
-    _session_meta = None
-    _memory_store = MemoryStore()
-    _allowed_agents = allowed_agents
-    _agent_registry = agent_registry or built_in_agent_registry()
-
-    resume_context: str | None = None
-    memory_context = _memory_store.build_context(cwd=cwd, task=task)
-    if session_id:
-        _session_store = SessionStore()
-        if resume:
-            snapshot = _session_store.load_snapshot(session_id)
-            _session_meta = snapshot.meta
-            _session_meta.status = "active"
-            _session_store.save_meta(_session_meta)
-            _plan = _plan_from_snapshot(snapshot)
-
-            mismatch_details: list[str] = []
-            if snapshot.meta.task != task:
-                mismatch_details.append(f"task requested='{task}' stored='{snapshot.meta.task}'")
-            if snapshot.meta.cwd != normalized_cwd:
-                mismatch_details.append(
-                    f"cwd requested='{normalized_cwd}' stored='{snapshot.meta.cwd}'"
-                )
-            if mismatch_details:
-                details = "; ".join(mismatch_details)
-                console.print(f"[yellow]Resuming session with mismatch:[/yellow] {details}")
-                _append_session_event(
-                    "session.resume_mismatch",
-                    {
-                        "details": details,
-                        "requested_task": task,
-                        "stored_task": snapshot.meta.task,
-                        "requested_cwd": normalized_cwd,
-                        "stored_cwd": snapshot.meta.cwd,
-                    },
-                )
-
-            context_result = ContextBuilder().build_prompt_context(snapshot)
-            resume_context = context_result.text
-            if context_result.compaction_summary:
-                _append_session_event(
-                    "context.compacted",
-                    {"summary": context_result.compaction_summary},
-                )
-        else:
-            _session_meta = _session_store.create_session(session_id, task, cwd)
-            _plan = PlanResult(goal=task)
-            _append_session_event("session.started", {"task": task, "cwd": cwd})
-            _append_session_event("user.goal_received", {"task": task})
-    else:
-        _plan = PlanResult(goal=task)
-
-    # Create SDK MCP server with our tools
-    server = create_sdk_mcp_server(
-        name="openmax",
-        version="0.1.0",
-        tools=[
-            dispatch_agent,
-            get_agent_recommendations,
-            read_pane_output,
-            send_text_to_pane,
-            list_managed_panes,
-            mark_task_done,
-            record_phase_anchor,
-            remember_learning,
-            report_completion,
-            wait_tool,
-        ],
-    )
-
-    tool_names = [
-        "mcp__openmax__dispatch_agent",
-        "mcp__openmax__get_agent_recommendations",
-        "mcp__openmax__read_pane_output",
-        "mcp__openmax__send_text_to_pane",
-        "mcp__openmax__list_managed_panes",
-        "mcp__openmax__mark_task_done",
-        "mcp__openmax__record_phase_anchor",
-        "mcp__openmax__remember_learning",
-        "mcp__openmax__report_completion",
-        "mcp__openmax__wait",
-    ]
-
-    options = ClaudeAgentOptions(
-        system_prompt=_load_system_prompt(),
-        mcp_servers={"openmax": server},
-        allowed_tools=tool_names,
-        disallowed_tools=[
-            "Read",
-            "Write",
-            "Edit",
-            "Bash",
-            "Glob",
-            "Grep",
-            "Agent",
-            "NotebookEdit",
-            "WebFetch",
-            "WebSearch",
-        ],
-        max_turns=max_turns,
+    runtime = LeadAgentRuntime(
         cwd=cwd,
-        permission_mode="bypassPermissions",
-        env={"CLAUDECODE": ""},
-    )
-    if model:
-        options.model = model
-
-    prompt = _build_lead_prompt(
-        task,
-        cwd,
-        session_id,
-        resume_context,
-        memory_context.text if memory_context else None,
+        plan=PlanResult(goal=task),
+        pane_mgr=pane_mgr,
+        memory_store=MemoryStore(),
         allowed_agents=allowed_agents,
+        agent_registry=agent_registry or built_in_agent_registry(),
     )
-
-    console.print(
-        Panel(
-            f"[bold]Goal:[/bold] {task}"
-            + (f"\n[bold]Session:[/bold] {session_id}" if session_id else "")
-            + ("\n[bold]Mode:[/bold] resume" if resume else ""),
-            title="openMax Lead Agent",
-            border_style="blue",
-        )
-    )
+    token = bind_lead_agent_runtime(runtime)
 
     startup_stage = "sdk_client_startup"
     startup_complete = False
     try:
+<<<<<<< HEAD
         startup_stage = "sdk_client_startup"
+=======
+        resume_context: str | None = None
+        memory_context = runtime.memory_store.build_context(cwd=cwd, task=task)
+        if session_id:
+            runtime.session_store = SessionStore()
+            if resume:
+                snapshot = runtime.session_store.load_snapshot(session_id)
+                runtime.session_meta = snapshot.meta
+                runtime.session_meta.status = "active"
+                runtime.session_store.save_meta(runtime.session_meta)
+                runtime.plan = _plan_from_snapshot(snapshot)
+
+                mismatch_details: list[str] = []
+                if snapshot.meta.task != task:
+                    mismatch_details.append(f"task requested='{task}' stored='{snapshot.meta.task}'")
+                if snapshot.meta.cwd != normalized_cwd:
+                    mismatch_details.append(
+                        f"cwd requested='{normalized_cwd}' stored='{snapshot.meta.cwd}'"
+                    )
+                if mismatch_details:
+                    details = "; ".join(mismatch_details)
+                    console.print(f"[yellow]Resuming session with mismatch:[/yellow] {details}")
+                    _append_session_event(
+                        "session.resume_mismatch",
+                        {
+                            "details": details,
+                            "requested_task": task,
+                            "stored_task": snapshot.meta.task,
+                            "requested_cwd": normalized_cwd,
+                            "stored_cwd": snapshot.meta.cwd,
+                        },
+                    )
+
+                context_result = ContextBuilder().build_prompt_context(snapshot)
+                resume_context = context_result.text
+                if context_result.compaction_summary:
+                    _append_session_event(
+                        "context.compacted",
+                        {"summary": context_result.compaction_summary},
+                    )
+            else:
+                runtime.session_meta = runtime.session_store.create_session(session_id, task, cwd)
+                runtime.plan = PlanResult(goal=task)
+                _append_session_event("session.started", {"task": task, "cwd": cwd})
+                _append_session_event("user.goal_received", {"task": task})
+
+        # Create SDK MCP server with our tools
+        server = create_sdk_mcp_server(
+            name="openmax",
+            version="0.1.0",
+            tools=[
+                dispatch_agent,
+                get_agent_recommendations,
+                read_pane_output,
+                send_text_to_pane,
+                list_managed_panes,
+                mark_task_done,
+                record_phase_anchor,
+                remember_learning,
+                report_completion,
+                wait_tool,
+            ],
+        )
+
+        tool_names = [
+            "mcp__openmax__dispatch_agent",
+            "mcp__openmax__get_agent_recommendations",
+            "mcp__openmax__read_pane_output",
+            "mcp__openmax__send_text_to_pane",
+            "mcp__openmax__list_managed_panes",
+            "mcp__openmax__mark_task_done",
+            "mcp__openmax__record_phase_anchor",
+            "mcp__openmax__remember_learning",
+            "mcp__openmax__report_completion",
+            "mcp__openmax__wait",
+        ]
+
+        options = ClaudeAgentOptions(
+            system_prompt=_load_system_prompt(),
+            mcp_servers={"openmax": server},
+            allowed_tools=tool_names,
+            disallowed_tools=[
+                "Read",
+                "Write",
+                "Edit",
+                "Bash",
+                "Glob",
+                "Grep",
+                "Agent",
+                "NotebookEdit",
+                "WebFetch",
+                "WebSearch",
+            ],
+            max_turns=max_turns,
+            cwd=cwd,
+            permission_mode="bypassPermissions",
+            env={"CLAUDECODE": ""},
+        )
+        if model:
+            options.model = model
+
+        prompt = _build_lead_prompt(
+            task,
+            cwd,
+            session_id,
+            resume_context,
+            memory_context.text if memory_context else None,
+            allowed_agents=allowed_agents,
+        )
+
+        console.print(
+            Panel(
+                f"[bold]Goal:[/bold] {task}"
+                + (f"\n[bold]Session:[/bold] {session_id}" if session_id else "")
+                + ("\n[bold]Mode:[/bold] resume" if resume else ""),
+                title="openMax Lead Agent",
+                border_style="blue",
+            )
+        )
+
+>>>>>>> 63446b5 (Refactor lead agent runtime state)
         async with ClaudeSDKClient(options=options) as client:
             startup_stage = "prompt_submission"
             await client.query(prompt)
@@ -913,26 +918,26 @@ async def _run_lead_agent_async(
                         )
                     )
 
-        if _session_meta is not None and _session_store is not None:
-            _session_meta.status = "completed"
-            _session_store.save_meta(_session_meta)
+        if runtime.session_meta is not None and runtime.session_store is not None:
+            runtime.session_meta.status = "completed"
+            runtime.session_store.save_meta(runtime.session_meta)
             _append_session_event(
                 "session.completed",
                 {
-                    "total_subtasks": len(_plan.subtasks),
+                    "total_subtasks": len(runtime.plan.subtasks),
                     "done_subtasks": len(
-                        [t for t in _plan.subtasks if t.status == TaskStatus.DONE]
+                        [t for t in runtime.plan.subtasks if t.status == TaskStatus.DONE]
                     ),
                 },
             )
-        return _plan
+        return runtime.plan
     except Exception as exc:
         startup_failure = None if startup_complete else _classify_startup_failure(exc, startup_stage)
         if startup_failure is not None:
             console.print(Panel(startup_failure.console_message(), border_style="red"))
-        if _session_meta is not None and _session_store is not None:
-            _session_meta.status = "failed" if startup_failure is not None else "aborted"
-            _session_store.save_meta(_session_meta)
+        if runtime.session_meta is not None and runtime.session_store is not None:
+            runtime.session_meta.status = "failed" if startup_failure is not None else "aborted"
+            runtime.session_store.save_meta(runtime.session_meta)
             if startup_failure is not None:
                 _append_session_event("session.startup_failed", startup_failure.event_payload())
             else:
@@ -940,3 +945,5 @@ async def _run_lead_agent_async(
         if startup_failure is not None:
             raise startup_failure from exc
         raise
+    finally:
+        reset_lead_agent_runtime(token)

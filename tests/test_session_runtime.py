@@ -1,6 +1,14 @@
 from __future__ import annotations
 
+import pytest
+
 from openmax.session_runtime import ContextBuilder, SessionStore, anchor_payload
+from openmax.session_runtime import (
+    LeadAgentRuntime,
+    bind_lead_agent_runtime,
+    get_lead_agent_runtime,
+    reset_lead_agent_runtime,
+)
 
 
 def test_session_store_reconstructs_plan_from_events(tmp_path):
@@ -145,3 +153,16 @@ def test_session_store_reconstructs_startup_failure_activity(tmp_path):
         "Lead agent startup failed [authentication] during sdk_client_startup: "
         "Authentication required"
     )
+
+
+def test_lead_agent_runtime_binding_is_scoped():
+    runtime = LeadAgentRuntime(cwd="/tmp/workspace", plan=None, pane_mgr=None)
+    token = bind_lead_agent_runtime(runtime)
+
+    try:
+        assert get_lead_agent_runtime() is runtime
+    finally:
+        reset_lead_agent_runtime(token)
+
+    with pytest.raises(RuntimeError, match="not initialized"):
+        get_lead_agent_runtime()

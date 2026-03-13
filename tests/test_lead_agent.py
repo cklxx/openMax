@@ -9,7 +9,12 @@ from openmax.adapters.subprocess_adapter import SubprocessAdapter
 from openmax.agent_registry import AgentDefinition, built_in_agent_registry
 from openmax.lead_agent import LeadAgentStartupError, PlanResult, SubTask, TaskStatus
 from openmax.memory_system import MemoryStore
-from openmax.session_runtime import SessionStore
+from openmax.session_runtime import (
+    LeadAgentRuntime,
+    SessionStore,
+    bind_lead_agent_runtime,
+    reset_lead_agent_runtime,
+)
 
 
 class DummyPaneManager:
@@ -49,25 +54,21 @@ def _setup_session(tmp_path):
     store = SessionStore(base_dir=tmp_path)
     meta = store.create_session("lead-test", "Goal", str(tmp_path))
     memory_store = MemoryStore(base_dir=tmp_path / "memory")
-    lead_agent._session_store = store
-    lead_agent._session_meta = meta
-    lead_agent._memory_store = memory_store
-    lead_agent._plan = PlanResult(goal="Goal")
-    lead_agent._cwd = str(tmp_path)
-    lead_agent._agent_window_id = None
-    lead_agent._pane_mgr = DummyPaneManager()
-    lead_agent._agent_registry = built_in_agent_registry()
-    return store, meta, memory_store
+    runtime = LeadAgentRuntime(
+        cwd=str(tmp_path),
+        plan=PlanResult(goal="Goal"),
+        pane_mgr=DummyPaneManager(),
+        session_store=store,
+        session_meta=meta,
+        memory_store=memory_store,
+        agent_registry=built_in_agent_registry(),
+    )
+    token = bind_lead_agent_runtime(runtime)
+    return runtime, token, store, meta, memory_store
 
 
-def _teardown_session():
-    lead_agent._session_store = None
-    lead_agent._session_meta = None
-    lead_agent._memory_store = None
-    lead_agent._plan = None
-    lead_agent._pane_mgr = None
-    lead_agent._agent_window_id = None
-    lead_agent._agent_registry = built_in_agent_registry()
+def _teardown_session(token):
+    reset_lead_agent_runtime(token)
 
 
 class FailingClaudeClient:
@@ -96,7 +97,7 @@ class FailingClaudeClient:
 
 
 def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
-    store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
     monkeypatch.setattr(lead_agent.anyio, "sleep", _no_sleep)
 
     anyio.run(
@@ -106,7 +107,7 @@ def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
 
     events = store.load_events("lead-test")
     assert any(event.event_type == "tool.dispatch_agent" for event in events)
-    assert lead_agent._plan.subtasks == [
+    assert runtime.plan.subtasks == [
         SubTask(
             name="API",
             agent_type="generic",
@@ -115,9 +116,9 @@ def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
             pane_id=101,
         )
     ]
-    assert lead_agent._pane_mgr.sent == [(101, "Implement API")]
+    assert runtime.pane_mgr.sent == [(101, "Implement API")]
 
-    _teardown_session()
+    _teardown_session(token)
 
 
 def test_format_tool_use_humanizes_all_openmax_tools():
@@ -195,9 +196,9 @@ def test_format_tool_use_humanizes_all_openmax_tools():
 
 
 def test_dispatch_agent_enforces_allowed_agents(monkeypatch, tmp_path):
-    _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
     monkeypatch.setattr(lead_agent.anyio, "sleep", _no_sleep)
-    lead_agent._allowed_agents = ["codex"]
+    runtime.allowed_agents = ["codex"]
 
     result = anyio.run(
         lead_agent.dispatch_agent.handler,
@@ -205,20 +206,20 @@ def test_dispatch_agent_enforces_allowed_agents(monkeypatch, tmp_path):
     )
 
     # Should have fallen back to codex (first in allowed list)
-    subtask = lead_agent._plan.subtasks[0]
+    subtask = runtime.plan.subtasks[0]
     assert subtask.agent_type == "codex"
     import json
 
     dispatched = json.loads(result["content"][0]["text"])
     assert dispatched["agent_type"] == "codex"
 
-    lead_agent._allowed_agents = None
-    _teardown_session()
+    runtime.allowed_agents = None
+    _teardown_session(token)
 
 
 def test_report_completion_writes_report_and_anchor(tmp_path):
-    store, meta, memory_store = _setup_session(tmp_path)
-    lead_agent._plan.subtasks.append(
+    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
+    runtime.plan.subtasks.append(
         SubTask(
             name="API",
             agent_type="codex",
@@ -241,11 +242,11 @@ def test_report_completion_writes_report_and_anchor(tmp_path):
     assert memories
     assert memories[-1].kind == "run_summary"
 
-    _teardown_session()
+    _teardown_session(token)
 
 
 def test_remember_learning_stores_workspace_memory(tmp_path):
-    _store, _meta, memory_store = _setup_session(tmp_path)
+    _runtime, token, _store, _meta, memory_store = _setup_session(tmp_path)
 
     anyio.run(
         lead_agent.remember_learning.handler,
@@ -261,11 +262,11 @@ def test_remember_learning_stores_workspace_memory(tmp_path):
     assert memories[-1].kind == "lesson"
     assert memories[-1].summary == "Prefer codex for API work."
 
-    _teardown_session()
+    _teardown_session(token)
 
 
 def test_get_agent_recommendations_returns_ranked_json(tmp_path):
-    _store, _meta, memory_store = _setup_session(tmp_path)
+    _runtime, token, _store, _meta, memory_store = _setup_session(tmp_path)
     memory_store.record_run_summary(
         cwd=str(tmp_path),
         task="Build API endpoints",
@@ -289,18 +290,18 @@ def test_get_agent_recommendations_returns_ranked_json(tmp_path):
 
     assert "codex" in result["content"][0]["text"]
 
-    _teardown_session()
+    _teardown_session(token)
 
 
 def test_dispatch_agent_uses_configured_custom_agent(monkeypatch, tmp_path):
-    _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
     sleep_calls: list[float] = []
 
     async def fake_sleep(seconds: float) -> None:
         sleep_calls.append(seconds)
 
     monkeypatch.setattr(lead_agent.anyio, "sleep", fake_sleep)
-    lead_agent._agent_registry = built_in_agent_registry().with_definition(
+    runtime.agent_registry = built_in_agent_registry().with_definition(
         AgentDefinition(
             name="remote-codex",
             adapter=SubprocessAdapter(
@@ -318,28 +319,28 @@ def test_dispatch_agent_uses_configured_custom_agent(monkeypatch, tmp_path):
         {"task_name": "Remote API", "agent_type": "remote-codex", "prompt": "Implement API"},
     )
 
-    assert lead_agent._pane_mgr.created_commands == [
+    assert runtime.pane_mgr.created_commands == [
         ["ssh", "devbox", "bash", "-lc", f"cd {tmp_path!s} && codex"]
     ]
     assert sleep_calls == [9]
-    assert lead_agent._pane_mgr.sent == [(101, "Implement API")]
+    assert runtime.pane_mgr.sent == [(101, "Implement API")]
 
-    _teardown_session()
+    _teardown_session(token)
 
 
 def test_dispatch_agent_falls_back_when_agent_not_configured(monkeypatch, tmp_path):
-    _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
     monkeypatch.setattr(lead_agent.anyio, "sleep", _no_sleep)
-    lead_agent._agent_registry = built_in_agent_registry()
+    runtime.agent_registry = built_in_agent_registry()
 
     anyio.run(
         lead_agent.dispatch_agent.handler,
         {"task_name": "API", "agent_type": "missing-agent", "prompt": "Implement API"},
     )
 
-    assert lead_agent._plan.subtasks[0].agent_type == "claude-code"
+    assert runtime.plan.subtasks[0].agent_type == "claude-code"
 
-    _teardown_session()
+    _teardown_session(token)
 
 
 def test_run_lead_agent_records_structured_auth_startup_failure(monkeypatch, tmp_path):

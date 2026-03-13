@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from contextvars import ContextVar, Token
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -95,6 +96,42 @@ class SessionSnapshot:
 class ContextBuildResult:
     text: str
     compaction_summary: str | None = None
+
+
+@dataclass
+class LeadAgentRuntime:
+    """Mutable runtime state for a single lead-agent session."""
+
+    cwd: str
+    plan: Any
+    pane_mgr: Any
+    agent_window_id: int | None = None
+    session_store: SessionStore | None = None
+    session_meta: SessionMeta | None = None
+    memory_store: Any | None = None
+    allowed_agents: list[str] | None = None
+    agent_registry: Any | None = None
+
+
+_lead_agent_runtime: ContextVar[LeadAgentRuntime | None] = ContextVar(
+    "openmax_lead_agent_runtime",
+    default=None,
+)
+
+
+def bind_lead_agent_runtime(runtime: LeadAgentRuntime) -> Token[LeadAgentRuntime | None]:
+    return _lead_agent_runtime.set(runtime)
+
+
+def reset_lead_agent_runtime(token: Token[LeadAgentRuntime | None]) -> None:
+    _lead_agent_runtime.reset(token)
+
+
+def get_lead_agent_runtime() -> LeadAgentRuntime:
+    runtime = _lead_agent_runtime.get()
+    if runtime is None:
+        raise RuntimeError("Lead agent runtime is not initialized")
+    return runtime
 
 
 class SessionStore:
