@@ -448,7 +448,9 @@ class ContextBuilder:
                 continue
 
             if event_type == "session.completed":
-                completion_pct = completion_pct if completion_pct is not None else 100
+                # Only keep an explicit completion_pct; never fabricate 100%.
+                # If no report_completion was called, we infer from subtask
+                # ratios later — assuming 100% hides false-complete runs.
                 outcome_summary = "Session completed"
                 recent_activity.append(outcome_summary)
                 continue
@@ -480,7 +482,15 @@ class ContextBuilder:
                     recent_activity.append(f"Compacted context: {summary}")
 
         if completion_pct is None and meta.status == "completed":
-            completion_pct = 100
+            # Infer from subtask ratios instead of blindly claiming 100%.
+            # This prevents false-complete reporting when the lead agent
+            # finishes without calling report_completion (crash, timeout,
+            # or skipped verification).
+            total = len(tasks)
+            done = sum(1 for t in tasks.values() if t.status == "done")
+            if total > 0:
+                completion_pct = int(done / total * 100)
+            # If no subtasks exist either, leave as None → shows "n/a".
 
         scorecard = _build_run_scorecard(
             meta=meta,

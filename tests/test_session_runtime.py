@@ -417,3 +417,64 @@ def test_session_store_derives_failed_scorecard_for_startup_failure(monkeypatch,
         snapshot.plan.scorecard.surface_details
         == "subtasks=0/0 done | interventions=0 | startup_failure=authentication"
     )
+
+
+def test_completed_session_without_report_completion_infers_from_subtasks(tmp_path):
+    """A session that completes without calling report_completion should NOT
+    silently claim 100%.  Instead, completion_pct should be inferred from the
+    ratio of done subtasks — preventing false-complete reporting."""
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("session-no-report", "Build API", str(tmp_path))
+    meta.status = "completed"
+    store._write_meta(meta)
+
+    # Dispatch two subtasks, only mark one done.
+    store.append_event(
+        meta,
+        "tool.dispatch_agent",
+        {
+            "task_name": "backend",
+            "agent_type": "codex",
+            "prompt": "Build backend",
+            "pane_id": 1,
+        },
+    )
+    store.append_event(
+        meta,
+        "tool.dispatch_agent",
+        {
+            "task_name": "frontend",
+            "agent_type": "claude-code",
+            "prompt": "Build frontend",
+            "pane_id": 2,
+        },
+    )
+    store.append_event(meta, "tool.mark_task_done", {"task_name": "backend"})
+    # No report_completion call — session just ended.
+    store.append_event(
+        meta,
+        "session.completed",
+        {"total_subtasks": 2, "done_subtasks": 1},
+    )
+
+    snapshot = store.load_snapshot("session-no-report")
+
+    # Should be 50% (1/2 done), NOT 100%.
+    assert snapshot.plan.completion_pct == 50
+    assert snapshot.plan.scorecard.completion_pct == 50
+
+
+def test_completed_session_no_subtasks_no_report_shows_none(tmp_path):
+    """A completed session with no subtasks and no report_completion should
+    show completion as None (n/a), not 100%."""
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("session-empty", "Quick task", str(tmp_path))
+    meta.status = "completed"
+    store._write_meta(meta)
+
+    store.append_event(meta, "session.completed", {})
+
+    snapshot = store.load_snapshot("session-empty")
+
+    assert snapshot.plan.completion_pct is None
+    assert snapshot.plan.scorecard.completion_pct is None
