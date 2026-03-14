@@ -17,6 +17,7 @@ from openmax.adapters import (
     AgentAdapter,
     ClaudeCodeAdapter,
     CodexAdapter,
+    EnvVarReference,
     OpenCodeAdapter,
     SubprocessAdapter,
 )
@@ -168,6 +169,8 @@ def _definition_from_config(name: str, config: object, path: Path) -> AgentDefin
             f"Invalid config for agent '{name}' in {path}: startup_delay must be >= 0"
         )
 
+    env_refs = _parse_env_config(name, config.get("env", {}), path)
+
     if not interactive and not any("{prompt}" in item or "{prompt_sh}" in item for item in command):
         raise AgentConfigError(
             f"Invalid config for agent '{name}' in {path}: non-interactive commands must include "
@@ -179,5 +182,21 @@ def _definition_from_config(name: str, config: object, path: Path) -> AgentDefin
         command_template=command,
         is_interactive=interactive,
         startup_delay=float(startup_delay),
+        env=env_refs,
     )
     return AgentDefinition(name=name, adapter=adapter, source=str(path), built_in=False)
+
+
+def _parse_env_config(name: str, raw_env: object, path: Path) -> dict[str, EnvVarReference]:
+    if not isinstance(raw_env, dict):
+        raise AgentConfigError(f"Invalid config for agent '{name}' in {path}: env must be a table")
+
+    env_refs: dict[str, EnvVarReference] = {}
+    for env_name, value in raw_env.items():
+        if not isinstance(value, dict) or set(value) != {"env"} or not isinstance(value["env"], str):
+            raise AgentConfigError(
+                f"Invalid config for agent '{name}' in {path}: env.{env_name} must use "
+                '{ env = "SOURCE_ENV_VAR" }'
+            )
+        env_refs[env_name] = EnvVarReference(value["env"])
+    return env_refs

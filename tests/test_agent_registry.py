@@ -63,6 +63,54 @@ interactive = true
     assert cmd.launch_cmd == ["ssh", "prod", "codex"]
 
 
+def test_load_agent_registry_resolves_claude_setup_token_env_reference(monkeypatch, tmp_path):
+    monkeypatch.delenv("OPENMAX_AGENTS_FILE", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("OPENMAX_CLAUDE_SETUP_TOKEN", "setup-token-123")
+
+    config_dir = tmp_path / ".openmax"
+    config_dir.mkdir()
+    (config_dir / "agents.toml").write_text(
+        """
+[agents.claude-code]
+command = ["claude"]
+interactive = true
+
+[agents.claude-code.env]
+CLAUDE_CODE_SETUP_TOKEN = { env = "OPENMAX_CLAUDE_SETUP_TOKEN" }
+""".strip(),
+        encoding="utf-8",
+    )
+
+    registry = load_agent_registry(str(tmp_path))
+
+    cmd = registry.get("claude-code").get_command("Review auth flow", cwd=str(tmp_path))
+    assert cmd.launch_cmd == ["env", "CLAUDE_CODE_SETUP_TOKEN=setup-token-123", "claude"]
+    assert cmd.initial_input == "Review auth flow"
+
+
+def test_load_agent_registry_rejects_hardcoded_env_values(monkeypatch, tmp_path):
+    monkeypatch.delenv("OPENMAX_AGENTS_FILE", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+    config_dir = tmp_path / ".openmax"
+    config_dir.mkdir()
+    (config_dir / "agents.toml").write_text(
+        """
+[agents.claude-code]
+command = ["claude"]
+interactive = true
+
+[agents.claude-code.env]
+CLAUDE_CODE_SETUP_TOKEN = "plain-text-secret"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentConfigError, match="env.CLAUDE_CODE_SETUP_TOKEN"):
+        load_agent_registry(str(tmp_path))
+
+
 def test_load_agent_registry_rejects_noninteractive_without_prompt(monkeypatch, tmp_path):
     monkeypatch.delenv("OPENMAX_AGENTS_FILE", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))

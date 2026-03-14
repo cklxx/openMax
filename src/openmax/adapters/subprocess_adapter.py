@@ -1,8 +1,17 @@
 """Generic subprocess agent adapter for arbitrary CLI agents."""
 
 import shlex
+from dataclasses import dataclass
+from os import environ
 
 from openmax.adapters.base import AgentAdapter, AgentCommand
+
+
+@dataclass(frozen=True)
+class EnvVarReference:
+    """Reference an environment variable at launch time."""
+
+    env: str
 
 
 class SubprocessAdapter(AgentAdapter):
@@ -30,11 +39,13 @@ class SubprocessAdapter(AgentAdapter):
         command_template: list[str],
         is_interactive: bool = True,
         startup_delay: float = 3.0,
+        env: dict[str, EnvVarReference] | None = None,
     ) -> None:
         self._name = name
         self._command_template = command_template
         self._interactive = is_interactive
         self._startup_delay = startup_delay
+        self._env = dict(env or {})
 
     @property
     def agent_type(self) -> str:
@@ -57,6 +68,8 @@ class SubprocessAdapter(AgentAdapter):
 
     def get_command(self, prompt: str, cwd: str | None = None) -> AgentCommand:
         command = [self._render_template(part, prompt, cwd) for part in self._command_template]
+        if self._env:
+            command = [*self._resolved_env_command_prefix(), *command]
         if self._interactive:
             return AgentCommand(
                 launch_cmd=command,
@@ -65,3 +78,15 @@ class SubprocessAdapter(AgentAdapter):
                 ready_delay_seconds=self._startup_delay,
             )
         return AgentCommand(launch_cmd=command, interactive=False, ready_delay_seconds=0.0)
+
+    def _resolved_env_command_prefix(self) -> list[str]:
+        assignments: list[str] = []
+        for target_name, reference in self._env.items():
+            value = environ.get(reference.env)
+            if value is None:
+                raise RuntimeError(
+                    f"Agent '{self._name}' requires environment variable '{reference.env}' "
+                    f"for '{target_name}'"
+                )
+            assignments.append(f"{target_name}={value}")
+        return ["env", *assignments]
