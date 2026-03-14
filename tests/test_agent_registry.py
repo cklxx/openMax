@@ -149,3 +149,60 @@ def test_load_agent_registry_requires_explicit_env_file(monkeypatch, tmp_path):
 
     with pytest.raises(AgentConfigError, match="not found"):
         load_agent_registry(str(tmp_path))
+
+
+def test_load_agent_registry_supports_agent_env_literals_and_env_refs(monkeypatch, tmp_path):
+    secret = "sk-kimi-rJBeBAhtWvMxhHtUFWZ5eva8QvUsAt0ZoIVWAHM8Th197GNKKiNgGsAneYmkDbZy"
+    monkeypatch.delenv("OPENMAX_AGENTS_FILE", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("KIMI_API_KEY", secret)
+
+    config_dir = tmp_path / ".openmax"
+    config_dir.mkdir()
+    (config_dir / "agents.toml").write_text(
+        """
+[agents.kimi-codex]
+command = ["codex"]
+interactive = true
+
+[agents.kimi-codex.env]
+OPENAI_BASE_URL = "https://api.moonshot.cn/v1"
+OPENAI_API_KEY = { from_env = "KIMI_API_KEY" }
+MOONSHOT_API_KEY = "sk-kimi-inline-token"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    registry = load_agent_registry(str(tmp_path))
+
+    cmd = registry.get("kimi-codex").get_command("Review auth flow", cwd=str(tmp_path))
+    assert cmd.launch_cmd == ["codex"]
+    assert cmd.env == {
+        "OPENAI_BASE_URL": "https://api.moonshot.cn/v1",
+        "OPENAI_API_KEY": secret,
+        "MOONSHOT_API_KEY": "sk-kimi-inline-token",
+    }
+    assert secret not in " ".join(cmd.launch_cmd)
+
+
+def test_load_agent_registry_rejects_missing_agent_env_ref(monkeypatch, tmp_path):
+    monkeypatch.delenv("OPENMAX_AGENTS_FILE", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("MISSING_KIMI_API_KEY", raising=False)
+
+    config_dir = tmp_path / ".openmax"
+    config_dir.mkdir()
+    (config_dir / "agents.toml").write_text(
+        """
+[agents.kimi-codex]
+command = ["codex"]
+interactive = true
+
+[agents.kimi-codex.env]
+OPENAI_API_KEY = { from_env = "MISSING_KIMI_API_KEY" }
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentConfigError, match="MISSING_KIMI_API_KEY"):
+        load_agent_registry(str(tmp_path))

@@ -483,26 +483,33 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError(f"Agent '{agent_type}' is unavailable")
 
     cmd_spec = adapter.get_command(prompt, cwd=runtime.cwd)
+    launch_env = cmd_spec.env or None
 
     if runtime.agent_window_id is None:
         # First agent → create a new window
-        pane = runtime.pane_mgr.create_window(
-            command=cmd_spec.launch_cmd,
-            purpose=task_name,
-            agent_type=agent_type,
-            title=f"openMax: {runtime.plan.goal[:40]}",
-            cwd=runtime.cwd,
-        )
+        pane_kwargs = {
+            "command": cmd_spec.launch_cmd,
+            "purpose": task_name,
+            "agent_type": agent_type,
+            "title": f"openMax: {runtime.plan.goal[:40]}",
+            "cwd": runtime.cwd,
+        }
+        if launch_env:
+            pane_kwargs["env"] = launch_env
+        pane = runtime.pane_mgr.create_window(**pane_kwargs)
         runtime.agent_window_id = pane.window_id
     else:
         # Subsequent agents → add pane to the same window (auto layout)
-        pane = runtime.pane_mgr.add_pane(
-            window_id=runtime.agent_window_id,
-            command=cmd_spec.launch_cmd,
-            purpose=task_name,
-            agent_type=agent_type,
-            cwd=runtime.cwd,
-        )
+        pane_kwargs = {
+            "window_id": runtime.agent_window_id,
+            "command": cmd_spec.launch_cmd,
+            "purpose": task_name,
+            "agent_type": agent_type,
+            "cwd": runtime.cwd,
+        }
+        if launch_env:
+            pane_kwargs["env"] = launch_env
+        pane = runtime.pane_mgr.add_pane(**pane_kwargs)
 
     # For interactive agents, send the initial prompt after CLI starts
     if cmd_spec.interactive and cmd_spec.initial_input:

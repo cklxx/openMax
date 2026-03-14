@@ -117,12 +117,16 @@ class PaneManager:
         agent_type: str,
         title: str = "openMax agents",
         cwd: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> ManagedPane:
         """Create a NEW window, run command in it, track everything.
 
         Returns the ManagedPane for the first pane.
         """
-        pane_id = self._backend.spawn_window(command, cwd=cwd)
+        if env:
+            pane_id = self._backend.spawn_window(command, cwd=cwd, env=env)
+        else:
+            pane_id = self._backend.spawn_window(command, cwd=cwd)
         window_id = self._find_pane_window(pane_id)
 
         # Track window
@@ -160,6 +164,7 @@ class PaneManager:
         purpose: str,
         agent_type: str,
         cwd: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> ManagedPane:
         """Add a new pane to an existing managed window with smart layout.
 
@@ -173,7 +178,10 @@ class PaneManager:
         index = len(win.pane_ids)
         target_pane, direction = _pick_split(win.pane_ids, index)
 
-        pane_id = self._backend.split_pane(target_pane, direction, command, cwd=cwd)
+        if env:
+            pane_id = self._backend.split_pane(target_pane, direction, command, cwd=cwd, env=env)
+        else:
+            pane_id = self._backend.split_pane(target_pane, direction, command, cwd=cwd)
 
         # Track
         win.pane_ids.append(pane_id)

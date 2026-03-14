@@ -1,7 +1,7 @@
 """Base adapter for AI agents."""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -19,6 +19,7 @@ class AgentCommand:
     initial_input: str | None = None
     interactive: bool = True
     ready_delay_seconds: float = 3.0
+    env: dict[str, str] = field(default_factory=dict, repr=False)
 
 
 class AgentAdapter(ABC):

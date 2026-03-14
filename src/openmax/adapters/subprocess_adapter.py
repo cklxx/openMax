@@ -1,17 +1,9 @@
 """Generic subprocess agent adapter for arbitrary CLI agents."""
 
+from collections.abc import Mapping
 import shlex
-from dataclasses import dataclass
-from os import environ
 
 from openmax.adapters.base import AgentAdapter, AgentCommand
-
-
-@dataclass(frozen=True)
-class EnvVarReference:
-    """Reference an environment variable at launch time."""
-
-    env: str
 
 
 class SubprocessAdapter(AgentAdapter):
@@ -24,13 +16,6 @@ class SubprocessAdapter(AgentAdapter):
 
     For non-interactive: `command_template` may contain `{prompt}` which
     gets replaced with the actual prompt.
-
-    Examples:
-        # Interactive agent
-        SubprocessAdapter("my-agent", ["my-agent"], interactive=True)
-
-        # Non-interactive agent
-        SubprocessAdapter("my-agent", ["my-agent", "--prompt", "{prompt}"], interactive=False)
     """
 
     def __init__(
@@ -39,7 +24,7 @@ class SubprocessAdapter(AgentAdapter):
         command_template: list[str],
         is_interactive: bool = True,
         startup_delay: float = 3.0,
-        env: dict[str, EnvVarReference] | None = None,
+        env: Mapping[str, str] | None = None,
     ) -> None:
         self._name = name
         self._command_template = command_template
@@ -68,25 +53,17 @@ class SubprocessAdapter(AgentAdapter):
 
     def get_command(self, prompt: str, cwd: str | None = None) -> AgentCommand:
         command = [self._render_template(part, prompt, cwd) for part in self._command_template]
-        if self._env:
-            command = [*self._resolved_env_command_prefix(), *command]
         if self._interactive:
             return AgentCommand(
                 launch_cmd=command,
                 initial_input=prompt,
                 interactive=True,
                 ready_delay_seconds=self._startup_delay,
+                env=dict(self._env),
             )
-        return AgentCommand(launch_cmd=command, interactive=False, ready_delay_seconds=0.0)
-
-    def _resolved_env_command_prefix(self) -> list[str]:
-        assignments: list[str] = []
-        for target_name, reference in self._env.items():
-            value = environ.get(reference.env)
-            if value is None:
-                raise RuntimeError(
-                    f"Agent '{self._name}' requires environment variable '{reference.env}' "
-                    f"for '{target_name}'"
-                )
-            assignments.append(f"{target_name}={value}")
-        return ["env", *assignments]
+        return AgentCommand(
+            launch_cmd=command,
+            interactive=False,
+            ready_delay_seconds=0.0,
+            env=dict(self._env),
+        )

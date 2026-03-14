@@ -45,7 +45,12 @@ class PaneBackend(Protocol):
 
     def list_panes(self) -> list[PaneInfo]: ...
 
-    def spawn_window(self, command: list[str], cwd: str | None = None) -> int: ...
+    def spawn_window(
+        self,
+        command: list[str],
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+    ) -> int: ...
 
     def split_pane(
         self,
@@ -53,6 +58,7 @@ class PaneBackend(Protocol):
         direction: SplitDirection,
         command: list[str],
         cwd: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> int: ...
 
     def send_text(self, pane_id: int, text: str) -> None: ...
@@ -134,7 +140,12 @@ class HeadlessPaneBackend:
             )
         return panes
 
-    def spawn_window(self, command: list[str], cwd: str | None = None) -> int:
+    def spawn_window(
+        self,
+        command: list[str],
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+    ) -> int:
         pane_id = next(self._pane_ids)
         window_id = next(self._window_ids)
         self._workers[pane_id] = self._start_worker(
@@ -142,6 +153,7 @@ class HeadlessPaneBackend:
             window_id=window_id,
             command=command,
             cwd=cwd,
+            env=env,
         )
         self._active_pane_id = pane_id
         return pane_id
@@ -152,6 +164,7 @@ class HeadlessPaneBackend:
         direction: SplitDirection,
         command: list[str],
         cwd: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> int:
         del direction
         target = self._require_worker(target_pane_id)
@@ -161,6 +174,7 @@ class HeadlessPaneBackend:
             window_id=target.window_id,
             command=command,
             cwd=cwd,
+            env=env,
         )
         self._active_pane_id = pane_id
         return pane_id
@@ -219,11 +233,16 @@ class HeadlessPaneBackend:
         window_id: int,
         command: list[str],
         cwd: str | None,
+        env: dict[str, str] | None,
     ) -> _HeadlessWorker:
+        process_env = dict(os.environ)
+        if env:
+            process_env.update(env)
         try:
             process = subprocess.Popen(
                 command,
                 cwd=cwd,
+                env=process_env,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -302,13 +321,21 @@ class KakuPaneBackend:
             )
         return panes
 
-    def spawn_window(self, command: list[str], cwd: str | None = None) -> int:
+    def spawn_window(
+        self,
+        command: list[str],
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+    ) -> int:
         args = ["spawn", "--new-window"]
         if cwd:
             args.extend(["--cwd", cwd])
         args.append("--")
         args.extend(_wrap_command_clean_env(command))
-        result = self._run_kaku(args)
+        if env:
+            result = self._run_kaku(args, env=env)
+        else:
+            result = self._run_kaku(args)
         return int(result.stdout.strip())
 
     def split_pane(
@@ -317,6 +344,7 @@ class KakuPaneBackend:
         direction: SplitDirection,
         command: list[str],
         cwd: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> int:
         args = ["split-pane", "--pane-id", str(target_pane_id)]
         direction_flag = {
@@ -330,7 +358,10 @@ class KakuPaneBackend:
             args.extend(["--cwd", cwd])
         args.append("--")
         args.extend(_wrap_command_clean_env(command))
-        result = self._run_kaku(args)
+        if env:
+            result = self._run_kaku(args, env=env)
+        else:
+            result = self._run_kaku(args)
         return int(result.stdout.strip())
 
     def send_text(self, pane_id: int, text: str) -> None:
@@ -394,13 +425,18 @@ class KakuPaneBackend:
         input_text: str | None = None,
         timeout: float | None = None,
         check: bool = True,
+        env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
+        run_env = dict(os.environ)
+        if env:
+            run_env.update(env)
         result = subprocess.run(
             [*_KAKU_CLI_PREFIX, *args],
             input=input_text,
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=run_env,
         )
         if check and result.returncode != 0:
             command_name = " ".join(args[:2]).strip()

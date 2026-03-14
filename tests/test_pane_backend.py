@@ -65,6 +65,28 @@ def test_headless_backend_spawn_failure_raises_stable_error():
         backend.spawn_window(["/definitely-missing-openmax-command"])
 
 
+def test_headless_backend_injects_agent_env_without_putting_secret_in_command():
+    backend = HeadlessPaneBackend()
+    secret = "sk-kimi-rJBeBAhtWvMxhHtUFWZ5eva8QvUsAt0ZoIVWAHM8Th197GNKKiNgGsAneYmkDbZy"
+    command = [
+        sys.executable,
+        "-u",
+        "-c",
+        (
+            "import os, time; "
+            "print(os.environ.get('OPENAI_API_KEY', 'missing'), flush=True); "
+            "time.sleep(30)"
+        ),
+    ]
+
+    pane_id = backend.spawn_window(command, cwd="/tmp", env={"OPENAI_API_KEY": secret})
+
+    _wait_until(lambda: secret in backend.get_text(pane_id))
+    assert secret not in " ".join(command)
+
+    backend.kill_pane(pane_id)
+
+
 def test_headless_backend_get_text_for_unknown_pane_raises_stable_error():
     backend = HeadlessPaneBackend()
 
@@ -94,3 +116,42 @@ def test_resolve_pane_backend_name_rejects_unknown_value(monkeypatch):
 def test_create_pane_backend_builds_requested_backend():
     assert isinstance(create_pane_backend("headless"), HeadlessPaneBackend)
     assert isinstance(create_pane_backend("kaku"), KakuPaneBackend)
+
+
+def test_kaku_backend_passes_agent_env_out_of_band(monkeypatch):
+    backend = KakuPaneBackend()
+    calls: list[tuple] = []
+    secret = "sk-kimi-rJBeBAhtWvMxhHtUFWZ5eva8QvUsAt0ZoIVWAHM8Th197GNKKiNgGsAneYmkDbZy"
+
+    def fake_run_kaku(args, **kwargs):
+        calls.append((args, kwargs))
+        return type("Result", (), {"stdout": "11\n"})()
+
+    monkeypatch.setattr(backend, "_run_kaku", fake_run_kaku)
+
+    pane_id = backend.spawn_window(
+        ["codex", "exec"],
+        cwd="/repo",
+        env={"OPENAI_API_KEY": secret, "OPENAI_BASE_URL": "https://api.moonshot.cn/v1"},
+    )
+
+    assert pane_id == 11
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert args == [
+        "spawn",
+        "--new-window",
+        "--cwd",
+        "/repo",
+        "--",
+        "env",
+        "-u",
+        "CLAUDECODE",
+        "-u",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "codex",
+        "exec",
+    ]
+    assert kwargs["env"]["OPENAI_API_KEY"] == secret
+    assert kwargs["env"]["OPENAI_BASE_URL"] == "https://api.moonshot.cn/v1"
+    assert secret not in " ".join(args)

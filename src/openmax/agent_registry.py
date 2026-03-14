@@ -16,8 +16,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
 from openmax.adapters import (
     AgentAdapter,
     ClaudeCodeAdapter,
-    CodexAdapter,
-    EnvVarReference,
+    CodexAdapter
     OpenCodeAdapter,
     SubprocessAdapter,
 )
@@ -169,7 +168,11 @@ def _definition_from_config(name: str, config: object, path: Path) -> AgentDefin
             f"Invalid config for agent '{name}' in {path}: startup_delay must be >= 0"
         )
 
-    env_refs = _parse_env_config(name, config.get("env", {}), path)
+<<<<<<< HEAD
+    env = _resolve_agent_env(name, config.get("env", {}), path)
+=======
+    env = _resolve_agent_env(name, config.get("env", {}), path)
+>>>>>>> b1f4ec2 (Add agent env injection support)
 
     if not interactive and not any("{prompt}" in item or "{prompt_sh}" in item for item in command):
         raise AgentConfigError(
@@ -182,21 +185,52 @@ def _definition_from_config(name: str, config: object, path: Path) -> AgentDefin
         command_template=command,
         is_interactive=interactive,
         startup_delay=float(startup_delay),
-        env=env_refs,
+<<<<<<< HEAD
+        env=env,
+=======
+        env=env,
+>>>>>>> b1f4ec2 (Add agent env injection support)
     )
     return AgentDefinition(name=name, adapter=adapter, source=str(path), built_in=False)
 
 
-def _parse_env_config(name: str, raw_env: object, path: Path) -> dict[str, EnvVarReference]:
-    if not isinstance(raw_env, dict):
-        raise AgentConfigError(f"Invalid config for agent '{name}' in {path}: env must be a table")
+<<<<<<< HEAD
 
-    env_refs: dict[str, EnvVarReference] = {}
-    for env_name, value in raw_env.items():
-        if not isinstance(value, dict) or set(value) != {"env"} or not isinstance(value["env"], str):
+
+def _resolve_agent_env(name: str, raw_env: object, path: Path) -> dict[str, str]:
+    if not isinstance(raw_env, dict):
+        raise AgentConfigError(
+            f"Invalid config for agent '{name}' in {path}: env must be a table"
+        )
+
+    resolved: dict[str, str] = {}
+    for key, value in raw_env.items():
+        if not isinstance(key, str):
             raise AgentConfigError(
-                f"Invalid config for agent '{name}' in {path}: env.{env_name} must use "
-                '{ env = "SOURCE_ENV_VAR" }'
+                f"Invalid config for agent '{name}' in {path}: env keys must be strings"
             )
-        env_refs[env_name] = EnvVarReference(value["env"])
-    return env_refs
+        if isinstance(value, str):
+            resolved[key] = value
+            continue
+        if isinstance(value, dict):
+            from_env = value.get("from_env")
+            legacy_env = value.get("env")
+            source = from_env or legacy_env
+            if len(value) != 1 or not isinstance(source, str) or not source:
+                raise AgentConfigError(
+                    f"Invalid config for agent '{name}' in {path}: env.{key} must be a string "
+                    'or { from_env = "NAME" } / { env = "NAME" }'
+                )
+            env_value = os.environ.get(source)
+            if env_value is None:
+                raise AgentConfigError(
+                    f"Invalid config for agent '{name}' in {path}: missing environment variable "
+                    f"{source} for env.{key}"
+                )
+            resolved[key] = env_value
+            continue
+        raise AgentConfigError(
+            f"Invalid config for agent '{name}' in {path}: env.{key} must be a string "
+            'or { from_env = "NAME" } / { env = "NAME" }'
+        )
+    return resolved
