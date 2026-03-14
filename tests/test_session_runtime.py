@@ -159,6 +159,26 @@ def test_session_store_reconstructs_startup_failure_activity(tmp_path):
     )
 
 
+def test_session_store_load_snapshot_skips_malformed_event_lines(tmp_path):
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("session-corrupt", "Build API", str(tmp_path))
+
+    store.append_event(
+        meta,
+        "tool.report_completion",
+        {"completion_pct": 50, "notes": "Halfway there"},
+    )
+    with store._events_path(meta.session_id).open("a", encoding="utf-8") as file_obj:
+        file_obj.write("{bad json\n")
+
+    snapshot = store.load_snapshot("session-corrupt")
+
+    assert snapshot.plan.completion_pct == 50
+    assert snapshot.load_warnings == [
+        "Skipped 1 malformed event line while loading session history."
+    ]
+
+
 def test_lead_agent_runtime_binding_is_scoped():
     runtime = LeadAgentRuntime(cwd="/tmp/workspace", plan=None, pane_mgr=None)
     token = bind_lead_agent_runtime(runtime)

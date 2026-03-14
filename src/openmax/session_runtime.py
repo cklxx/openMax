@@ -125,6 +125,7 @@ class SessionSnapshot:
     meta: SessionMeta
     events: list[LeadEvent]
     plan: ReconstructedPlan
+    load_warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -226,23 +227,44 @@ class SessionStore:
         return event
 
     def load_events(self, session_id: str) -> list[LeadEvent]:
+        events, _warnings = self._load_events_with_warnings(session_id)
+        return events
+
+    def _load_events_with_warnings(self, session_id: str) -> tuple[list[LeadEvent], list[str]]:
         events_path = self._events_path(session_id)
         if not events_path.exists():
-            return []
+            return [], []
         events: list[LeadEvent] = []
+        malformed_line_count = 0
         with events_path.open(encoding="utf-8") as file_obj:
             for line in file_obj:
                 if not line.strip():
                     continue
-                data = json.loads(line)
-                events.append(LeadEvent(**data))
-        return events
+                try:
+                    data = json.loads(line)
+                    events.append(LeadEvent(**data))
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    malformed_line_count += 1
+
+        warnings: list[str] = []
+        if malformed_line_count:
+            noun = "line" if malformed_line_count == 1 else "lines"
+            warnings.append(
+                f"Skipped {malformed_line_count} malformed event {noun} while loading "
+                "session history."
+            )
+        return events, warnings
 
     def load_snapshot(self, session_id: str) -> SessionSnapshot:
         meta = self.load_meta(session_id)
-        events = self.load_events(session_id)
+        events, load_warnings = self._load_events_with_warnings(session_id)
         plan = ContextBuilder().reconstruct_plan(meta, events)
-        return SessionSnapshot(meta=meta, events=events, plan=plan)
+        return SessionSnapshot(
+            meta=meta,
+            events=events,
+            plan=plan,
+            load_warnings=load_warnings,
+        )
 
     def list_sessions(
         self,

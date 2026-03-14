@@ -420,6 +420,12 @@ def runs(status: str | None, limit: int) -> None:
         )
         if scorecard_surface is not None:
             console.print(scorecard_surface, soft_wrap=True, markup=False)
+        if snapshot.load_warnings:
+            console.print(
+                "warnings=" + " | ".join(snapshot.load_warnings),
+                soft_wrap=True,
+                markup=False,
+            )
 
 
 @main.command()
@@ -473,6 +479,11 @@ def inspect(session_id: str) -> None:
         soft_wrap=True,
         markup=False,
     )
+
+    if snapshot.load_warnings:
+        console.print("[bold]Diagnostics[/bold]")
+        for warning in snapshot.load_warnings:
+            console.print(f"- {warning}", soft_wrap=True, markup=False)
 
     console.print("[bold]Recent activity[/bold]")
     if not plan.recent_activity:

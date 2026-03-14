@@ -713,3 +713,45 @@ def test_inspect_command_reports_missing_session(monkeypatch, tmp_path):
 
     assert result.exit_code != 0
     assert "Session 'missing-session' was not found." in result.output
+
+
+def test_runs_command_surfaces_event_log_warnings(monkeypatch, tmp_path):
+    store = SessionStore(base_dir=tmp_path / "sessions")
+    meta = store.create_session("session-corrupt", "Build API", str(tmp_path / "workspace"))
+    store.append_event(
+        meta,
+        "tool.report_completion",
+        {"completion_pct": 50, "notes": "Halfway there"},
+    )
+    with store._events_path(meta.session_id).open("a", encoding="utf-8") as file_obj:
+        file_obj.write("{bad json\n")
+
+    monkeypatch.setattr(cli, "SessionStore", lambda: store)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["runs"])
+
+    assert result.exit_code == 0
+    assert "session-corrupt | active" in result.output
+    assert "warnings=Skipped 1 malformed event line while loading session history." in result.output
+
+
+def test_inspect_command_prints_event_log_warnings(monkeypatch, tmp_path):
+    store = SessionStore(base_dir=tmp_path / "sessions")
+    meta = store.create_session("session-corrupt", "Build API", str(tmp_path / "workspace"))
+    store.append_event(
+        meta,
+        "tool.report_completion",
+        {"completion_pct": 50, "notes": "Halfway there"},
+    )
+    with store._events_path(meta.session_id).open("a", encoding="utf-8") as file_obj:
+        file_obj.write("{bad json\n")
+
+    monkeypatch.setattr(cli, "SessionStore", lambda: store)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["inspect", "session-corrupt"])
+
+    assert result.exit_code == 0
+    assert "Diagnostics" in result.output
+    assert "Skipped 1 malformed event line while loading session history." in result.output
