@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from openmax.adapters.subprocess_adapter import SubprocessAdapter
 
 
@@ -28,7 +26,7 @@ def test_noninteractive_subprocess_adapter_quotes_prompt_for_shell_commands():
 
     command = adapter.get_command("fix user's bug", cwd="/tmp/repo")
 
-    expected = ["ssh", "prod", "bash", "-lc", "tool --prompt 'fix user'"'"'s bug'"]
+    expected = ["ssh", "prod", "bash", "-lc", "tool --prompt 'fix user'\"'\"'s bug'"]
     assert command.launch_cmd == expected
     assert command.initial_input is None
     assert command.interactive is False

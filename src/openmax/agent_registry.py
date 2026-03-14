@@ -147,30 +147,33 @@ def _definition_from_config(name: str, config: object, path: Path) -> AgentDefin
     if not isinstance(config, dict):
         raise AgentConfigError(f"Invalid config for agent '{name}' in {path}: must be a table")
 
-    command = config.get('command')
-    is_valid = isinstance(command, list) and command and all(isinstance(item, str) for item in command)
+    command = config.get("command")
+    is_valid = (
+        isinstance(command, list) and command and all(isinstance(item, str) for item in command)
+    )
     if not is_valid:
         raise AgentConfigError(
             f"Invalid config for agent '{name}' in {path}: command must be a non-empty string array"
         )
 
-    interactive = config.get('interactive', True)
+    interactive = config.get("interactive", True)
     if not isinstance(interactive, bool):
         raise AgentConfigError(
             f"Invalid config for agent '{name}' in {path}: interactive must be true or false"
         )
 
-    startup_delay = config.get('startup_delay', 3.0)
+    startup_delay = config.get("startup_delay", 3.0)
     if not isinstance(startup_delay, (int, float)) or startup_delay < 0:
         raise AgentConfigError(
             f"Invalid config for agent '{name}' in {path}: startup_delay must be >= 0"
         )
 
-    env = _resolve_agent_env(name, config.get('env', {}), path)
+    env = _resolve_agent_env(name, config.get("env", {}), path)
 
-    if not interactive and not any('{prompt}' in item or '{prompt_sh}' in item for item in command):
+    if not interactive and not any("{prompt}" in item or "{prompt_sh}" in item for item in command):
         raise AgentConfigError(
-            f"Invalid config for agent '{name}' in {path}: non-interactive commands must include {{prompt}} or {{prompt_sh}}"
+            f"Invalid config for agent '{name}' in {path}: non-interactive commands must include "
+            "{prompt} or {prompt_sh}"
         )
 
     adapter = SubprocessAdapter(
@@ -196,24 +199,32 @@ def _resolve_agent_env(name: str, raw_env: object, path: Path) -> dict[str, str]
                 f"Invalid config for agent '{name}' in {path}: env keys must be strings"
             )
         if isinstance(value, str):
+            if key == "CLAUDE_CODE_SETUP_TOKEN":
+                raise AgentConfigError(
+                    f"Invalid config for agent '{name}' in {path}: env.{key} must come from an environment variable reference"
+                )
             resolved[key] = value
             continue
         if isinstance(value, dict):
-            from_env = value.get('from_env')
-            legacy_env = value.get('env')
-            source = from_env or legacy_env
-            if len(value) != 1 or not isinstance(source, str) or not source:
+            from_env = value.get("from_env")
+            legacy_env = value.get("env")
+            source_env = None
+            if len(value) == 1 and isinstance(from_env, str) and from_env:
+                source_env = from_env
+            elif len(value) == 1 and isinstance(legacy_env, str) and legacy_env:
+                source_env = legacy_env
+            if not source_env:
                 raise AgentConfigError(
-                    f"Invalid config for agent '{name}' in {path}: env.{key} must be a string or {{ from_env = "NAME" }} / {{ env = "NAME" }}"
+                    f"Invalid config for agent '{name}' in {path}: env.{key} must be a string or {{ from_env = 'NAME' }}"
                 )
-            env_value = os.environ.get(source)
+            env_value = os.environ.get(source_env)
             if env_value is None:
                 raise AgentConfigError(
-                    f"Invalid config for agent '{name}' in {path}: missing environment variable {source} for env.{key}"
+                    f"Invalid config for agent '{name}' in {path}: missing environment variable {source_env} for env.{key}"
                 )
             resolved[key] = env_value
             continue
         raise AgentConfigError(
-            f"Invalid config for agent '{name}' in {path}: env.{key} must be a string or {{ from_env = "NAME" }} / {{ env = "NAME" }}"
+            f"Invalid config for agent '{name}' in {path}: env.{key} must be a string or {{ from_env = 'NAME' }}"
         )
     return resolved

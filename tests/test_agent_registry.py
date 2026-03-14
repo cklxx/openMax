@@ -85,7 +85,8 @@ CLAUDE_CODE_SETUP_TOKEN = { env = "OPENMAX_CLAUDE_SETUP_TOKEN" }
     registry = load_agent_registry(str(tmp_path))
 
     cmd = registry.get("claude-code").get_command("Review auth flow", cwd=str(tmp_path))
-    assert cmd.launch_cmd == ["env", "CLAUDE_CODE_SETUP_TOKEN=setup-token-123", "claude"]
+    assert cmd.launch_cmd == ["claude"]
+    assert cmd.env == {"CLAUDE_CODE_SETUP_TOKEN": "setup-token-123"}
     assert cmd.initial_input == "Review auth flow"
 
 
