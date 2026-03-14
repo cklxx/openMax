@@ -16,7 +16,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
 from openmax.adapters import (
     AgentAdapter,
     ClaudeCodeAdapter,
-    CodexAdapter
+    CodexAdapter,
     OpenCodeAdapter,
     SubprocessAdapter,
 )
@@ -57,7 +57,7 @@ class AgentRegistry:
             return "claude-code"
         return next(iter(self._definitions), None)
 
-    def with_definition(self, definition: AgentDefinition) -> AgentRegistry:
+    def with_definition(self, definition: AgentDefinition) -> 'AgentRegistry':
         updated = self.definitions()
         updated = [item for item in updated if item.name != definition.name]
         updated.append(definition)
@@ -113,11 +113,11 @@ def load_agent_registry(cwd: str | None = None) -> AgentRegistry:
 
 def _candidate_config_paths(cwd: str | None) -> list[tuple[Path, bool]]:
     paths: list[tuple[Path, bool]] = []
-    global_path = Path.home() / ".config" / "openmax" / "agents.toml"
+    global_path = Path.home() / '.config' / 'openmax' / 'agents.toml'
     paths.append((global_path, False))
     if cwd:
-        paths.append((Path(cwd) / ".openmax" / "agents.toml", False))
-    env_path = os.environ.get("OPENMAX_AGENTS_FILE")
+        paths.append((Path(cwd) / '.openmax' / 'agents.toml', False))
+    env_path = os.environ.get('OPENMAX_AGENTS_FILE')
     if env_path:
         explicit = Path(env_path).expanduser()
         if cwd and not explicit.is_absolute():
@@ -128,11 +128,11 @@ def _candidate_config_paths(cwd: str | None) -> list[tuple[Path, bool]]:
 
 def _merge_config_file(registry: AgentRegistry, path: Path) -> AgentRegistry:
     try:
-        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        raw = tomllib.loads(path.read_text(encoding='utf-8'))
     except tomllib.TOMLDecodeError as exc:
         raise AgentConfigError(f"Invalid TOML in {path}: {exc}") from exc
 
-    agents_table = raw.get("agents", {})
+    agents_table = raw.get('agents', {})
     if not isinstance(agents_table, dict):
         raise AgentConfigError(f"Invalid agent config in {path}: [agents] must be a table")
 
@@ -147,37 +147,30 @@ def _definition_from_config(name: str, config: object, path: Path) -> AgentDefin
     if not isinstance(config, dict):
         raise AgentConfigError(f"Invalid config for agent '{name}' in {path}: must be a table")
 
-    command = config.get("command")
-    is_valid = (
-        isinstance(command, list) and command and all(isinstance(item, str) for item in command)
-    )
+    command = config.get('command')
+    is_valid = isinstance(command, list) and command and all(isinstance(item, str) for item in command)
     if not is_valid:
         raise AgentConfigError(
             f"Invalid config for agent '{name}' in {path}: command must be a non-empty string array"
         )
 
-    interactive = config.get("interactive", True)
+    interactive = config.get('interactive', True)
     if not isinstance(interactive, bool):
         raise AgentConfigError(
             f"Invalid config for agent '{name}' in {path}: interactive must be true or false"
         )
 
-    startup_delay = config.get("startup_delay", 3.0)
+    startup_delay = config.get('startup_delay', 3.0)
     if not isinstance(startup_delay, (int, float)) or startup_delay < 0:
         raise AgentConfigError(
             f"Invalid config for agent '{name}' in {path}: startup_delay must be >= 0"
         )
 
-<<<<<<< HEAD
-    env = _resolve_agent_env(name, config.get("env", {}), path)
-=======
-    env = _resolve_agent_env(name, config.get("env", {}), path)
->>>>>>> b1f4ec2 (Add agent env injection support)
+    env = _resolve_agent_env(name, config.get('env', {}), path)
 
-    if not interactive and not any("{prompt}" in item or "{prompt_sh}" in item for item in command):
+    if not interactive and not any('{prompt}' in item or '{prompt_sh}' in item for item in command):
         raise AgentConfigError(
-            f"Invalid config for agent '{name}' in {path}: non-interactive commands must include "
-            "{prompt} or {prompt_sh}"
+            f"Invalid config for agent '{name}' in {path}: non-interactive commands must include {{prompt}} or {{prompt_sh}}"
         )
 
     adapter = SubprocessAdapter(
@@ -185,16 +178,9 @@ def _definition_from_config(name: str, config: object, path: Path) -> AgentDefin
         command_template=command,
         is_interactive=interactive,
         startup_delay=float(startup_delay),
-<<<<<<< HEAD
         env=env,
-=======
-        env=env,
->>>>>>> b1f4ec2 (Add agent env injection support)
     )
     return AgentDefinition(name=name, adapter=adapter, source=str(path), built_in=False)
-
-
-<<<<<<< HEAD
 
 
 def _resolve_agent_env(name: str, raw_env: object, path: Path) -> dict[str, str]:
@@ -213,24 +199,21 @@ def _resolve_agent_env(name: str, raw_env: object, path: Path) -> dict[str, str]
             resolved[key] = value
             continue
         if isinstance(value, dict):
-            from_env = value.get("from_env")
-            legacy_env = value.get("env")
+            from_env = value.get('from_env')
+            legacy_env = value.get('env')
             source = from_env or legacy_env
             if len(value) != 1 or not isinstance(source, str) or not source:
                 raise AgentConfigError(
-                    f"Invalid config for agent '{name}' in {path}: env.{key} must be a string "
-                    'or { from_env = "NAME" } / { env = "NAME" }'
+                    f"Invalid config for agent '{name}' in {path}: env.{key} must be a string or {{ from_env = "NAME" }} / {{ env = "NAME" }}"
                 )
             env_value = os.environ.get(source)
             if env_value is None:
                 raise AgentConfigError(
-                    f"Invalid config for agent '{name}' in {path}: missing environment variable "
-                    f"{source} for env.{key}"
+                    f"Invalid config for agent '{name}' in {path}: missing environment variable {source} for env.{key}"
                 )
             resolved[key] = env_value
             continue
         raise AgentConfigError(
-            f"Invalid config for agent '{name}' in {path}: env.{key} must be a string "
-            'or { from_env = "NAME" } / { env = "NAME" }'
+            f"Invalid config for agent '{name}' in {path}: env.{key} must be a string or {{ from_env = "NAME" }} / {{ env = "NAME" }}"
         )
     return resolved

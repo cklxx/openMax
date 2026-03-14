@@ -7,16 +7,7 @@ from openmax.adapters.base import AgentAdapter, AgentCommand
 
 
 class SubprocessAdapter(AgentAdapter):
-    """Adapter for any CLI-based agent.
-
-    Supports both interactive and non-interactive modes.
-
-    For interactive: `command_template` is the launch command (no prompt),
-    prompt is sent via send-text.
-
-    For non-interactive: `command_template` may contain `{prompt}` which
-    gets replaced with the actual prompt.
-    """
+    """Adapter for any CLI-based agent."""
 
     def __init__(
         self,
@@ -42,10 +33,10 @@ class SubprocessAdapter(AgentAdapter):
 
     def _render_template(self, value: str, prompt: str, cwd: str | None) -> str:
         replacements = {
-            "{prompt}": prompt,
-            "{prompt_sh}": shlex.quote(prompt),
-            "{cwd}": cwd or "",
-            "{cwd_sh}": shlex.quote(cwd or ""),
+            '{prompt}': prompt,
+            '{prompt_sh}': shlex.quote(prompt),
+            '{cwd}': cwd or '',
+            '{cwd_sh}': shlex.quote(cwd or ''),
         }
         for placeholder, replacement in replacements.items():
             value = value.replace(placeholder, replacement)
