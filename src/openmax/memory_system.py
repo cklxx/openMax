@@ -7,10 +7,11 @@ import json
 import re
 import uuid
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 MemoryKind = Literal["lesson", "run_summary"]
 _MAX_ENTRIES_PER_WORKSPACE = 50
@@ -57,7 +58,7 @@ class MemoryEntry:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_payload(cls, item: dict[str, Any]) -> "MemoryEntry":
+    def from_payload(cls, item: dict[str, Any]) -> MemoryEntry:
         kind = item.get("kind", "lesson")
         if kind not in {"lesson", "run_summary"}:
             kind = "lesson"
@@ -257,10 +258,7 @@ class MemoryStore:
         if scorecard:
             lines.append("Agent scorecard:")
             for item in scorecard:
-                line = (
-                    f"- {item.agent_type}: "
-                    f"{item.success_count}/{item.total_count} succeeded"
-                )
+                line = f"- {item.agent_type}: {item.success_count}/{item.total_count} succeeded"
                 if item.failure_count:
                     line += f", {item.failure_count} failed"
                 if item.incomplete_count:
@@ -378,8 +376,7 @@ class MemoryStore:
                     normalized_rate = success_count / total_count
 
                 task_text = " ".join(
-                    str(stat.get(field, ""))
-                    for field in ("detail", "task_name", "prompt", "scope")
+                    str(stat.get(field, "")) for field in ("detail", "task_name", "prompt", "scope")
                 )
                 overlap = len(task_terms & _keywords(task_text or entry.task))
                 relevance = 1 + overlap if task else 1.0
@@ -465,9 +462,7 @@ class MemoryStore:
             facts = self._entry_facts(entry)
             fact_lines.extend(f"- {fact}" for fact in facts[:2])
 
-            combined_text = " ".join(
-                [entry.summary, *entry.insights, *lessons, *facts]
-            ).lower()
+            combined_text = " ".join([entry.summary, *entry.insights, *lessons, *facts]).lower()
             risk_tokens = ("avoid", "drift", "stuck", "fail", "retry")
             if any(token in combined_text for token in risk_tokens):
                 risk_lines.append(f"- Watch for: {entry.summary}")
@@ -586,12 +581,8 @@ class MemoryStore:
         evaluated_runs = max(len(run_entries) - 1, 0)
         coverage = round(covered_runs / evaluated_runs, 2) if evaluated_runs else 0.0
         hit_rate = round(hit_runs / covered_runs, 2) if covered_runs else 0.0
-        average_completion_pct = (
-            round(completion_total / covered_runs, 2) if covered_runs else 0.0
-        )
-        average_failure_rate = (
-            round(failure_total / covered_runs, 2) if covered_runs else 0.0
-        )
+        average_completion_pct = round(completion_total / covered_runs, 2) if covered_runs else 0.0
+        average_failure_rate = round(failure_total / covered_runs, 2) if covered_runs else 0.0
         return RecommendationOfflineEval(
             total_runs=len(run_entries),
             evaluated_runs=evaluated_runs,
@@ -756,9 +747,7 @@ class MemoryStore:
                 " ".join(entry.insights),
                 " ".join(entry.workspace_facts),
                 " ".join(entry.lessons),
-                " ".join(
-                    str(signal.get("detail", "")) for signal in entry.performance_signals
-                ),
+                " ".join(str(signal.get("detail", "")) for signal in entry.performance_signals),
                 " ".join(str(stat.get("detail", "")) for stat in self._entry_agent_stats(entry)),
             ]
         )
@@ -818,8 +807,7 @@ class MemoryStore:
                 if not agent:
                     continue
                 task_text = " ".join(
-                    str(stat.get(field, ""))
-                    for field in ("detail", "task_name", "prompt", "scope")
+                    str(stat.get(field, "")) for field in ("detail", "task_name", "prompt", "scope")
                 )
                 overlap = len(task_terms & _keywords(task_text or entry.task))
                 relevance = 1 + overlap
@@ -835,9 +823,7 @@ class MemoryStore:
                 try:
                     normalized_rate = float(success_rate)
                 except (TypeError, ValueError):
-                    normalized_rate = (
-                        success_count / total_count if total_count else 0.0
-                    )
+                    normalized_rate = success_count / total_count if total_count else 0.0
 
                 positive_weight = success_count * (base_weight * relevance + 1.5)
                 positive_weight += normalized_rate * (2 + max(scope_bonus, 0.0))
@@ -974,7 +960,9 @@ class MemoryStore:
                     "outcome": (
                         "positive"
                         if status == "done"
-                        else "negative" if status in {"error", "failed"} else "neutral"
+                        else "negative"
+                        if status in {"error", "failed"}
+                        else "neutral"
                     ),
                     "detail": f"{agent} {verb} '{task_name or 'unknown'}'".strip(),
                 }
@@ -1053,8 +1041,7 @@ class MemoryStore:
             failure_count = max(_coerce_int(stat.get("failure_count")) or 0, 0)
             incomplete_count = max(_coerce_int(stat.get("incomplete_count")) or 0, 0)
             total_count = max(
-                _coerce_int(stat.get("total_count"))
-                or failure_count + incomplete_count,
+                _coerce_int(stat.get("total_count")) or failure_count + incomplete_count,
                 0,
             )
             if total_count <= 0:

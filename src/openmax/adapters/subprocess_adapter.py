@@ -1,7 +1,7 @@
 """Generic subprocess agent adapter for arbitrary CLI agents."""
 
-from collections.abc import Mapping
 import shlex
+from collections.abc import Mapping
 
 from openmax.adapters.base import AgentAdapter, AgentCommand
 

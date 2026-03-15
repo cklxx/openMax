@@ -33,7 +33,6 @@ from openmax.pane_manager import PaneManager
 from openmax.session_runtime import (
     ContextBuilder,
     LeadAgentRuntime,
-    SessionMeta,
     SessionSnapshot,
     SessionStore,
     anchor_payload,
@@ -228,6 +227,7 @@ def _format_tool_use(tool_name: str, tool_input: dict[str, Any] | None = None) -
 
 
 # ── Tool definitions ──────────────────────────────────────────────
+
 
 def _runtime() -> LeadAgentRuntime:
     return get_lead_agent_runtime()
@@ -788,7 +788,9 @@ async def _run_lead_agent_async(
 
                 mismatch_details: list[str] = []
                 if snapshot.meta.task != task:
-                    mismatch_details.append(f"task requested='{task}' stored='{snapshot.meta.task}'")
+                    mismatch_details.append(
+                        f"task requested='{task}' stored='{snapshot.meta.task}'"
+                    )
                 if snapshot.meta.cwd != normalized_cwd:
                     mismatch_details.append(
                         f"cwd requested='{normalized_cwd}' stored='{snapshot.meta.cwd}'"
@@ -935,7 +937,9 @@ async def _run_lead_agent_async(
             )
         return runtime.plan
     except Exception as exc:
-        startup_failure = None if startup_complete else _classify_startup_failure(exc, startup_stage)
+        startup_failure = (
+            None if startup_complete else _classify_startup_failure(exc, startup_stage)
+        )
         if startup_failure is not None:
             console.print(Panel(startup_failure.console_message(), border_style="red"))
         if runtime.session_meta is not None and runtime.session_store is not None:

@@ -348,7 +348,13 @@ def test_run_lead_agent_records_structured_auth_startup_failure(monkeypatch, tmp
     memory_store = MemoryStore(base_dir=tmp_path / "memory")
     monkeypatch.setattr(lead_agent, "SessionStore", lambda: store)
     monkeypatch.setattr(lead_agent, "MemoryStore", lambda: memory_store)
-    monkeypatch.setattr(lead_agent, "ClaudeSDKClient", lambda options: FailingClaudeClient(options, RuntimeError("Authentication required. Please login."), "enter"))
+    monkeypatch.setattr(
+        lead_agent,
+        "ClaudeSDKClient",
+        lambda options: FailingClaudeClient(
+            options, RuntimeError("Authentication required. Please login."), "enter"
+        ),
+    )
 
     try:
         lead_agent.run_lead_agent(
@@ -379,7 +385,15 @@ def test_run_lead_agent_records_structured_bootstrap_failure(monkeypatch, tmp_pa
     memory_store = MemoryStore(base_dir=tmp_path / "memory")
     monkeypatch.setattr(lead_agent, "SessionStore", lambda: store)
     monkeypatch.setattr(lead_agent, "MemoryStore", lambda: memory_store)
-    monkeypatch.setattr(lead_agent, "ClaudeSDKClient", lambda options: FailingClaudeClient(options, RuntimeError("Bootstrap timed out while starting transport"), "query"))
+    monkeypatch.setattr(
+        lead_agent,
+        "ClaudeSDKClient",
+        lambda options: FailingClaudeClient(
+            options,
+            RuntimeError("Bootstrap timed out while starting transport"),
+            "query",
+        ),
+    )
 
     try:
         lead_agent.run_lead_agent(

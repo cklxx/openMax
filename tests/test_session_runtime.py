@@ -6,9 +6,11 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 import openmax.session_runtime as session_runtime
-from openmax.session_runtime import ContextBuilder, SessionStore, anchor_payload
 from openmax.session_runtime import (
+    ContextBuilder,
     LeadAgentRuntime,
+    SessionStore,
+    anchor_payload,
     bind_lead_agent_runtime,
     get_lead_agent_runtime,
     reset_lead_agent_runtime,
@@ -198,7 +200,9 @@ def test_session_store_lists_recent_sessions_in_updated_order(tmp_path):
     newer = store.create_session("session-new", "New task", str(tmp_path))
 
     older.updated_at = datetime(2026, 3, 13, 8, 0, tzinfo=timezone.utc).isoformat()
-    newer.updated_at = (datetime(2026, 3, 13, 8, 0, tzinfo=timezone.utc) + timedelta(hours=1)).isoformat()
+    newer.updated_at = (
+        datetime(2026, 3, 13, 8, 0, tzinfo=timezone.utc) + timedelta(hours=1)
+    ).isoformat()
     store._meta_path(older.session_id).write_text(
         json.dumps(older.__dict__, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -376,7 +380,10 @@ def test_session_store_derives_run_scorecard_from_existing_session_data(monkeypa
     assert snapshot.plan.scorecard.manual_intervention_count == 1
     assert snapshot.plan.scorecard.completion_pct == 100
     assert snapshot.plan.scorecard.startup_failure_category is None
-    assert snapshot.plan.scorecard.surface_summary == "status=completed | completion=100% | duration=240s"
+    assert (
+        snapshot.plan.scorecard.surface_summary
+        == "status=completed | completion=100% | duration=240s"
+    )
     assert (
         snapshot.plan.scorecard.surface_details
         == "subtasks=1/1 done | interventions=1 | startup_failure=n/a"

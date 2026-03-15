@@ -100,7 +100,9 @@ def test_create_window_tracks_window_and_uses_backend(monkeypatch):
     )
 
     assert pane == ManagedPane(11, 5, "API", "codex", PaneState.RUNNING, pane.created_at)
-    assert manager.windows == {5: ManagedWindow(5, "openMax agents", [11], manager.windows[5].created_at)}
+    assert manager.windows == {
+        5: ManagedWindow(5, "openMax agents", [11], manager.windows[5].created_at)
+    }
     assert backend.calls == [
         ("spawn_window", ["codex", "exec"], "/repo"),
         ("list_panes",),

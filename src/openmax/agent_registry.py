@@ -57,7 +57,7 @@ class AgentRegistry:
             return "claude-code"
         return next(iter(self._definitions), None)
 
-    def with_definition(self, definition: AgentDefinition) -> 'AgentRegistry':
+    def with_definition(self, definition: AgentDefinition) -> AgentRegistry:
         updated = self.definitions()
         updated = [item for item in updated if item.name != definition.name]
         updated.append(definition)
@@ -113,11 +113,11 @@ def load_agent_registry(cwd: str | None = None) -> AgentRegistry:
 
 def _candidate_config_paths(cwd: str | None) -> list[tuple[Path, bool]]:
     paths: list[tuple[Path, bool]] = []
-    global_path = Path.home() / '.config' / 'openmax' / 'agents.toml'
+    global_path = Path.home() / ".config" / "openmax" / "agents.toml"
     paths.append((global_path, False))
     if cwd:
-        paths.append((Path(cwd) / '.openmax' / 'agents.toml', False))
-    env_path = os.environ.get('OPENMAX_AGENTS_FILE')
+        paths.append((Path(cwd) / ".openmax" / "agents.toml", False))
+    env_path = os.environ.get("OPENMAX_AGENTS_FILE")
     if env_path:
         explicit = Path(env_path).expanduser()
         if cwd and not explicit.is_absolute():
@@ -128,11 +128,11 @@ def _candidate_config_paths(cwd: str | None) -> list[tuple[Path, bool]]:
 
 def _merge_config_file(registry: AgentRegistry, path: Path) -> AgentRegistry:
     try:
-        raw = tomllib.loads(path.read_text(encoding='utf-8'))
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as exc:
         raise AgentConfigError(f"Invalid TOML in {path}: {exc}") from exc
 
-    agents_table = raw.get('agents', {})
+    agents_table = raw.get("agents", {})
     if not isinstance(agents_table, dict):
         raise AgentConfigError(f"Invalid agent config in {path}: [agents] must be a table")
 
@@ -188,9 +188,7 @@ def _definition_from_config(name: str, config: object, path: Path) -> AgentDefin
 
 def _resolve_agent_env(name: str, raw_env: object, path: Path) -> dict[str, str]:
     if not isinstance(raw_env, dict):
-        raise AgentConfigError(
-            f"Invalid config for agent '{name}' in {path}: env must be a table"
-        )
+        raise AgentConfigError(f"Invalid config for agent '{name}' in {path}: env must be a table")
 
     resolved: dict[str, str] = {}
     for key, value in raw_env.items():
@@ -201,7 +199,8 @@ def _resolve_agent_env(name: str, raw_env: object, path: Path) -> dict[str, str]
         if isinstance(value, str):
             if key in ("CLAUDE_CODE_SETUP_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"):
                 raise AgentConfigError(
-                    f"Invalid config for agent '{name}' in {path}: env.{key} must come from an environment variable reference"
+                    f"Invalid config for agent '{name}' in {path}: "
+                    f"env.{key} must come from an environment variable reference"
                 )
             resolved[key] = value
             continue
@@ -214,17 +213,26 @@ def _resolve_agent_env(name: str, raw_env: object, path: Path) -> dict[str, str]
             elif len(value) == 1 and isinstance(legacy_env, str) and legacy_env:
                 source_env = legacy_env
             if not source_env:
-                raise AgentConfigError(
-                    f"Invalid config for agent '{name}' in {path}: env.{key} must be a string or {{ from_env = 'NAME' }}"
+                msg = (
+                    f"Invalid config for agent '{name}' in {path}: "
+                    f"env.{key} must be a string or "
+                    "{ from_env = 'NAME' }"
                 )
+                raise AgentConfigError(msg)
             env_value = os.environ.get(source_env)
             if env_value is None:
-                raise AgentConfigError(
-                    f"Invalid config for agent '{name}' in {path}: missing environment variable {source_env} for env.{key}"
+                msg = (
+                    f"Invalid config for agent '{name}' in {path}: "
+                    f"missing environment variable {source_env} "
+                    f"for env.{key}"
                 )
+                raise AgentConfigError(msg)
             resolved[key] = env_value
             continue
-        raise AgentConfigError(
-            f"Invalid config for agent '{name}' in {path}: env.{key} must be a string or {{ from_env = 'NAME' }}"
+        msg = (
+            f"Invalid config for agent '{name}' in {path}: "
+            f"env.{key} must be a string or "
+            "{ from_env = 'NAME' }"
         )
+        raise AgentConfigError(msg)
     return resolved

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import asdict
 import json
+from dataclasses import asdict
 
 from openmax.memory_system import MemoryEntry, MemoryStore, infer_code_scope
 

@@ -499,9 +499,7 @@ def inspect(session_id: str) -> None:
     else:
         for anchor in anchors:
             summary = anchor.summary or "no summary"
-            console.print(
-                f"- {anchor.phase} | {_format_timestamp(anchor.timestamp)} | {summary}"
-            )
+            console.print(f"- {anchor.phase} | {_format_timestamp(anchor.timestamp)} | {summary}")
 
     console.print("[bold]Subtasks[/bold]")
     if not plan.subtasks:

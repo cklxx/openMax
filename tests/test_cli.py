@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 from click.testing import CliRunner
 
-from openmax import cli
 import openmax.session_runtime as session_runtime
+from openmax import cli
 from openmax.agent_registry import AgentDefinition, built_in_agent_registry
 from openmax.lead_agent import LeadAgentStartupError
 from openmax.memory_system import MemoryStore
@@ -454,7 +454,9 @@ def test_runs_command_filters_by_status_and_limit(monkeypatch, tmp_path):
     store = SessionStore(base_dir=tmp_path / "sessions")
     completed = store.create_session("session-completed", "Completed task", str(tmp_path / "done"))
     active_old = store.create_session("session-active-old", "Older active", str(tmp_path / "older"))
-    active_new = store.create_session("session-active-new", "Newest active", str(tmp_path / "newer"))
+    active_new = store.create_session(
+        "session-active-new", "Newest active", str(tmp_path / "newer")
+    )
     failed = store.create_session("session-failed", "Failed task", str(tmp_path / "failed"))
 
     ordered = [
@@ -672,9 +674,7 @@ def test_inspect_command_prints_failure_summary_for_aborted_session(monkeypatch,
     assert "Waiting on UI validation" in result.output
 
 
-def test_inspect_command_prints_failure_summary_for_startup_failed_session(
-    monkeypatch, tmp_path
-):
+def test_inspect_command_prints_failure_summary_for_startup_failed_session(monkeypatch, tmp_path):
     store = SessionStore(base_dir=tmp_path / "sessions")
     meta = store.create_session("session-failed", "Bootstrap me", str(tmp_path / "workspace"))
     meta.status = "failed"

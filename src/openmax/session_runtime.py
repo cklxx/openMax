@@ -457,9 +457,7 @@ class ContextBuilder:
 
             if event_type == "session.aborted":
                 reason = str(payload.get("reason", "")).strip()
-                outcome_summary = (
-                    f"Session aborted: {reason}" if reason else "Session aborted"
-                )
+                outcome_summary = f"Session aborted: {reason}" if reason else "Session aborted"
                 recent_activity.append(outcome_summary)
                 continue
 
