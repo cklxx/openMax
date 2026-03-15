@@ -112,6 +112,53 @@ CLAUDE_CODE_SETUP_TOKEN = "plain-text-secret"
         load_agent_registry(str(tmp_path))
 
 
+def test_load_agent_registry_resolves_claude_oauth_token_env_reference(monkeypatch, tmp_path):
+    monkeypatch.delenv("OPENMAX_AGENTS_FILE", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("OPENMAX_CLAUDE_OAUTH_TOKEN", "oauth-token-456")
+
+    config_dir = tmp_path / ".openmax"
+    config_dir.mkdir()
+    (config_dir / "agents.toml").write_text(
+        """
+[agents.claude-code]
+command = ["claude"]
+interactive = true
+
+[agents.claude-code.env]
+CLAUDE_CODE_OAUTH_TOKEN = { from_env = "OPENMAX_CLAUDE_OAUTH_TOKEN" }
+""".strip(),
+        encoding="utf-8",
+    )
+
+    registry = load_agent_registry(str(tmp_path))
+
+    cmd = registry.get("claude-code").get_command("Review auth flow", cwd=str(tmp_path))
+    assert cmd.env == {"CLAUDE_CODE_OAUTH_TOKEN": "oauth-token-456"}
+
+
+def test_load_agent_registry_rejects_hardcoded_oauth_token(monkeypatch, tmp_path):
+    monkeypatch.delenv("OPENMAX_AGENTS_FILE", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+    config_dir = tmp_path / ".openmax"
+    config_dir.mkdir()
+    (config_dir / "agents.toml").write_text(
+        """
+[agents.claude-code]
+command = ["claude"]
+interactive = true
+
+[agents.claude-code.env]
+CLAUDE_CODE_OAUTH_TOKEN = "plain-text-oauth-secret"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentConfigError, match="env.CLAUDE_CODE_OAUTH_TOKEN"):
+        load_agent_registry(str(tmp_path))
+
+
 def test_load_agent_registry_rejects_noninteractive_without_prompt(monkeypatch, tmp_path):
     monkeypatch.delenv("OPENMAX_AGENTS_FILE", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))

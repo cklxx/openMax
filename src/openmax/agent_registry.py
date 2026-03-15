@@ -199,7 +199,7 @@ def _resolve_agent_env(name: str, raw_env: object, path: Path) -> dict[str, str]
                 f"Invalid config for agent '{name}' in {path}: env keys must be strings"
             )
         if isinstance(value, str):
-            if key == "CLAUDE_CODE_SETUP_TOKEN":
+            if key in ("CLAUDE_CODE_SETUP_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"):
                 raise AgentConfigError(
                     f"Invalid config for agent '{name}' in {path}: env.{key} must come from an environment variable reference"
                 )

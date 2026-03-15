@@ -23,12 +23,12 @@ class DummyPaneManager:
         self.sent: list[tuple[int, str]] = []
         self.created_commands: list[list[str]] = []
 
-    def create_window(self, command, purpose, agent_type, title, cwd):
+    def create_window(self, command, purpose, agent_type, title, cwd, env=None):
         self.created_commands.append(command)
         self.windows[7] = SimpleNamespace(pane_ids=[101])
         return SimpleNamespace(pane_id=101, window_id=7)
 
-    def add_pane(self, window_id, command, purpose, agent_type, cwd):
+    def add_pane(self, window_id, command, purpose, agent_type, cwd, env=None):
         self.created_commands.append(command)
         self.windows[window_id].pane_ids.append(102)
         return SimpleNamespace(pane_id=102, window_id=window_id)
