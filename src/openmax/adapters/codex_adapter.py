@@ -15,6 +15,7 @@ class CodexAdapter(AgentAdapter):
             launch_cmd=["codex"],
             initial_input=prompt,
             interactive=True,
+            ready_patterns=["codex>", "> ", "❯ "],
         )
 
 

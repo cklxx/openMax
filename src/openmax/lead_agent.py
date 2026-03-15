@@ -8,6 +8,7 @@ multi-turn orchestration.
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -444,6 +445,44 @@ async def get_agent_recommendations(args: dict[str, Any]) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]}
 
 
+
+async def _wait_for_pane_ready(
+    pane_mgr: "PaneManager",
+    pane_id: int,
+    ready_patterns: list[str],
+    timeout: float = 30.0,
+    poll_interval: float = 0.5,
+) -> bool:
+    """Poll pane output until a ready pattern appears or timeout."""
+    if not ready_patterns:
+        return False
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            text = pane_mgr.get_text(pane_id)
+        except Exception:
+            text = ""
+        if any(pat in text for pat in ready_patterns):
+            return True
+        await anyio.sleep(poll_interval)
+    return False
+
+
+def _extract_smart_output(text: str, tail_lines: int = 100) -> str:
+    """Return tail of output, with error lines from earlier surfaced at top."""
+    lines = text.splitlines()
+    tail = lines[-tail_lines:]
+    error_kw = ["Error", "error", "Traceback", "FAILED", "fatal", "exception", "\u274c"]
+    error_context = [
+        f"[ERROR] {l.strip()}"
+        for l in lines[:-tail_lines]
+        if any(k in l for k in error_kw)
+    ][-20:]
+    if error_context:
+        return "\n".join(error_context) + "\n---\n" + "\n".join(tail)
+    return "\n".join(tail)
+
+
 @tool(
     "dispatch_agent",
     "Dispatch a sub-task to an AI agent in a terminal pane. "
@@ -511,9 +550,22 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
             pane_kwargs["env"] = launch_env
         pane = runtime.pane_mgr.add_pane(**pane_kwargs)
 
-    # For interactive agents, send the initial prompt after CLI starts
+    # For interactive agents, wait for CLI ready then send initial prompt
     if cmd_spec.interactive and cmd_spec.initial_input:
-        await anyio.sleep(cmd_spec.ready_delay_seconds)
+        if cmd_spec.ready_patterns:
+            ready = await _wait_for_pane_ready(
+                runtime.pane_mgr,
+                pane.pane_id,
+                cmd_spec.ready_patterns,
+                timeout=max(cmd_spec.ready_delay_seconds * 4, 30.0),
+            )
+            if not ready:
+                console.print(
+                    f"  [yellow]⚠[/yellow] Pane {pane.pane_id} ({agent_type}) "
+                    "did not show ready signal within timeout — sending prompt anyway"
+                )
+        else:
+            await anyio.sleep(cmd_spec.ready_delay_seconds)
         runtime.pane_mgr.send_text(pane.pane_id, cmd_spec.initial_input)
 
     subtask = SubTask(
@@ -574,9 +626,7 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
     pane_id = args["pane_id"]
     try:
         text = runtime.pane_mgr.get_text(pane_id)
-        lines = text.splitlines()
-        if len(lines) > 150:
-            text = "\n".join(lines[-150:])
+        text = _extract_smart_output(text, tail_lines=100)
         _append_session_event(
             "tool.read_pane_output",
             {

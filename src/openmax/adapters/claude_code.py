@@ -51,6 +51,7 @@ class ClaudeCodeAdapter(AgentAdapter):
             launch_cmd=launch,
             initial_input=prompt,
             interactive=True,
+            ready_patterns=["? for shortcuts", "Human:", "╭─"],
             env=env,
         )
 

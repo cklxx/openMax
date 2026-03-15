@@ -19,7 +19,9 @@ from openmax.memory_system import MemoryStore
 from openmax.pane_backend import resolve_pane_backend_name
 from openmax.pane_manager import PaneManager
 from openmax.session_runtime import SessionSnapshot, SessionStore
+from openmax.session_runtime import task_hash as _task_hash
 
+from openmax.doctor import render_results, run_checks
 console = Console()
 _ANCHOR_PREVIEW_LIMIT = 5
 
@@ -129,6 +131,34 @@ def run(
 
     if resume and not session_id:
         raise click.UsageError("--resume requires --session-id")
+
+    # Auto-resume: detect unfinished session for same task+cwd (when no explicit session-id)
+    if not session_id and not resume:
+        try:
+            from openmax.session_runtime import SessionStore as _SS, task_hash as _th
+            _store = _SS()
+            _th_val = _th(task, cwd)
+            _existing = _store.find_active_session(_th_val)
+            if _existing and _existing.status not in ("completed", "aborted", "failed"):
+                import datetime as _dt
+                try:
+                    _ago_dt = _dt.datetime.fromisoformat(_existing.updated_at)
+                    _delta = _dt.datetime.now(_dt.timezone.utc) - _ago_dt
+                    _mins = int(_delta.total_seconds() / 60)
+                    _ago_str = f"{_mins}m ago" if _mins < 120 else f"{_mins // 60}h ago"
+                except Exception:
+                    _ago_str = "recently"
+                _pct = getattr(_existing, "completion_pct", None)
+                _pct_str = f" ({_pct}% complete)" if _pct is not None else ""
+                console.print(
+                    f"[yellow]Found unfinished session:[/yellow] {_existing.session_id}"
+                    f"{_pct_str}, {_ago_str}"
+                )
+                if click.confirm("Resume it?", default=True):
+                    session_id = _existing.session_id
+                    resume = True
+        except Exception:
+            pass  # best-effort — don't block normal run
 
     try:
         agent_registry = load_agent_registry(cwd)
@@ -511,3 +541,45 @@ def inspect(session_id: str) -> None:
         if task.pane_id is not None:
             parts.append(f"pane={task.pane_id}")
         console.print(f"- {' | '.join(parts)}")
+
+
+@main.command()
+def doctor() -> None:
+    """Check the environment — Python, Kaku, agent CLIs, and auth."""
+    results = run_checks()
+    lines, issue_count = render_results(results)
+    for line in lines:
+        console.print(line)
+    raise SystemExit(0 if issue_count == 0 else 1)
+
+
+@main.command("validate-config")
+@click.option("--cwd", default=None, help="Workspace to validate agent config for")
+def validate_config(cwd: str | None) -> None:
+    """Validate built-in and custom agent configuration."""
+    cwd = _resolve_cwd(cwd)
+    console.print(f"[bold]Validating agent config for {cwd}[/bold]")
+
+    from openmax.agent_registry import _candidate_config_paths, _merge_config_file, built_in_agent_registry
+    from pathlib import Path
+
+    registry = built_in_agent_registry()
+    console.print("[dim]Built-in agents:[/dim] " + ", ".join(registry.names()))
+
+    found_errors = False
+    for path, required in _candidate_config_paths(cwd):
+        p = Path(path)
+        if not p.exists():
+            continue
+        console.print(f"\n[bold]Config file:[/bold] {p}")
+        try:
+            _merge_config_file(registry, p)
+            console.print(f"  [green]✅ valid[/green]")
+        except AgentConfigError as exc:
+            console.print(f"  [red]❌ {exc}[/red]")
+            found_errors = True
+
+    if not found_errors:
+        console.print("\n[green]All configs valid.[/green]")
+    else:
+        raise SystemExit(1)

@@ -1,5 +1,5 @@
-"""Base adapter for AI agents."""
 
+from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
@@ -8,11 +8,11 @@ from dataclasses import dataclass, field
 class AgentCommand:
     """Describes how to launch an agent.
 
-    For interactive agents: `launch_cmd` starts the CLI,
-    then `initial_input` is sent via kaku send-text.
+    For interactive agents: launch_cmd starts the CLI,
+    then initial_input is sent via kaku send-text.
 
-    For non-interactive agents: `launch_cmd` includes the prompt,
-    `initial_input` is None.
+    For non-interactive agents: launch_cmd includes the prompt,
+    initial_input is None.
     """
 
     launch_cmd: list[str]
@@ -20,6 +20,9 @@ class AgentCommand:
     interactive: bool = True
     ready_delay_seconds: float = 3.0
     env: dict[str, str] = field(default_factory=dict, repr=False)
+    ready_patterns: list[str] = field(default_factory=list, repr=False)
+    """Strings to poll for in pane output before sending initial_input.
+    Empty list = fall back to ready_delay_seconds sleep."""
 
 
 class AgentAdapter(ABC):

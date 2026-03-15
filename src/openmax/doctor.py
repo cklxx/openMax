@@ -1,0 +1,136 @@
+"""Environment health check for openMax."""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+
+@dataclass
+class CheckResult:
+    name: str
+    ok: bool
+    version: str | None = None
+    detail: str | None = None
+    fix_hint: str | None = None
+
+
+def _get_version(cmd: str) -> str | None:
+    try:
+        result = subprocess.run(
+            [cmd, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        out = (result.stdout + result.stderr).strip()
+        # grab first non-empty line, trim to 20 chars
+        first = next((l.strip() for l in out.splitlines() if l.strip()), "")
+        return first[:40] or None
+    except Exception:
+        return None
+
+
+def _check_python() -> CheckResult:
+    v = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    ok = sys.version_info >= (3, 10)
+    return CheckResult(
+        name="Python",
+        ok=ok,
+        version=v,
+        fix_hint=None if ok else "openMax requires Python 3.10+",
+    )
+
+
+def _check_kaku() -> CheckResult:
+    found = shutil.which("kaku")
+    if not found:
+        return CheckResult(
+            name="Kaku CLI",
+            ok=False,
+            fix_hint="brew install --cask kaku",
+        )
+    v = _get_version("kaku")
+    return CheckResult(name="Kaku CLI", ok=True, version=v)
+
+
+def _check_cli(name: str, cmd: str, fix: str) -> CheckResult:
+    found = shutil.which(cmd)
+    if not found:
+        return CheckResult(name=name, ok=False, fix_hint=fix)
+    v = _get_version(cmd)
+    return CheckResult(name=name, ok=True, version=v)
+
+
+def _check_claude_auth() -> CheckResult:
+    creds_path = Path.home() / ".claude" / ".credentials.json"
+    if creds_path.exists():
+        try:
+            data = json.loads(creds_path.read_text(encoding="utf-8"))
+            token = data.get("claudeAiOauth", {}).get("accessToken")
+            if token:
+                return CheckResult(
+                    name="Claude auth",
+                    ok=True,
+                    detail=str(creds_path),
+                )
+        except Exception:
+            pass
+    env_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
+    if env_token:
+        return CheckResult(name="Claude auth", ok=True, detail="via env var")
+    return CheckResult(
+        name="Claude auth",
+        ok=False,
+        fix_hint="Run `claude /login` to authenticate",
+    )
+
+
+def _check_openai_auth() -> CheckResult:
+    if os.environ.get("OPENAI_API_KEY"):
+        return CheckResult(name="Codex auth", ok=True, detail="OPENAI_API_KEY set")
+    return CheckResult(
+        name="Codex auth",
+        ok=False,
+        detail="optional — only needed if using codex agent",
+        fix_hint="export OPENAI_API_KEY=<your-key>",
+    )
+
+
+def run_checks() -> list[CheckResult]:
+    return [
+        _check_python(),
+        _check_kaku(),
+        _check_cli("claude", "claude", "See https://docs.anthropic.com/en/docs/claude-code"),
+        _check_cli("codex", "codex", "npm install -g @openai/codex  (optional)"),
+        _check_cli("opencode", "opencode", "See https://github.com/opencode-ai/opencode  (optional)"),
+        _check_claude_auth(),
+        _check_openai_auth(),
+    ]
+
+
+def render_results(results: list[CheckResult]) -> tuple[list[str], int]:
+    """Return (lines, issue_count)."""
+    lines: list[str] = ["openMax environment check", "─" * 42]
+    issues = 0
+    for r in results:
+        icon = "✅" if r.ok else "❌"
+        ver = f"  {r.version}" if r.version else ""
+        detail = f"  ({r.detail})" if r.detail and not r.version else ""
+        lines.append(f"  {icon}  {r.name:<18}{ver}{detail}")
+        if not r.ok:
+            issues += 1
+            if r.fix_hint:
+                lines.append(f"       Fix: {r.fix_hint}")
+    lines.append("─" * 42)
+    if issues == 0:
+        lines.append("All checks passed ✅")
+    else:
+        noun = "issue" if issues == 1 else "issues"
+        lines.append(f"{issues} {noun} found.")
+    return lines, issues

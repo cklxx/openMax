@@ -300,6 +300,14 @@ class SessionStore:
     def session_exists(self, session_id: str) -> bool:
         return self._meta_path(session_id).exists()
 
+    def find_active_session(self, task_hash_value: str) -> SessionMeta | None:
+        """Return the most recent non-completed session matching task_hash, or None."""
+        candidates = self.list_sessions()
+        for meta in candidates:
+            if meta.task_hash == task_hash_value and meta.status not in ("completed", "aborted", "failed"):
+                return meta
+        return None
+
     def _write_meta(self, meta: SessionMeta) -> None:
         meta_path = self._meta_path(meta.session_id)
         meta_path.parent.mkdir(parents=True, exist_ok=True)

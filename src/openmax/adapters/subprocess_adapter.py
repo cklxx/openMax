@@ -60,6 +60,7 @@ class SubprocessAdapter(AgentAdapter):
                 interactive=True,
                 ready_delay_seconds=self._startup_delay,
                 env=dict(self._env),
+                ready_patterns=["$ ", "❯ ", "> "],
             )
         return AgentCommand(
             launch_cmd=command,

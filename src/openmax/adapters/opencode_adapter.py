@@ -15,4 +15,5 @@ class OpenCodeAdapter(AgentAdapter):
             launch_cmd=["opencode"],
             initial_input=prompt,
             interactive=True,
+            ready_patterns=["opencode>", "> ", "❯ "],
         )
