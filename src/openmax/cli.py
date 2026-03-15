@@ -385,7 +385,8 @@ def recommendation_eval(cwd: str | None) -> None:
 
 @main.command("list-agents")
 @click.option("--cwd", default=None, help="Working directory used for workspace agent config")
-def list_agents(cwd: str | None) -> None:
+@click.option("--verbose", "-v", is_flag=True, default=False, help="Show command template for each agent")
+def list_agents(cwd: str | None, verbose: bool) -> None:
     """List built-in and configured agents."""
     cwd = _resolve_cwd(cwd)
 
@@ -397,7 +398,13 @@ def list_agents(cwd: str | None) -> None:
     console.print(f"[bold]Available agents for {cwd}[/bold]")
     for definition in registry.definitions():
         source = "built-in" if definition.built_in else definition.source
-        console.print(f"- {definition.name} [dim]({source})[/dim]")
+        line = f"- {definition.name} [dim]({source})[/dim]"
+        if verbose:
+            adapter = definition.adapter
+            if hasattr(adapter, '_command_template'):
+                cmd_preview = " ".join(adapter._command_template)[:60]
+                line += f"\n    cmd: {cmd_preview}"
+        console.print(line)
 
 
 @main.command("runs")

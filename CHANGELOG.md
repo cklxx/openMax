@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.8
+
+- `openmax doctor` command: checks Python, Kaku, agent CLIs, and auth status
+- startup_delay replaced with ready signal polling — prompt no longer silently dropped on slow CLIs
+- Smart pane output: error/traceback lines auto-surfaced from beyond the 150-line window
+- `openmax validate-config [--cwd]`: validate agent TOML config and show per-agent status
+- Auto-resume detection: `openmax run` prompts to resume unfinished session for same task+cwd
+- `openmax list-agents --verbose`: show command template for each agent
+- Session resume: stale running subtasks reset to pending when their panes are gone
+
 ## 0.1.4
 
 - Agent window resized to 50% of screen (was 68%)

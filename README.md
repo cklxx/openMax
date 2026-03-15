@@ -111,6 +111,36 @@ openmax run "Build a REST API with FastAPI and SQLAlchemy"
 | `--resume` | Resume a persistent session (requires `--session-id`) | `false` |
 | `--agents LIST` | Comma-separated allowed agent types, in preference order | All available |
 
+### `openmax doctor`
+
+Check that your environment is ready before running tasks.
+
+```bash
+$ openmax doctor
+openMax environment check
+──────────────────────────────────────────
+  ✅  Python              3.11.4
+  ✅  Kaku CLI            0.6.0
+  ✅  claude              2.1.76
+  ❌  opencode
+       Fix: See https://github.com/opencode-ai/opencode  (optional)
+──────────────────────────────────────────
+1 issue found.
+```
+
+### `openmax validate-config`
+
+Validate your agent TOML configuration:
+
+```bash
+$ openmax validate-config --cwd ~/projects/my-app
+Validating agent config for /Users/me/my-app
+  Built-in: claude-code, codex, opencode, generic  ✅
+  .openmax/agents.toml
+    remote-codex  ✅  ssh devbox bash -lc ...
+    broken-agent  ❌  command must be a non-empty string array
+```
+
 ### `openmax panes`
 
 List all Kaku terminal panes and their status.
