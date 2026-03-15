@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -14,6 +15,7 @@ from openmax.session_runtime import (
     bind_lead_agent_runtime,
     get_lead_agent_runtime,
     reset_lead_agent_runtime,
+    task_hash,
 )
 
 
@@ -485,3 +487,28 @@ def test_completed_session_no_subtasks_no_report_shows_none(tmp_path):
 
     assert snapshot.plan.completion_pct is None
     assert snapshot.plan.scorecard.completion_pct is None
+
+
+def test_find_active_session_returns_none_when_no_match(tmp_path):
+    store = SessionStore(base_dir=tmp_path)
+    result = store.find_active_session("nonexistent_hash")
+    assert result is None
+
+
+def test_find_active_session_finds_matching_session(tmp_path):
+    store = SessionStore(base_dir=tmp_path)
+    store.create_session("test-session-123", "Build a blog", "/tmp/myproject")
+    th = task_hash("Build a blog", str(Path("/tmp/myproject").resolve()))
+    result = store.find_active_session(th)
+    assert result is not None
+    assert result.session_id == "test-session-123"
+
+
+def test_find_active_session_ignores_completed(tmp_path):
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("done-session", "Some task", "/tmp/x")
+    meta.status = "completed"
+    store.save_meta(meta)
+    th = task_hash("Some task", str(Path("/tmp/x").resolve()))
+    result = store.find_active_session(th)
+    assert result is None

@@ -25,12 +25,14 @@ class SubprocessAdapter(AgentAdapter):
         is_interactive: bool = True,
         startup_delay: float = 3.0,
         env: Mapping[str, str] | None = None,
+        ready_patterns: list[str] | None = None,
     ) -> None:
         self._name = name
         self._command_template = command_template
         self._interactive = is_interactive
         self._startup_delay = startup_delay
         self._env = dict(env or {})
+        self._ready_patterns = ready_patterns
 
     @property
     def agent_type(self) -> str:
@@ -60,7 +62,9 @@ class SubprocessAdapter(AgentAdapter):
                 interactive=True,
                 ready_delay_seconds=self._startup_delay,
                 env=dict(self._env),
-                ready_patterns=["$ ", "❯ ", "> "],
+                ready_patterns=(
+                    self._ready_patterns if self._ready_patterns is not None else ["$ ", "❯ ", "> "]
+                ),
             )
         return AgentCommand(
             launch_cmd=command,
