@@ -91,7 +91,8 @@ def resolve_pane_backend_name(name: str | None = None) -> PaneBackendName:
 def _auto_detect_backend() -> PaneBackendName:
     """Auto-detect the best available pane backend.
 
-    macOS: kaku > tmux.  Non-macOS: tmux > kaku.
+    macOS: kaku (if running inside kaku) > tmux > kaku fallback.
+    Non-macOS: tmux.
     """
     from openmax.terminal import is_kaku_available, is_tmux_available
 
@@ -102,9 +103,7 @@ def _auto_detect_backend() -> PaneBackendName:
             return "tmux"
         return "kaku"  # fall through — ensure_kaku will guide install
     else:
-        if is_tmux_available():
-            return "tmux"
-        return "tmux"  # fall through — ensure_tmux will guide install
+        return "tmux"  # ensure_tmux will guide install if missing
 
 
 def create_pane_backend(name: str | None = None) -> PaneBackend:
@@ -486,15 +485,20 @@ class KakuPaneBackend:
         return result
 
 
+_TMUX_SESSION_NAME = "openmax"
+
+
 class TmuxPaneBackend:
     """Tmux-backed implementation of the pane execution backend.
 
+    When running outside a tmux session, automatically creates a detached
+    ``openmax`` session. Panes are visible via ``tmux attach -t openmax``.
+
     Args:
         socket_name: Optional tmux socket name (``-L`` flag) for session isolation.
-            When set, all commands target this specific tmux server instance.
             Primarily useful for testing.
-        target_session: Optional session name for ``new-window`` when not running
-            inside a tmux session (no ``$TMUX`` env var).
+        target_session: Optional session name for ``new-window``.
+            Auto-detected when omitted.
     """
 
     _DIRECTION_FLAGS: dict[SplitDirection, list[str]] = {
@@ -510,7 +514,38 @@ class TmuxPaneBackend:
         target_session: str | None = None,
     ) -> None:
         self._socket_name = socket_name
-        self._target_session = target_session
+        self._owns_session = False
+        if target_session is not None:
+            self._target_session = target_session
+        elif os.environ.get("TMUX"):
+            # Inside a tmux session — use current session
+            self._target_session = None
+        else:
+            # Not inside tmux — create a detached session
+            self._target_session = _TMUX_SESSION_NAME
+            self._ensure_session()
+
+    def _ensure_session(self) -> None:
+        """Create a detached tmux session if it doesn't already exist."""
+        result = self._run_tmux(
+            ["has-session", "-t", self._target_session],
+            check=False,
+        )
+        if result.returncode == 0:
+            return  # session already exists
+        self._run_tmux(
+            [
+                "new-session",
+                "-d",
+                "-s",
+                self._target_session,
+                "-x",
+                "200",
+                "-y",
+                "50",
+            ]
+        )
+        self._owns_session = True
 
     def list_panes(self) -> list[PaneInfo]:
         fmt = (

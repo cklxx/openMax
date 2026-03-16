@@ -86,12 +86,14 @@ sudo apt install tmux    # Debian / Ubuntu
 sudo dnf install tmux    # Fedora / RHEL
 sudo pacman -S tmux      # Arch
 
-# Start a tmux session, then run openmax inside it
-tmux new-session
+# Just run openmax — it creates a tmux session automatically
 openmax run "your task"
+
+# Watch agents work (in another terminal)
+tmux attach -t openmax
 ```
 
-openMax auto-detects tmux when you're inside a tmux session.
+openMax auto-creates a detached tmux session named `openmax` and spawns agent panes inside it. If you're already inside a tmux session, openmax uses it directly.
 
 </details>
 

@@ -67,7 +67,7 @@ def _check_terminal_backends() -> list[CheckResult]:
     if has_tmux:
         v = _get_version("tmux", "-V")
         in_session = os.environ.get("TMUX") is not None
-        detail = "in session" if in_session else "installed (not in session)"
+        detail = "in session" if in_session else "installed"
         results.append(CheckResult(name="tmux", ok=True, version=v, detail=detail))
     else:
         results.append(

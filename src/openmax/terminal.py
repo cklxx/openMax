@@ -12,19 +12,13 @@ import subprocess
 
 
 def is_tmux_available() -> bool:
-    """Check if we're inside a tmux session."""
-    if not os.environ.get("TMUX"):
-        return False
-    try:
-        result = subprocess.run(
-            ["tmux", "display-message", "-p", "#{session_id}"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+    """Check if tmux is installed and usable."""
+    return shutil.which("tmux") is not None
+
+
+def is_in_tmux_session() -> bool:
+    """Check if we're currently inside a tmux session."""
+    return os.environ.get("TMUX") is not None
 
 
 def get_current_pane_id() -> int | None:
@@ -140,10 +134,7 @@ def ensure_kaku() -> bool:
     if system != "Darwin":
         console.print(
             "[yellow]Kaku is macOS-only.[/yellow] "
-            "Use [bold]tmux[/bold] instead:\n"
-            "\n"
-            "  tmux new-session\n"
-            '  openmax run "your task"'
+            "Install [bold]tmux[/bold] instead, then run openmax normally."
         )
         return False
 
@@ -177,9 +168,10 @@ def ensure_kaku() -> bool:
 
 
 def ensure_tmux() -> bool:
-    """Ensure tmux is available and running. Auto-install if possible.
+    """Ensure tmux is installed. Auto-install if possible.
 
     Returns True if tmux is ready to use, False otherwise.
+    A tmux session is NOT required — TmuxPaneBackend auto-creates one.
     """
     if is_tmux_available():
         return True
@@ -187,35 +179,19 @@ def ensure_tmux() -> bool:
     from rich.console import Console
 
     console = Console()
+    console.print("[yellow]tmux is not installed.[/yellow]")
+    try:
+        answer = input("Install tmux now? [Y/n] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        answer = "n"
 
-    tmux_installed = shutil.which("tmux") is not None
+    if answer in ("", "y", "yes"):
+        if _install_tmux():
+            return True
+        _print_tmux_install_guide()
+        return False
 
-    if not tmux_installed:
-        console.print("[yellow]tmux is not installed.[/yellow]")
-        try:
-            answer = input("Install tmux now? [Y/n] ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            answer = "n"
-
-        if answer in ("", "y", "yes"):
-            if _install_tmux():
-                tmux_installed = True
-            else:
-                _print_tmux_install_guide()
-                return False
-        else:
-            _print_tmux_install_guide()
-            return False
-
-    # tmux is installed but no active session
-    console.print(
-        "[yellow]tmux is installed but you are not inside a tmux session.[/yellow]\n"
-        "\n"
-        "[bold]Start a session first:[/bold]\n"
-        "  tmux new-session\n"
-        "\n"
-        "Then run openmax from inside it."
-    )
+    _print_tmux_install_guide()
     return False
 
 
@@ -236,7 +212,6 @@ def _print_tmux_install_guide() -> None:
         "[bold]Install:[/bold]\n"
         f"  {install_cmd}\n"
         "\n"
-        "Then start a session and run openmax:\n"
-        "  tmux new-session\n"
+        "Then run openmax:\n"
         '  openmax run "your task"'
     )
