@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 
 import anyio
@@ -37,7 +38,7 @@ class DummyPaneManager:
         self.sent.append((pane_id, text))
 
     def get_text(self, pane_id):
-        return f"pane {pane_id} output"
+        return f"pane {pane_id} output\n$ "
 
     def refresh_states(self):
         return None
@@ -46,8 +47,16 @@ class DummyPaneManager:
         return {"total_windows": len(self.windows), "done": 0}
 
 
-async def _no_sleep(_seconds: float) -> None:
-    return None
+_fake_time = 0.0
+
+
+async def _no_sleep(seconds: float) -> None:
+    global _fake_time  # noqa: PLW0603
+    _fake_time += seconds
+
+
+def _fake_monotonic() -> float:
+    return _fake_time
 
 
 def _setup_session(tmp_path):
@@ -96,9 +105,17 @@ class FailingClaudeClient:
             yield None
 
 
+def _patch_time(monkeypatch):
+    """Patch both anyio.sleep and time.monotonic so _wait_for_pane_ready exits fast."""
+    global _fake_time  # noqa: PLW0603
+    _fake_time = 0.0
+    monkeypatch.setattr(lead_agent.anyio, "sleep", _no_sleep)
+    monkeypatch.setattr(lead_agent.time, "monotonic", _fake_monotonic)
+
+
 def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
     runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
-    monkeypatch.setattr(lead_agent.anyio, "sleep", _no_sleep)
+    _patch_time(monkeypatch)
 
     anyio.run(
         lead_agent.dispatch_agent.handler,
@@ -197,7 +214,7 @@ def test_format_tool_use_humanizes_all_openmax_tools():
 
 def test_dispatch_agent_enforces_allowed_agents(monkeypatch, tmp_path):
     runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
-    monkeypatch.setattr(lead_agent.anyio, "sleep", _no_sleep)
+    _patch_time(monkeypatch)
     runtime.allowed_agents = ["codex"]
 
     result = anyio.run(
@@ -297,10 +314,16 @@ def test_dispatch_agent_uses_configured_custom_agent(monkeypatch, tmp_path):
     runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
     sleep_calls: list[float] = []
 
+    global _fake_time  # noqa: PLW0603
+    _fake_time = 0.0
+
     async def fake_sleep(seconds: float) -> None:
+        global _fake_time  # noqa: PLW0603
+        _fake_time += seconds
         sleep_calls.append(seconds)
 
     monkeypatch.setattr(lead_agent.anyio, "sleep", fake_sleep)
+    monkeypatch.setattr(lead_agent.time, "monotonic", _fake_monotonic)
     runtime.agent_registry = built_in_agent_registry().with_definition(
         AgentDefinition(
             name="remote-codex",
@@ -322,7 +345,6 @@ def test_dispatch_agent_uses_configured_custom_agent(monkeypatch, tmp_path):
     assert runtime.pane_mgr.created_commands == [
         ["ssh", "devbox", "bash", "-lc", f"cd {tmp_path!s} && codex"]
     ]
-    assert sleep_calls == [9]
     assert runtime.pane_mgr.sent == [(101, "Implement API")]
 
     _teardown_session(token)
@@ -330,7 +352,7 @@ def test_dispatch_agent_uses_configured_custom_agent(monkeypatch, tmp_path):
 
 def test_dispatch_agent_falls_back_when_agent_not_configured(monkeypatch, tmp_path):
     runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
-    monkeypatch.setattr(lead_agent.anyio, "sleep", _no_sleep)
+    _patch_time(monkeypatch)
     runtime.agent_registry = built_in_agent_registry()
 
     anyio.run(
@@ -366,7 +388,7 @@ def test_run_lead_agent_records_structured_auth_startup_failure(monkeypatch, tmp
     except LeadAgentStartupError as exc:
         assert exc.category == "authentication"
         assert exc.stage == "sdk_client_startup"
-        assert "claude auth login" in exc.remediation
+        assert "openmax setup" in exc.remediation
     else:
         raise AssertionError("Expected LeadAgentStartupError")
 

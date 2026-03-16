@@ -147,6 +147,7 @@ class LeadAgentRuntime:
     memory_store: Any | None = None
     allowed_agents: list[str] | None = None
     agent_registry: Any | None = None
+    dashboard: Any | None = None
 
 
 _lead_agent_runtime: ContextVar[LeadAgentRuntime | None] = ContextVar(
@@ -325,6 +326,20 @@ class SessionStore:
 
     def _events_path(self, session_id: str) -> Path:
         return self._session_dir(session_id) / "events.jsonl"
+
+
+def reconcile_resumed_subtasks(
+    plan: "ReconstructedPlan",
+    pane_mgr: Any,
+) -> list[str]:
+    """Reset running subtasks whose panes are gone. Returns list of reset task names."""
+    reset_names: list[str] = []
+    for subtask in plan.subtasks:
+        if subtask.status == "running":
+            if subtask.pane_id is None or not pane_mgr.is_pane_alive(subtask.pane_id):
+                subtask.status = "pending"
+                reset_names.append(subtask.name)
+    return reset_names
 
 
 class ContextBuilder:

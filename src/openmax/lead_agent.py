@@ -25,10 +25,10 @@ from claude_agent_sdk import (
     create_sdk_mcp_server,
     tool,
 )
-from rich.console import Console
 from rich.panel import Panel
 
 from openmax.agent_registry import AgentRegistry, built_in_agent_registry
+from openmax.dashboard import RunDashboard, console
 from openmax.memory_system import MemoryStore, serialize_subtasks
 from openmax.pane_manager import PaneManager
 from openmax.session_runtime import (
@@ -43,7 +43,6 @@ from openmax.session_runtime import (
     serialize_tasks,
 )
 
-console = Console()
 _TOOL_NAME_PREFIX = "mcp__openmax__"
 
 
@@ -116,6 +115,15 @@ def _load_system_prompt() -> str:
     return (_PROMPT_DIR / "lead_agent.md").read_text()
 
 
+def _build_lead_env() -> dict[str, str]:
+    """Build env dict for the lead agent SDK client.
+
+    Unsets CLAUDECODE to prevent nested-session errors.
+    Auth is handled by `claude setup-token` (stored in Claude's own config).
+    """
+    return {"CLAUDECODE": ""}
+
+
 def _truncate_text(value: str, limit: int = 72) -> str:
     text = " ".join(value.split())
     if len(text) <= limit:
@@ -183,6 +191,10 @@ def _format_tool_use(tool_name: str, tool_input: dict[str, Any] | None = None) -
         if pane_id is not None:
             return f"Sending follow-up to pane {pane_id}"
         return "Sending follow-up to an agent"
+
+    if normalized == "read_file":
+        path = str(tool_input.get("path", "")).strip()
+        return f"Reading {path}" if path else "Reading a file"
 
     if normalized == "list_managed_panes":
         return "Reviewing active panes"
@@ -321,16 +333,7 @@ def _build_lead_prompt(
         parts.append("Recovered session context:\n" + resume_context)
     if memory_context:
         parts.append(memory_context)
-    parts.append(
-        "Proceed through the management lifecycle:\n"
-        "1. Align goal\n"
-        "2. Plan & decompose\n"
-        "3. Dispatch agents\n"
-        "4. Monitor & correct\n"
-        "5. Summarize & report\n\n"
-        "Use `record_phase_anchor` at the end of each phase "
-        "with a concise summary and current state."
-    )
+    parts.append("Execute now. Follow the workflow in your system prompt.")
     return "\n\n".join(parts)
 
 
@@ -393,8 +396,8 @@ def _classify_startup_failure(exc: Exception, stage: str) -> LeadAgentStartupErr
             stage=stage,
             detail=detail,
             remediation=(
-                "Refresh Claude authentication in this shell, then retry. "
-                "If needed, run `claude auth login` and confirm the account has access."
+                "Run `openmax setup` to configure a long-lived API token. "
+                "This avoids OAuth expiration issues."
             ),
         )
 
@@ -576,6 +579,8 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         pane_id=pane.pane_id,
     )
     _upsert_subtask(subtask)
+    if runtime.dashboard is not None:
+        runtime.dashboard.update_subtask(task_name, agent_type, pane.pane_id, "running")
 
     # Show layout info
     win = runtime.pane_mgr.windows.get(runtime.agent_window_id)
@@ -650,6 +655,8 @@ async def send_text_to_pane(args: dict[str, Any]) -> dict[str, Any]:
     text = args["text"]
     runtime.pane_mgr.send_text(pane_id, text)
     console.print(f"  [yellow]→[/yellow] Sent to pane {pane_id}: {text[:80]}")
+    if runtime.dashboard is not None:
+        runtime.dashboard.update_pane_activity(pane_id, text[:80])
     _append_session_event(
         "tool.send_text_to_pane",
         {
@@ -684,6 +691,8 @@ async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:
         if st.name == task_name:
             st.status = TaskStatus.DONE
             console.print(f"  [green]✓✓[/green] [bold]{task_name}[/bold] done")
+            if runtime.dashboard is not None:
+                runtime.dashboard.update_subtask(task_name, st.agent_type, st.pane_id, "done")
             _append_session_event("tool.mark_task_done", {"task_name": task_name})
             return {"content": [{"type": "text", "text": f"Marked '{task_name}' as done"}]}
     return {"content": [{"type": "text", "text": f"Task '{task_name}' not found"}]}
@@ -699,6 +708,9 @@ async def record_phase_anchor(args: dict[str, Any]) -> dict[str, Any]:
     summary = args["summary"]
     completion_pct = args.get("completion_pct")
     _record_phase_anchor(phase, summary, completion_pct)
+    runtime = _runtime()
+    if runtime.dashboard is not None:
+        runtime.dashboard.update_phase(phase, completion_pct)
     suffix = f" ({completion_pct}%)" if completion_pct is not None else ""
     preview = _truncate_text(summary)
     message = f"  [cyan]↺[/cyan] Saved {_format_phase_name(phase)} checkpoint{suffix}"
@@ -771,6 +783,47 @@ async def wait_tool(args: dict[str, Any]) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": f"Waited {seconds}s"}]}
 
 
+@tool(
+    "read_file",
+    "Read a file from the working directory. Use to understand codebase before planning. "
+    "Returns file content (max 2000 lines). Specify offset/limit for large files.",
+    {"path": str, "offset": int, "limit": int},
+)
+async def read_file_tool(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
+    rel_path = args["path"]
+    offset = args.get("offset", 0)
+    limit = args.get("limit", 2000)
+
+    # Resolve relative to cwd, prevent path traversal
+    target = (Path(runtime.cwd) / rel_path).resolve()
+    cwd_resolved = Path(runtime.cwd).resolve()
+    if not str(target).startswith(str(cwd_resolved)):
+        return {"content": [{"type": "text", "text": "Error: path outside working directory"}]}
+
+    try:
+        text = target.read_text(errors="replace")
+    except FileNotFoundError:
+        return {"content": [{"type": "text", "text": f"Error: file not found: {rel_path}"}]}
+    except IsADirectoryError:
+        return {"content": [{"type": "text", "text": f"Error: {rel_path} is a directory"}]}
+    except OSError as e:
+        return {"content": [{"type": "text", "text": f"Error reading file: {e}"}]}
+
+    lines = text.splitlines()
+    total = len(lines)
+    selected = lines[offset : offset + limit]
+    numbered = [f"{i + offset + 1:>5}  {line}" for i, line in enumerate(selected)]
+    header = f"# {rel_path} ({total} lines total"
+    if offset:
+        header += f", showing from line {offset + 1}"
+    header += ")\n"
+    result = header + "\n".join(numbered)
+
+    console.print(f"  [dim]📄 Read {rel_path} ({len(selected)}/{total} lines)[/dim]")
+    return {"content": [{"type": "text", "text": result}]}
+
+
 # ── Run the lead agent ────────────────────────────────────────────
 
 
@@ -812,6 +865,7 @@ async def _run_lead_agent_async(
     agent_registry: AgentRegistry | None = None,
 ) -> PlanResult:
     normalized_cwd = str(Path(cwd).resolve())
+    dashboard = RunDashboard(task)
     runtime = LeadAgentRuntime(
         cwd=cwd,
         plan=PlanResult(goal=task),
@@ -819,12 +873,14 @@ async def _run_lead_agent_async(
         memory_store=MemoryStore(),
         allowed_agents=allowed_agents,
         agent_registry=agent_registry or built_in_agent_registry(),
+        dashboard=dashboard,
     )
     token = bind_lead_agent_runtime(runtime)
 
     startup_stage = "sdk_client_startup"
     startup_complete = False
     try:
+        dashboard.start()
         resume_context: str | None = None
         memory_context = runtime.memory_store.build_context(cwd=cwd, task=task)
         if session_id:
@@ -866,6 +922,19 @@ async def _run_lead_agent_async(
                         "context.compacted",
                         {"summary": context_result.compaction_summary},
                     )
+
+                if resume and runtime.plan and hasattr(runtime.plan, "subtasks"):
+                    from openmax.session_runtime import reconcile_resumed_subtasks
+
+                    reset = reconcile_resumed_subtasks(runtime.plan, runtime.pane_mgr)
+                    if reset:
+                        console.print(
+                            f"  [yellow]↺[/yellow] Reset {len(reset)} stale subtask(s) to pending: {', '.join(reset)}"
+                        )
+                        resume_context = (resume_context or "") + (
+                            f"\n\nNOTE: These tasks were running but their panes are gone"
+                            f" — re-dispatch them: {', '.join(reset)}"
+                        )
             else:
                 runtime.session_meta = runtime.session_store.create_session(session_id, task, cwd)
                 runtime.plan = PlanResult(goal=task)
@@ -879,6 +948,7 @@ async def _run_lead_agent_async(
             tools=[
                 dispatch_agent,
                 get_agent_recommendations,
+                read_file_tool,
                 read_pane_output,
                 send_text_to_pane,
                 list_managed_panes,
@@ -893,6 +963,7 @@ async def _run_lead_agent_async(
         tool_names = [
             "mcp__openmax__dispatch_agent",
             "mcp__openmax__get_agent_recommendations",
+            "mcp__openmax__read_file",
             "mcp__openmax__read_pane_output",
             "mcp__openmax__send_text_to_pane",
             "mcp__openmax__list_managed_panes",
@@ -922,7 +993,7 @@ async def _run_lead_agent_async(
             max_turns=max_turns,
             cwd=cwd,
             permission_mode="bypassPermissions",
-            env={"CLAUDECODE": ""},
+            env=_build_lead_env(),
         )
         if model:
             options.model = model
@@ -1003,4 +1074,5 @@ async def _run_lead_agent_async(
             raise startup_failure from exc
         raise
     finally:
+        dashboard.stop()
         reset_lead_agent_runtime(token)

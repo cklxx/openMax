@@ -13,6 +13,8 @@ import click
 from rich.console import Console
 
 from openmax.agent_registry import AgentConfigError, load_agent_registry
+from openmax.auth import has_claude_auth, run_claude_setup_token
+from openmax.doctor import render_results, run_checks
 from openmax.kaku import ensure_kaku, is_kaku_available
 from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
 from openmax.memory_system import MemoryStore
@@ -21,7 +23,6 @@ from openmax.pane_manager import PaneManager
 from openmax.session_runtime import SessionSnapshot, SessionStore
 from openmax.session_runtime import task_hash as _task_hash
 
-from openmax.doctor import render_results, run_checks
 console = Console()
 _ANCHOR_PREVIEW_LIMIT = 5
 
@@ -589,4 +590,52 @@ def validate_config(cwd: str | None) -> None:
     if not found_errors:
         console.print("\n[green]All configs valid.[/green]")
     else:
+        raise SystemExit(1)
+
+
+@main.command()
+@click.option("--status", is_flag=True, default=False, help="Show current auth status")
+def setup(status: bool) -> None:
+    """Set up Claude authentication for openMax.
+
+    Runs `claude setup-token` to configure a long-lived token
+    that avoids OAuth expiration issues.
+    """
+    if status:
+        ok, detail = has_claude_auth()
+        if ok:
+            console.print(f"[green]Auth OK:[/green] {detail}")
+        else:
+            console.print("[yellow]No auth configured.[/yellow]")
+            console.print("Run [bold]openmax setup[/bold] to configure.")
+        return
+
+    # Skip if already authenticated
+    already_ok, detail = has_claude_auth()
+    if already_ok:
+        console.print(f"[green]Already authenticated:[/green] {detail}")
+        console.print("No setup needed.")
+        return
+
+    import shutil
+
+    if not shutil.which("claude"):
+        console.print("[red]claude CLI not found.[/red]")
+        console.print(
+            "Install it first: "
+            "https://docs.anthropic.com/en/docs/claude-code"
+        )
+        raise SystemExit(1)
+
+    console.print("[bold]openMax Setup[/bold]\n")
+    console.print(
+        "This will run [bold]claude setup-token[/bold] to configure "
+        "a long-lived token.\n"
+    )
+
+    ok = run_claude_setup_token()
+    if ok:
+        console.print("\n[green]Setup complete.[/green]")
+    else:
+        console.print("\n[red]Setup failed.[/red]")
         raise SystemExit(1)

@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
-from pathlib import Path
 
 
 @dataclass
@@ -68,26 +66,15 @@ def _check_cli(name: str, cmd: str, fix: str) -> CheckResult:
 
 
 def _check_claude_auth() -> CheckResult:
-    creds_path = Path.home() / ".claude" / ".credentials.json"
-    if creds_path.exists():
-        try:
-            data = json.loads(creds_path.read_text(encoding="utf-8"))
-            token = data.get("claudeAiOauth", {}).get("accessToken")
-            if token:
-                return CheckResult(
-                    name="Claude auth",
-                    ok=True,
-                    detail=str(creds_path),
-                )
-        except Exception:
-            pass
-    env_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
-    if env_token:
-        return CheckResult(name="Claude auth", ok=True, detail="via env var")
+    from openmax.auth import has_claude_auth
+
+    ok, detail = has_claude_auth()
+    if ok:
+        return CheckResult(name="Claude auth", ok=True, detail=detail)
     return CheckResult(
         name="Claude auth",
         ok=False,
-        fix_hint="Run `claude /login` to authenticate",
+        fix_hint="Run `openmax setup` to configure authentication",
     )
 
 
