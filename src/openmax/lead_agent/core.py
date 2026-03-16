@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -83,6 +85,73 @@ def _plan_from_snapshot(snapshot: SessionSnapshot) -> PlanResult:
     return PlanResult(goal=snapshot.plan.goal, subtasks=subtasks)
 
 
+_SNAPSHOT_CHAR_CAP = 500
+_SNAPSHOT_TIMEOUT = 3
+
+
+def _gather_project_snapshot(cwd: str) -> str:
+    """Return a compact project-state block (git + dir tree). Empty on failure."""
+    try:
+        sections: list[str] = []
+
+        # Git status
+        git_result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=_SNAPSHOT_TIMEOUT,
+        )
+        if git_result.returncode == 0:
+            branch_result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=_SNAPSHOT_TIMEOUT,
+            )
+            branch = branch_result.stdout.strip() if branch_result.returncode == 0 else "unknown"
+            dirty_lines = [line for line in git_result.stdout.splitlines() if line.strip()]
+            dirty_count = len(dirty_lines)
+            header = f"Branch: {branch}"
+            if dirty_count:
+                header += f" | {dirty_count} uncommitted file{'s' if dirty_count != 1 else ''}"
+            sections.append(header)
+            for line in dirty_lines[:15]:
+                sections.append(f"  {line}")
+            if dirty_count > 15:
+                sections.append(f"  ... and {dirty_count - 15} more")
+
+        # Shallow directory tree (depth 2, dirs only)
+        tree_lines: list[str] = []
+        for root, dirs, _files in os.walk(cwd):
+            depth = root.replace(cwd, "").count(os.sep)
+            if depth >= 2:
+                dirs.clear()
+                continue
+            # Skip hidden dirs and common noise
+            dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d != "__pycache__")
+            if depth == 0:
+                continue
+            rel = os.path.relpath(root, cwd)
+            subdirs = ", ".join(dirs[:6])
+            entry = f"  {rel}/"
+            if subdirs:
+                entry += f" — {subdirs}"
+            tree_lines.append(entry)
+            if len(tree_lines) >= 30:
+                break
+
+        if tree_lines:
+            sections.append("Structure:")
+            sections.extend(tree_lines)
+
+        result = "\n".join(sections)
+        return result[:_SNAPSHOT_CHAR_CAP] if result else ""
+    except Exception:
+        return ""
+
+
 def _build_lead_prompt(
     task: str,
     cwd: str,
@@ -92,6 +161,12 @@ def _build_lead_prompt(
     allowed_agents: list[str] | None = None,
 ) -> str:
     parts = [f"## Goal\n{task}", f"Working directory: {cwd}"]
+
+    # Project snapshot (git + structure)
+    snapshot = _gather_project_snapshot(cwd)
+    if snapshot:
+        parts.append(f"## Project State\n{snapshot}")
+
     if allowed_agents:
         agents_str = ", ".join(allowed_agents)
         parts.append(

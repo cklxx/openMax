@@ -423,6 +423,78 @@ def _cleanup_agent_branch(cwd: str, branch_name: str) -> str | None:
     return None
 
 
+def _auto_merge_branch(runtime: LeadAgentRuntime, subtask: SubTask) -> str:
+    """Merge a subtask's branch into the integration branch. Returns status message."""
+    branch = subtask.branch_name
+    if not branch:
+        return ""
+    integration = runtime.integration_branch or "main"
+    cwd = runtime.cwd
+    try:
+        subprocess.run(
+            ["git", "checkout", integration],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        merge_result = subprocess.run(
+            ["git", "merge", "--no-edit", branch],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if merge_result.returncode == 0:
+            hash_result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            commit_hash = hash_result.stdout.strip()[:8]
+            _cleanup_agent_branch(cwd, branch)
+            console.print(
+                f"  [bold green]\u2713[/bold green]  Merged {branch} \u2192 {integration}"
+                f" ({commit_hash})"
+            )
+            _append_session_event(
+                "tool.auto_merge",
+                {"branch": branch, "status": "merged", "commit": commit_hash},
+            )
+            return f"Merged {branch} \u2192 {integration} ({commit_hash})"
+
+        # Conflict — abort and report
+        subprocess.run(
+            ["git", "merge", "--abort"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        conflict_files = [
+            line.split("Merge conflict in ")[-1].strip()
+            for line in merge_result.stdout.splitlines()
+            if "Merge conflict in " in line
+        ]
+        console.print(
+            f"  [bold red]\u2717[/bold red]  Merge conflict for {branch}:"
+            f" {len(conflict_files)} file(s)"
+        )
+        _append_session_event(
+            "tool.auto_merge",
+            {"branch": branch, "status": "conflict", "files": conflict_files},
+        )
+        return (
+            f"Merge conflict for {branch}: {', '.join(conflict_files)}. "
+            "Use merge_agent_branch tool to resolve."
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        console.print(f"  [bold red]\u2717[/bold red]  Auto-merge error: {e}")
+        return f"Auto-merge error: {e}"
+
+
 def _try_reuse_done_pane(
     runtime: LeadAgentRuntime, agent_type: str, task_name: str
 ) -> SimpleNamespace | None:
@@ -520,6 +592,32 @@ def _compress_context(context: str, budget: int) -> str:
     return result
 
 
+def _build_subagent_context(
+    *,
+    branch_name: str | None,
+    memory_text: str | None,
+) -> str:
+    """Build a structured context block for sub-agent prompts.
+
+    Returns empty string when there is nothing to inject.
+    """
+    sections: list[str] = []
+
+    if branch_name:
+        sections.append(
+            f"Branch: {branch_name} (isolated worktree — commit here, do not switch branches)"
+        )
+
+    if memory_text:
+        sections.append(f"Relevant history:\n{memory_text}")
+
+    if not sections:
+        return ""
+
+    header = "## Context (auto-injected by openMax — use only if relevant)"
+    return "\n\n" + header + "\n\n" + "\n\n".join(sections)
+
+
 @tool(
     "dispatch_agent",
     "Dispatch a sub-task to an AI agent in a terminal pane. "
@@ -592,7 +690,8 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     if adapter is None:
         raise RuntimeError(f"Agent '{agent_type}' is unavailable")
 
-    # Auto-inject workspace memory context (with compression)
+    # Gather memory context (compressed)
+    memory_text: str | None = None
     context_budget = args.get("context_budget_tokens", 2000)
     if not isinstance(context_budget, int) or context_budget < 0:
         context_budget = 2000
@@ -603,8 +702,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
                 task=task_name,
             )
             if memory_context and memory_context.text:
-                compressed = _compress_context(memory_context.text, context_budget)
-                prompt = prompt + "\n\n## Workspace Context\n" + compressed
+                memory_text = _compress_context(memory_context.text, context_budget)
         except Exception:
             pass  # Don't fail dispatch if memory lookup fails
 
@@ -623,6 +721,14 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         console.print(f"  [dim]{P}  branch {branch_name} → {worktree_path}[/dim]")
     elif branch_err:
         console.print(f"  [yellow]![/yellow]  Branch isolation skipped: {branch_err}")
+
+    # Inject structured context (git branch + memory)
+    context_block = _build_subagent_context(
+        branch_name=branch_name,
+        memory_text=memory_text,
+    )
+    if context_block:
+        prompt = prompt + context_block
 
     cmd_spec = adapter.get_command(prompt, cwd=agent_cwd)
     launch_env = cmd_spec.env or None
@@ -943,7 +1049,16 @@ async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:
                     finished_at=st.finished_at,
                 )
             _append_session_event("tool.mark_task_done", {"task_name": task_name})
-            return {"content": [{"type": "text", "text": f"Marked '{task_name}' as done"}]}
+
+            # Auto-merge branch back to integration branch if isolated
+            merge_note = ""
+            if st.branch_name:
+                merge_note = _auto_merge_branch(runtime, st)
+
+            msg = f"Marked '{task_name}' as done"
+            if merge_note:
+                msg += f". {merge_note}"
+            return {"content": [{"type": "text", "text": msg}]}
     return {"content": [{"type": "text", "text": f"Task '{task_name}' not found"}]}
 
 

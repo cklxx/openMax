@@ -19,12 +19,60 @@ _STOP_WORDS = {
     "from",
     "that",
     "this",
-    "build",
-    "make",
     "into",
     "when",
     "your",
     "task",
+    "build",
+    "make",
+    "add",
+    "fix",
+    "run",
+    "use",
+    "get",
+    "set",
+    "new",
+    "code",
+    "file",
+    "each",
+    "also",
+    "was",
+    "not",
+    "but",
+    "are",
+    "has",
+    "can",
+    "will",
+    "should",
+    "been",
+    "have",
+    "does",
+    "more",
+    "all",
+    "any",
+    "just",
+    "some",
+    "only",
+    "other",
+    "than",
+    "then",
+    "very",
+    "about",
+    "which",
+    "would",
+    "could",
+    "using",
+    "used",
+    "done",
+    "doing",
+    "implement",
+    "update",
+    "create",
+    "check",
+    "agent",
+    "agents",
+    "completed",
+    "worked",
 }
 
 
@@ -52,10 +100,10 @@ def serialize_subtasks(tasks: list[Any]) -> list[dict[str, Any]]:
     return result
 
 
-def _keywords(text: str) -> set[str]:
-    tokens = {
-        token for token in re.findall(r"[a-z0-9_]{3,}", text.lower()) if token not in _STOP_WORDS
-    }
+def _keywords(text: str, *, min_length: int = 4, filter_stopwords: bool = True) -> set[str]:
+    tokens = set(re.findall(rf"[a-z0-9_]{{{min_length},}}", text.lower()))
+    if filter_stopwords:
+        tokens -= _STOP_WORDS
     return tokens
 
 

@@ -1015,7 +1015,7 @@ def test_dispatch_agent_injects_memory_context(monkeypatch, tmp_path):
         # The prompt sent to the pane should include memory context
         assert len(runtime.pane_mgr.sent) > 0
         sent_text = runtime.pane_mgr.sent[0][1]
-        assert "Workspace Context" in sent_text
+        assert "Context (auto-injected by openMax" in sent_text
         assert "pytest" in sent_text
     finally:
         _teardown_session(token)
@@ -1076,8 +1076,8 @@ def test_dispatch_agent_context_budget_limits_injection(monkeypatch, tmp_path):
         assert len(runtime.pane_mgr.sent) > 0
         sent_text = runtime.pane_mgr.sent[0][1]
         # Context should be present but compressed
-        if "Workspace Context" in sent_text:
-            ctx_start = sent_text.index("## Workspace Context")
+        if "Context (auto-injected by openMax" in sent_text:
+            ctx_start = sent_text.index("## Context (auto-injected")
             context_part = sent_text[ctx_start:]
             # With budget=50 (~200 chars), context should be much smaller than raw
             assert len(context_part) < 5000

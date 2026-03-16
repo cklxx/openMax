@@ -138,7 +138,7 @@ _PREDICTION_TEMPLATES: dict[str, list[str]] = {
 
 def classify_task(task: str) -> str:
     """Classify a task description into one of the known categories."""
-    tokens = _keywords(task)
+    tokens = _keywords(task, min_length=2, filter_stopwords=False)
     scores: dict[str, int] = defaultdict(int)
     for token in tokens:
         cat = _KEYWORD_TO_CATEGORY.get(token)

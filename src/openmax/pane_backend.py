@@ -13,10 +13,11 @@ from typing import Literal, Protocol, cast
 from urllib.parse import unquote, urlparse
 
 _KAKU_CLI_PREFIX = ["kaku", "cli"]
+_SEND_TEXT_ARG_LIMIT = 100_000  # bytes; switch to stdin above this
 
 SplitDirection = Literal["right", "bottom", "left", "top"]
-PaneBackendName = Literal["kaku", "headless"]
-_VALID_BACKEND_NAMES = {"kaku", "headless"}
+PaneBackendName = Literal["kaku", "tmux", "headless"]
+_VALID_BACKEND_NAMES = {"kaku", "tmux", "headless"}
 
 
 class PaneBackendError(RuntimeError):
@@ -78,11 +79,40 @@ class PaneBackend(Protocol):
 
 def resolve_pane_backend_name(name: str | None = None) -> PaneBackendName:
     """Resolve a pane backend name from an explicit value or environment."""
-    raw_value = name if name is not None else os.environ.get("OPENMAX_PANE_BACKEND", "kaku")
+    raw_value = name if name is not None else os.environ.get("OPENMAX_PANE_BACKEND", "auto")
     normalized = raw_value.strip().lower()
+    if normalized == "auto":
+        return _auto_detect_backend()
     if normalized not in _VALID_BACKEND_NAMES:
         raise ValueError(f"Unknown pane backend: {raw_value}")
     return cast(PaneBackendName, normalized)
+
+
+def _auto_detect_backend() -> PaneBackendName:
+    """Auto-detect the best available pane backend: kaku > tmux."""
+    from openmax.kaku import is_kaku_available
+
+    if is_kaku_available():
+        return "kaku"
+    if is_tmux_available():
+        return "tmux"
+    return "kaku"  # fall through to kaku — ensure_kaku will show install guidance
+
+
+def is_tmux_available() -> bool:
+    """Check if we're inside a tmux session."""
+    if not os.environ.get("TMUX"):
+        return False
+    try:
+        result = subprocess.run(
+            ["tmux", "display-message", "-p", "#{session_id}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
 
 
 def create_pane_backend(name: str | None = None) -> PaneBackend:
@@ -90,6 +120,8 @@ def create_pane_backend(name: str | None = None) -> PaneBackend:
     resolved = resolve_pane_backend_name(name)
     if resolved == "headless":
         return HeadlessPaneBackend()
+    if resolved == "tmux":
+        return TmuxPaneBackend()
     return KakuPaneBackend()
 
 
@@ -365,7 +397,13 @@ class KakuPaneBackend:
         return int(result.stdout.strip())
 
     def send_text(self, pane_id: int, text: str) -> None:
-        self._run_kaku(["send-text", "--pane-id", str(pane_id), "--", text])
+        if len(text) > _SEND_TEXT_ARG_LIMIT:
+            self._run_kaku(
+                ["send-text", "--pane-id", str(pane_id), "--no-paste"],
+                input_text=text,
+            )
+        else:
+            self._run_kaku(["send-text", "--pane-id", str(pane_id), "--", text])
 
     def send_enter(self, pane_id: int) -> None:
         self._run_kaku(
@@ -442,3 +480,169 @@ class KakuPaneBackend:
             command_name = " ".join(args[:2]).strip()
             raise PaneBackendError(f"kaku {command_name} failed: {result.stderr}")
         return result
+
+
+class TmuxPaneBackend:
+    """Tmux-backed implementation of the pane execution backend.
+
+    Args:
+        socket_name: Optional tmux socket name (``-L`` flag) for session isolation.
+            When set, all commands target this specific tmux server instance.
+            Primarily useful for testing.
+        target_session: Optional session name for ``new-window`` when not running
+            inside a tmux session (no ``$TMUX`` env var).
+    """
+
+    _DIRECTION_FLAGS: dict[SplitDirection, list[str]] = {
+        "right": ["-h"],
+        "bottom": [],
+        "left": ["-h", "-b"],
+        "top": ["-b"],
+    }
+
+    def __init__(
+        self,
+        socket_name: str | None = None,
+        target_session: str | None = None,
+    ) -> None:
+        self._socket_name = socket_name
+        self._target_session = target_session
+
+    def list_panes(self) -> list[PaneInfo]:
+        fmt = (
+            "#{window_id}\t#{pane_id}\t#{pane_width}\t#{pane_height}"
+            "\t#{pane_title}\t#{pane_current_path}\t#{pane_active}"
+            "\t#{window_zoomed_flag}"
+        )
+        result = self._run_tmux(["list-panes", "-a", "-F", fmt], check=False)
+        if result.returncode != 0:
+            return []
+        panes: list[PaneInfo] = []
+        for line in result.stdout.strip().splitlines():
+            parts = line.split("\t")
+            if len(parts) < 8:
+                continue
+            panes.append(
+                PaneInfo(
+                    window_id=_tmux_id(parts[0]),
+                    tab_id=1,
+                    pane_id=_tmux_id(parts[1]),
+                    workspace="tmux",
+                    cols=int(parts[2]),
+                    rows=int(parts[3]),
+                    title=parts[4],
+                    cwd=parts[5],
+                    is_active=parts[6] == "1",
+                    is_zoomed=parts[7] == "1",
+                    cursor_visibility="visible",
+                )
+            )
+        return panes
+
+    def spawn_window(
+        self,
+        command: list[str],
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+    ) -> int:
+        args = ["new-window", "-P", "-F", "#{pane_id}"]
+        if self._target_session:
+            args.extend(["-t", f"{self._target_session}:"])
+        if cwd:
+            args.extend(["-c", cwd])
+        args.extend(_wrap_command_clean_env(command))
+        result = self._run_tmux(args, env=env)
+        return _tmux_id(result.stdout.strip())
+
+    def split_pane(
+        self,
+        target_pane_id: int,
+        direction: SplitDirection,
+        command: list[str],
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+    ) -> int:
+        args = ["split-window", "-t", f"%{target_pane_id}"]
+        args.extend(self._DIRECTION_FLAGS[direction])
+        args.extend(["-P", "-F", "#{pane_id}"])
+        if cwd:
+            args.extend(["-c", cwd])
+        args.extend(_wrap_command_clean_env(command))
+        result = self._run_tmux(args, env=env)
+        return _tmux_id(result.stdout.strip())
+
+    def send_text(self, pane_id: int, text: str) -> None:
+        self._run_tmux(["send-keys", "-t", f"%{pane_id}", "-l", text])
+
+    def send_enter(self, pane_id: int) -> None:
+        self._run_tmux(["send-keys", "-t", f"%{pane_id}", "Enter"])
+
+    def get_text(self, pane_id: int, start_line: int | None = None) -> str:
+        # Capture entire scrollback history
+        result = self._run_tmux(
+            ["capture-pane", "-t", f"%{pane_id}", "-p", "-S", "-"],
+            check=False,
+        )
+        if result.returncode != 0:
+            return ""
+        text = result.stdout
+        if start_line is not None:
+            lines = text.splitlines()
+            return "\n".join(lines[start_line:])
+        return text
+
+    def activate_pane(self, pane_id: int) -> None:
+        self._run_tmux(["select-pane", "-t", f"%{pane_id}"], check=False)
+
+    def set_window_title(self, pane_id: int, title: str) -> None:
+        # Find the window for this pane, then rename it
+        result = self._run_tmux(
+            ["display-message", "-t", f"%{pane_id}", "-p", "#{window_id}"],
+            check=False,
+        )
+        if result.returncode != 0:
+            return
+        window_id = result.stdout.strip()
+        self._run_tmux(["rename-window", "-t", window_id, title], check=False)
+
+    def kill_pane(self, pane_id: int) -> None:
+        self._run_tmux(["kill-pane", "-t", f"%{pane_id}"], check=False)
+
+    def resize_frontmost_window(self) -> None:
+        # tmux runs inside a terminal — window resizing is not applicable
+        return None
+
+    def _run_tmux(
+        self,
+        args: list[str],
+        *,
+        input_text: str | None = None,
+        timeout: float | None = None,
+        check: bool = True,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        run_env = dict(os.environ)
+        if env:
+            run_env.update(env)
+        cmd = ["tmux"]
+        if self._socket_name:
+            cmd.extend(["-L", self._socket_name])
+        cmd.extend(args)
+        result = subprocess.run(
+            cmd,
+            input=input_text,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=run_env,
+        )
+        if check and result.returncode != 0:
+            command_name = args[0] if args else "tmux"
+            raise PaneBackendError(f"tmux {command_name} failed: {result.stderr}")
+        return result
+
+
+def _tmux_id(raw: str) -> int:
+    """Parse a tmux ID like '%3' or '@1' to an integer."""
+    cleaned = raw.lstrip("%@$")
+    return int(cleaned)

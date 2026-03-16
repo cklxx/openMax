@@ -82,6 +82,19 @@ Good prompt: "The login endpoint in src/api/auth.py returns 500 when email
 contains a '+' character. Fix _normalize_email (line 47), add a test case in
 tests/test_auth.py, run pytest, and commit."
 
+#### Context checklist
+
+Every dispatch prompt must include:
+1. Deliverable (first sentence)
+2. Exact file paths to read/modify + related test files
+3. Constraints ("do not modify X", "keep backward compat")
+4. "Run tests and commit your changes when done."
+
+Include when helpful:
+- Patterns: "Follow the same approach as `src/api/users.py:validate()`"
+- Import context: types/functions the agent needs from elsewhere
+- Do NOT repeat CLAUDE.md content — agents load it automatically
+
 ### Monitor
 
 Loop: `wait` → `read_pane_output` for each running agent → act.

@@ -263,10 +263,10 @@ class MemoryStore:
         predictive_scored.sort(key=lambda pair: pair[1], reverse=True)
         predictive_entries = [e for e, s in predictive_scored if s > 0][:predictive_budget]
 
-        # Fall back: if both buffers are empty, pick the most recent entries
+        # If nothing matches, return None instead of injecting irrelevant context
         selected = active_entries + predictive_entries
         if not selected:
-            selected = list(reversed(entries))[: min(limit, len(entries))]
+            return None
 
         # ── Bump last_accessed for matched entries ────────────────
         if selected:
@@ -279,48 +279,18 @@ class MemoryStore:
             if isinstance(preds, list):
                 predictions_used.extend(str(p) for p in preds[:2])
 
-        # ── Format output ─────────────────────────────────────────
-        lines = ["Prior workspace learnings (use these to guide decisions):"]
-        task_scope = infer_code_scope(task)
-        if task_scope:
-            lines.append("Relevant code scope: " + ", ".join(task_scope[:5]))
-        advice = self.derive_strategy(cwd=cwd, task=task, entries=entries)
-        if advice.agent_lines:
-            lines.append("Recommended agent choices:")
-            lines.extend(advice.agent_lines[:3])
-        if advice.fact_lines:
-            lines.append("Workspace facts:")
-            lines.extend(advice.fact_lines[:3])
-        if advice.execution_lines:
-            lines.append("Execution guidance:")
-            lines.extend(advice.execution_lines[:3])
-        if advice.risk_lines:
-            lines.append("Known risks:")
-            lines.extend(advice.risk_lines[:2])
+        # ── Format output (concise — only matched entries) ─────────
+        lines: list[str] = []
 
-        # Active entries first
-        if active_entries:
-            lines.append("Relevant past runs:")
+        # Active entries (keyword-matched)
         for entry in active_entries:
-            lines.append(self._format_entry_line(entry))
-            for insight in entry.insights[:2]:
-                lines.append(f"  {insight}")
-
-        # Predictive entries second
-        if predictive_entries:
-            lines.append("Related context:")
-        for entry in predictive_entries:
             lines.append(self._format_entry_line(entry))
             for insight in entry.insights[:1]:
                 lines.append(f"  {insight}")
 
-        # Append distribution insight
-        if distribution:
-            top_cats = sorted(distribution.items(), key=lambda x: x[1], reverse=True)[:2]
-            dist_line = "Task distribution: " + ", ".join(
-                f"{cat} {pct:.0%}" for cat, pct in top_cats
-            )
-            lines.append(dist_line)
+        # Predictive entries
+        for entry in predictive_entries:
+            lines.append(self._format_entry_line(entry))
 
         return MemoryContext(
             text="\n".join(lines),
@@ -419,7 +389,11 @@ class MemoryStore:
 
     @staticmethod
     def _format_entry_line(entry: MemoryEntry) -> str:
-        prefix = "lesson" if entry.kind == "lesson" else "run"
+        if entry.kind == "lesson":
+            category = entry.metadata.get("task_category", "")
+            prefix = f"lesson:{category}" if category else "lesson"
+        else:
+            prefix = "run"
         pin_marker = " [pinned]" if entry.pinned else ""
         detail = f"- [{prefix}]{pin_marker} {entry.summary}"
         if entry.confidence is not None:
@@ -553,7 +527,7 @@ class MemoryStore:
         score = 0.0
         task_terms = _keywords(task)
 
-        # 1. Prediction overlap
+        # 1. Prediction overlap — primary signal
         predictions = entry.metadata.get("predictions", [])
         if isinstance(predictions, list):
             for pred in predictions:
@@ -564,32 +538,34 @@ class MemoryStore:
                 elif overlap == 1:
                     score += 1.5
 
-        # 2. Distribution-weighted category boost
+        # 2. Same-category distribution boost (independent signal)
         entry_category = entry.metadata.get("task_category", "")
         if not entry_category:
             entry_category = classify_task(entry.task)
         task_category = classify_task(task)
 
-        if entry_category and distribution:
+        if entry_category and entry_category == task_category and distribution:
             cat_weight = distribution.get(entry_category, 0.0)
-            if entry_category == task_category:
-                score += cat_weight * 4.0
-            else:
-                score += cat_weight * 1.5
+            # Only boost when category is strongly represented (>30%)
+            if cat_weight > 0.3:
+                score += cat_weight * 2.0
 
-        # 3. Recency tiebreaker via created_at (newer = higher)
-        try:
-            ts = datetime.fromisoformat(entry.created_at)
-            age_hours = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
-            recency = max(0.0, 1.0 - math.log1p(age_hours) / 10)
-            score += recency
-        except (ValueError, TypeError):
-            pass
+        # 3. Recency tiebreaker (only when there's already a signal)
+        if score > 0:
+            try:
+                ts = datetime.fromisoformat(entry.created_at)
+                age_hours = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
+                recency = max(0.0, 1.0 - math.log1p(age_hours) / 10)
+                score += recency
+            except (ValueError, TypeError):
+                pass
 
         return score
 
     def _score_entry(self, entry: MemoryEntry, task: str) -> int:
         task_terms = _keywords(task)
+        if not task_terms:
+            return 10 if entry.pinned else 0
         entry_text = " ".join(
             [
                 entry.task,
@@ -597,19 +573,24 @@ class MemoryStore:
                 " ".join(entry.insights),
                 " ".join(entry.workspace_facts),
                 " ".join(entry.lessons),
-                " ".join(str(signal.get("detail", "")) for signal in entry.performance_signals),
-                " ".join(str(stat.get("detail", "")) for stat in _entry_agent_stats(entry)),
             ]
         )
         entry_terms = _keywords(entry_text)
         overlap = len(task_terms & entry_terms)
+        if overlap == 0 and not entry.pinned:
+            return 0  # No keyword match = not relevant
         score = overlap
         if entry.pinned:
-            score += 10  # Pinned entries always surface
-        if entry.kind == "lesson":
-            score += 2
-        if entry.completion_pct:
-            score += max(entry.completion_pct // 25, 0)
+            score += 10
+        # Only boost lesson/completion when there's a keyword match
+        if overlap > 0:
+            if entry.kind == "lesson":
+                score += 1
+            scope = entry.metadata.get("code_scope", [])
+            task_scope = infer_code_scope(task)
+            if isinstance(scope, list) and task_scope:
+                scope_overlap = len(set(scope) & set(task_scope))
+                score += scope_overlap * 2
         return score
 
     @staticmethod
