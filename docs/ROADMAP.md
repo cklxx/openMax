@@ -11,13 +11,13 @@
 | **P0** | 4.1 | Stuck Detection | [`p0_4.1_stuck_detection.md`](tasks/p0_4.1_stuck_detection.md) | done |
 | **P0** | 5.2 | Build Verification | [`p0_5.2_build_verification.md`](tasks/p0_5.2_build_verification.md) | done |
 | **P0** | 1.1 | Structured Decomposition | [`p0_1.1_structured_decomposition.md`](tasks/p0_1.1_structured_decomposition.md) | done |
-| **P1** | 7.1 | Memory Eviction | spec pending | pending |
-| **P1** | 10.1 | Failure Auto-Retry | spec pending | pending |
-| **P1** | 6.3 | Token Tracking | spec pending | pending |
-| **P1** | 8.1 | Phase Gating | spec pending | pending |
-| **P2** | 3.1 | Context Injection | spec pending | pending |
-| **P2** | 4.2 | Dashboard Elapsed Time | spec pending | pending |
-| **P2** | 5.1 | Git Conflict Detection | spec pending | pending |
+| **P1** | 7.1 | Memory Eviction | [`p1_7.1_memory_eviction.md`](tasks/p1_7.1_memory_eviction.md) | done |
+| **P1** | 10.1 | Failure Auto-Retry | [`p1_10.1_failure_auto_retry.md`](tasks/p1_10.1_failure_auto_retry.md) | done |
+| **P1** | 6.3 | Token Tracking | [`p1_6.3_token_tracking.md`](tasks/p1_6.3_token_tracking.md) | done |
+| **P1** | 8.1 | Phase Gating | [`p1_8.1_phase_gating.md`](tasks/p1_8.1_phase_gating.md) | done |
+| **P2** | 3.1 | Context Injection | [`p2_3.1_context_injection.md`](tasks/p2_3.1_context_injection.md) | done |
+| **P2** | 4.2 | Dashboard Elapsed Time | [`p2_4.2_dashboard_elapsed_time.md`](tasks/p2_4.2_dashboard_elapsed_time.md) | done |
+| **P2** | 5.1 | Git Conflict Detection | [`p2_5.1_git_conflict_detection.md`](tasks/p2_5.1_git_conflict_detection.md) | done |
 | **P2** | 2.1 | Recommendation Accuracy | spec pending | pending |
 | **P3** | 1.2 | Dependency Scheduling | spec pending | pending |
 | **P3** | 2.2 | Load Balancing | spec pending | pending |
@@ -84,41 +84,41 @@
 ## Dependency Graph
 
 ```
-1.1 Structured Decomposition
-  +-- 1.2 Dependency Scheduling
-  +-- 3.1 Context Injection
-      +-- 3.2 Context Budget
+✅ 1.1 Structured Decomposition
+   +-- 1.2 Dependency Scheduling
+   +-- ✅ 3.1 Context Injection
+       +-- 3.2 Context Budget
 
-4.1 Stuck Detection (independent)
+✅ 4.1 Stuck Detection (independent)
 
-5.1 Git Conflict Detection (independent)
-5.2 Build Verification (independent)
-  +-- 5.3 Code Consistency
-  +-- 8.3 Verify Phase
+✅ 5.1 Git Conflict Detection (independent)
+✅ 5.2 Build Verification (independent)
+   +-- 5.3 Code Consistency
+   +-- 8.3 Verify Phase
 
-6.3 Token Tracking (independent)
-  +-- 6.1 Acceleration Ratio
-  +-- 6.2 Orchestration Overhead
+✅ 6.3 Token Tracking (independent)
+   +-- 6.1 Acceleration Ratio
+   +-- 6.2 Orchestration Overhead
 
-7.1 Memory Eviction (independent)
-  +-- 7.2 Recall Usefulness
-  +-- 7.3 Error Pattern Learning
+✅ 7.1 Memory Eviction (independent)
+   +-- 7.2 Recall Usefulness
+   +-- 7.3 Error Pattern Learning
 
-8.1 Phase Gating (independent)
-  +-- 8.2 Research Phase
-  +-- 8.3 Verify Phase
-  +-- 9.1 Plan Approval
-      +-- 9.2 Acceptance Confirmation
+✅ 8.1 Phase Gating (independent)
+   +-- 8.2 Research Phase
+   +-- 8.3 Verify Phase
+   +-- 9.1 Plan Approval
+       +-- 9.2 Acceptance Confirmation
 
-10.1 Failure Auto-Retry (independent)
+✅ 10.1 Failure Auto-Retry (independent)
 10.2 Resume Enhancement (independent)
 ```
 
 ## Dispatch Waves
 
 - **Wave 1** (P0): ~~4.1 first, then 5.2 + 1.1 in parallel~~ **Complete** — all P0 items delivered
-- **Wave 2** (P1): 7.1, 10.1, 6.3, 8.1 — all in parallel
-- **Wave 3+**: Follow dependency chains
+- **Wave 2** (P1): ~~7.1, 10.1, 6.3, 8.1 — all in parallel~~ **Complete** — all P1 items delivered
+- **Wave 3**: 11.1 Branch Isolation, 11.2 Context Compression, 11.3 Cost Convergence, 2.1 Recommendation Accuracy
 
 ## Task Spec Format
 
