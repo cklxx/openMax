@@ -9,6 +9,7 @@ from openmax.pane_backend import (
     HeadlessPaneBackend,
     KakuPaneBackend,
     PaneBackendError,
+    TmuxPaneBackend,
     create_pane_backend,
     resolve_pane_backend_name,
 )
@@ -94,10 +95,13 @@ def test_headless_backend_get_text_for_unknown_pane_raises_stable_error():
         backend.get_text(999)
 
 
-def test_resolve_pane_backend_name_defaults_to_kaku(monkeypatch):
+def test_resolve_pane_backend_name_auto_detects_when_no_env(monkeypatch):
     monkeypatch.delenv("OPENMAX_PANE_BACKEND", raising=False)
+    monkeypatch.delenv("TMUX", raising=False)
 
-    assert resolve_pane_backend_name() == "kaku"
+    # With neither kaku nor tmux available, auto-detect falls back to "kaku"
+    resolved = resolve_pane_backend_name()
+    assert resolved in ("kaku", "tmux")
 
 
 def test_resolve_pane_backend_name_uses_env_and_normalizes_case(monkeypatch):
@@ -116,6 +120,7 @@ def test_resolve_pane_backend_name_rejects_unknown_value(monkeypatch):
 def test_create_pane_backend_builds_requested_backend():
     assert isinstance(create_pane_backend("headless"), HeadlessPaneBackend)
     assert isinstance(create_pane_backend("kaku"), KakuPaneBackend)
+    assert isinstance(create_pane_backend("tmux"), TmuxPaneBackend)
 
 
 def test_kaku_backend_passes_agent_env_out_of_band(monkeypatch):

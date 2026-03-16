@@ -18,7 +18,7 @@
 
 One command, multiple AI agents, one window.
 
-openMax breaks down your task, dispatches agents ([Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), [OpenCode](https://github.com/opencode-ai/opencode)) into [Kaku](https://github.com/niceda/kaku) terminal panes, monitors progress, and intervenes when needed.
+openMax breaks down your task, dispatches agents ([Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), [OpenCode](https://github.com/opencode-ai/opencode)) into terminal panes, monitors progress, and intervenes when needed. Works with [Kaku](https://github.com/niceda/kaku) on macOS and [tmux](https://github.com/tmux/tmux) on any platform.
 
 ## Architecture
 
@@ -36,7 +36,7 @@ openmax run "Build a blog with Next.js"
                    |
                    v
    +---------------+----------------+
-   |        Kaku Terminal Window    |
+   |     Terminal Panes (auto grid) |
    |  +-------------+------------+ |
    |  | claude-code | codex      | |
    |  | components  | API routes | |
@@ -55,10 +55,45 @@ pip install openmax
 
 **Requirements:**
 
-- macOS (Kaku is macOS-only)
 - Python 3.10+
-- [Kaku](https://github.com/niceda/kaku) terminal — auto-prompted via `brew install --cask kaku` if missing
+- A terminal backend (one of the following):
+  - **macOS:** [Kaku](https://github.com/niceda/kaku) (auto-detected, auto-prompted to install via Homebrew)
+  - **macOS / Linux / WSL:** [tmux](https://github.com/tmux/tmux) (auto-detected if you're in a tmux session)
 - At least one agent CLI: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`), [Codex](https://github.com/openai/codex) (`codex`), or [OpenCode](https://github.com/opencode-ai/opencode) (`opencode`)
+
+### Terminal Backend Setup
+
+openMax auto-detects the best available backend. On macOS it prefers Kaku; on Linux/WSL it uses tmux. If the required backend is missing, openMax will prompt you to install it.
+
+<details>
+<summary><strong>macOS with Kaku (recommended)</strong></summary>
+
+```bash
+brew install --cask kaku
+# Open Kaku, then run openmax inside it
+openmax run "your task"
+```
+
+</details>
+
+<details>
+<summary><strong>macOS / Linux / WSL with tmux</strong></summary>
+
+```bash
+# Install tmux
+brew install tmux        # macOS
+sudo apt install tmux    # Debian / Ubuntu
+sudo dnf install tmux    # Fedora / RHEL
+sudo pacman -S tmux      # Arch
+
+# Start a tmux session, then run openmax inside it
+tmux new-session
+openmax run "your task"
+```
+
+openMax auto-detects tmux when you're inside a tmux session.
+
+</details>
 
 ## Quick Start
 
@@ -90,7 +125,7 @@ The core command. The lead agent (powered by [claude-agent-sdk](https://github.c
 
 1. **Align** — clarify your goal, identify scope
 2. **Plan** — decompose into parallelizable sub-tasks
-3. **Dispatch** — spawn agents into Kaku panes (one window, auto grid layout)
+3. **Dispatch** — spawn agents into terminal panes (one window, auto grid layout)
 4. **Monitor** — read agent output, intervene if stuck or off-track
 5. **Review** — cross-check deliverables, run tests, verify integration
 6. **Report** — summarize results, ensure changes are committed
@@ -121,6 +156,7 @@ openMax environment check
 ──────────────────────────────────────────
   ✅  Python              3.11.4
   ✅  Kaku CLI            0.6.0
+  ✅  tmux                3.6a  (installed, not in session)
   ✅  claude              2.1.76
   ❌  opencode
        Fix: See https://github.com/opencode-ai/opencode  (optional)
@@ -143,7 +179,7 @@ Validating agent config for /Users/me/my-app
 
 ### `openmax panes`
 
-List all Kaku terminal panes and their status.
+List all terminal panes and their status.
 
 ```bash
 $ openmax panes
@@ -294,7 +330,7 @@ openMax uses a **lead agent** that has no direct access to files or code. Instea
 
 | Tool | Purpose |
 |------|---------|
-| `dispatch_agent` | Spawn an agent in a Kaku pane |
+| `dispatch_agent` | Spawn an agent in a terminal pane |
 | `read_pane_output` | Check what an agent is doing |
 | `send_text_to_pane` | Send follow-up instructions |
 | `list_managed_panes` | Get pane states |

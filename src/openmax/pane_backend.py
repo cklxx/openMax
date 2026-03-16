@@ -89,30 +89,22 @@ def resolve_pane_backend_name(name: str | None = None) -> PaneBackendName:
 
 
 def _auto_detect_backend() -> PaneBackendName:
-    """Auto-detect the best available pane backend: kaku > tmux."""
-    from openmax.kaku import is_kaku_available
+    """Auto-detect the best available pane backend.
 
-    if is_kaku_available():
-        return "kaku"
-    if is_tmux_available():
-        return "tmux"
-    return "kaku"  # fall through to kaku — ensure_kaku will show install guidance
+    macOS: kaku > tmux.  Non-macOS: tmux > kaku.
+    """
+    from openmax.terminal import is_kaku_available, is_tmux_available
 
-
-def is_tmux_available() -> bool:
-    """Check if we're inside a tmux session."""
-    if not os.environ.get("TMUX"):
-        return False
-    try:
-        result = subprocess.run(
-            ["tmux", "display-message", "-p", "#{session_id}"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+    if platform.system() == "Darwin":
+        if is_kaku_available():
+            return "kaku"
+        if is_tmux_available():
+            return "tmux"
+        return "kaku"  # fall through — ensure_kaku will guide install
+    else:
+        if is_tmux_available():
+            return "tmux"
+        return "tmux"  # fall through — ensure_tmux will guide install
 
 
 def create_pane_backend(name: str | None = None) -> PaneBackend:
@@ -139,6 +131,18 @@ class _HeadlessWorker:
 def _wrap_command_clean_env(command: list[str]) -> list[str]:
     """Wrap a command to run without Claude Code env vars leaking in."""
     return ["env", "-u", "CLAUDECODE", "-u", "CLAUDE_CODE_ENTRYPOINT"] + command
+
+
+def _wrap_command_with_env(command: list[str], env: dict[str, str] | None) -> list[str]:
+    """Wrap a command with ``env`` to set extra vars and unset Claude Code vars.
+
+    Tmux panes inherit the tmux *server* environment, not the client's.
+    So env vars must be baked into the command via ``env K=V … cmd``.
+    """
+    env_prefix = ["env", "-u", "CLAUDECODE", "-u", "CLAUDE_CODE_ENTRYPOINT"]
+    if env:
+        env_prefix.extend(f"{k}={v}" for k, v in env.items())
+    return env_prefix + command
 
 
 class HeadlessPaneBackend:
@@ -550,8 +554,8 @@ class TmuxPaneBackend:
             args.extend(["-t", f"{self._target_session}:"])
         if cwd:
             args.extend(["-c", cwd])
-        args.extend(_wrap_command_clean_env(command))
-        result = self._run_tmux(args, env=env)
+        args.extend(_wrap_command_with_env(command, env))
+        result = self._run_tmux(args)
         return _tmux_id(result.stdout.strip())
 
     def split_pane(
@@ -567,12 +571,17 @@ class TmuxPaneBackend:
         args.extend(["-P", "-F", "#{pane_id}"])
         if cwd:
             args.extend(["-c", cwd])
-        args.extend(_wrap_command_clean_env(command))
-        result = self._run_tmux(args, env=env)
+        args.extend(_wrap_command_with_env(command, env))
+        result = self._run_tmux(args)
         return _tmux_id(result.stdout.strip())
 
     def send_text(self, pane_id: int, text: str) -> None:
-        self._run_tmux(["send-keys", "-t", f"%{pane_id}", "-l", text])
+        if len(text.encode()) > _SEND_TEXT_ARG_LIMIT:
+            # Large text: pipe through load-buffer then paste into pane
+            self._run_tmux(["load-buffer", "-"], input_text=text)
+            self._run_tmux(["paste-buffer", "-d", "-t", f"%{pane_id}"])
+        else:
+            self._run_tmux(["send-keys", "-t", f"%{pane_id}", "-l", text])
 
     def send_enter(self, pane_id: int) -> None:
         self._run_tmux(["send-keys", "-t", f"%{pane_id}", "Enter"])

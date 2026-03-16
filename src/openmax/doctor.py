@@ -18,10 +18,10 @@ class CheckResult:
     fix_hint: str | None = None
 
 
-def _get_version(cmd: str) -> str | None:
+def _get_version(cmd: str, flag: str = "--version") -> str | None:
     try:
         result = subprocess.run(
-            [cmd, "--version"],
+            [cmd, flag],
             capture_output=True,
             text=True,
             timeout=5,
@@ -45,16 +45,41 @@ def _check_python() -> CheckResult:
     )
 
 
-def _check_kaku() -> CheckResult:
-    found = shutil.which("kaku")
-    if not found:
-        return CheckResult(
-            name="Kaku CLI",
-            ok=False,
-            fix_hint="brew install --cask kaku",
+def _check_terminal_backends() -> list[CheckResult]:
+    """Check kaku and tmux — only flag an issue if neither is available."""
+    has_kaku = shutil.which("kaku") is not None
+    has_tmux = shutil.which("tmux") is not None
+    results: list[CheckResult] = []
+
+    if has_kaku:
+        v = _get_version("kaku")
+        results.append(CheckResult(name="Kaku CLI", ok=True, version=v))
+    else:
+        results.append(
+            CheckResult(
+                name="Kaku CLI",
+                ok=has_tmux,  # not a problem if tmux is available
+                detail="not installed" if has_tmux else None,
+                fix_hint=None if has_tmux else "brew install --cask kaku",
+            )
         )
-    v = _get_version("kaku")
-    return CheckResult(name="Kaku CLI", ok=True, version=v)
+
+    if has_tmux:
+        v = _get_version("tmux", "-V")
+        in_session = os.environ.get("TMUX") is not None
+        detail = "in session" if in_session else "installed (not in session)"
+        results.append(CheckResult(name="tmux", ok=True, version=v, detail=detail))
+    else:
+        results.append(
+            CheckResult(
+                name="tmux",
+                ok=has_kaku,  # not a problem if kaku is available
+                detail="not installed" if has_kaku else None,
+                fix_hint=None if has_kaku else "brew install tmux  (or apt install tmux)",
+            )
+        )
+
+    return results
 
 
 def _check_cli(name: str, cmd: str, fix: str) -> CheckResult:
@@ -92,7 +117,7 @@ def _check_openai_auth() -> CheckResult:
 def run_checks() -> list[CheckResult]:
     return [
         _check_python(),
-        _check_kaku(),
+        *_check_terminal_backends(),
         _check_cli("claude", "claude", "See https://docs.anthropic.com/en/docs/claude-code"),
         _check_cli("codex", "codex", "npm install -g @openai/codex  (optional)"),
         _check_cli(
@@ -112,7 +137,7 @@ def render_results(results: list[CheckResult]) -> tuple[list[str], int]:
     for r in results:
         icon = "✅" if r.ok else "❌"
         ver = f"  {r.version}" if r.version else ""
-        detail = f"  ({r.detail})" if r.detail and not r.version else ""
+        detail = f"  ({r.detail})" if r.detail else ""
         lines.append(f"  {icon}  {r.name:<18}{ver}{detail}")
         if not r.ok:
             issues += 1

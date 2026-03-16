@@ -13,11 +13,12 @@ def test_import_pane_manager():
     assert PaneManager
 
 
-def test_import_kaku():
-    from openmax.kaku import ensure_kaku, is_kaku_available
+def test_import_terminal():
+    from openmax.terminal import ensure_kaku, ensure_tmux, is_kaku_available
 
     assert callable(is_kaku_available)
     assert callable(ensure_kaku)
+    assert callable(ensure_tmux)
 
 
 def test_import_adapters():

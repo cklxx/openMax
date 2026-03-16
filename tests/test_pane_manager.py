@@ -223,7 +223,7 @@ def test_headless_backend_manager_tracks_windows_and_cleans_up(monkeypatch):
     assert [pane["purpose"] for pane in summary["windows"][0]["panes"]] == ["API", "UI"]
 
     monkeypatch.setattr(
-        "openmax.pane_manager.KakuPaneBackend.list_panes",
+        "openmax.pane_backend.KakuPaneBackend.list_panes",
         lambda self: pytest.fail("cleanup_all should use the injected backend"),
     )
     manager.cleanup_all()

@@ -15,13 +15,13 @@ from rich.console import Console
 from openmax.agent_registry import AgentConfigError, load_agent_registry
 from openmax.auth import has_claude_auth, run_claude_setup_token
 from openmax.doctor import render_results, run_checks
-from openmax.kaku import ensure_kaku, is_kaku_available
 from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
 from openmax.memory import MemoryStore
 from openmax.pane_backend import resolve_pane_backend_name
 from openmax.pane_manager import PaneManager
 from openmax.provider_usage import ProviderStatus, probe_all
 from openmax.session_runtime import SessionSnapshot, SessionStore
+from openmax.terminal import ensure_kaku, ensure_tmux, is_kaku_available, is_tmux_available
 from openmax.usage import UsageStore
 
 console = Console()
@@ -164,9 +164,9 @@ def main() -> None:
 @click.option(
     "--pane-backend",
     "pane_backend_name",
-    type=click.Choice(["kaku", "headless"], case_sensitive=False),
+    type=click.Choice(["kaku", "tmux", "headless", "auto"], case_sensitive=False),
     default=None,
-    help="Pane backend to use (defaults to OPENMAX_PANE_BACKEND or kaku)",
+    help="Pane backend to use (defaults to auto-detect: kaku > tmux)",
 )
 def run(
     task: str,
@@ -179,7 +179,7 @@ def run(
     agents: str | None,
     pane_backend_name: str | None,
 ) -> None:
-    """Decompose TASK and dispatch sub-agents in Kaku panes."""
+    """Decompose TASK and dispatch sub-agents in terminal panes."""
     cwd = _resolve_cwd(cwd)
     pane_backend_name = resolve_pane_backend_name(pane_backend_name)
 
@@ -226,6 +226,8 @@ def run(
     allowed_agents = _parse_allowed_agents(agents, available_agents)
 
     if pane_backend_name == "kaku" and not ensure_kaku():
+        raise SystemExit(1)
+    if pane_backend_name == "tmux" and not ensure_tmux():
         raise SystemExit(1)
 
     pane_mgr = PaneManager(backend_name=pane_backend_name)
@@ -294,9 +296,9 @@ def run(
 
 @main.command()
 def panes() -> None:
-    """List all kaku panes."""
-    if not is_kaku_available():
-        console.print("[red]kaku CLI not available.[/red]")
+    """List all terminal panes (kaku or tmux)."""
+    if not is_kaku_available() and not is_tmux_available():
+        console.print("[red]No pane backend available.[/red]\nRun inside Kaku (macOS) or tmux.")
         raise SystemExit(1)
 
     all_panes = PaneManager.list_all_panes()
@@ -1014,7 +1016,7 @@ def _provider_display_name(provider: str) -> str:
 
 @main.command()
 def doctor() -> None:
-    """Check the environment — Python, Kaku, agent CLIs, and auth."""
+    """Check the environment — Python, terminal backends, agent CLIs, and auth."""
     results = run_checks()
     lines, issue_count = render_results(results)
     for line in lines:

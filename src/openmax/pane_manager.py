@@ -1,4 +1,4 @@
-"""Kaku pane manager — tracks windows, panes, and their relationships."""
+"""Pane manager — tracks windows, panes, and their relationships."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 
-from openmax.pane_backend import KakuPaneBackend, PaneBackend, PaneInfo, create_pane_backend
+from openmax.pane_backend import PaneBackend, PaneInfo, create_pane_backend
 
 
 class PaneState(str, Enum):
@@ -38,9 +38,6 @@ class ManagedWindow:
     created_at: float = field(default_factory=time.time)
 
 
-KakuPaneInfo = PaneInfo
-
-
 # ── Layout strategy ───────────────────────────────────────────────
 
 # How to split panes given the count already in the window:
@@ -67,7 +64,7 @@ def _pick_split(pane_ids: list[int], index: int) -> tuple[int, str]:
 
 
 class PaneManager:
-    """Manages kaku windows and panes for openMax.
+    """Manages terminal windows and panes for openMax.
 
     Tracks:
     - Which windows we created and their IDs
@@ -102,12 +99,12 @@ class PaneManager:
     def active_count(self) -> int:
         return sum(1 for p in self._panes.values() if p.state == PaneState.RUNNING)
 
-    # ── Kaku CLI wrappers ──────────────────────────────────────────
+    # ── Backend CLI wrappers ─────────────────────────────────────────
 
     @staticmethod
-    def list_all_panes() -> list[KakuPaneInfo]:
-        """List all kaku panes (not just managed ones)."""
-        return KakuPaneBackend().list_panes()
+    def list_all_panes() -> list[PaneInfo]:
+        """List all panes from the active backend (not just managed ones)."""
+        return create_pane_backend().list_panes()
 
     # ── High-level: create window with first pane ──────────────────
 
@@ -383,7 +380,7 @@ class PaneManager:
 
     # ── Internal helpers ───────────────────────────────────────────
 
-    def _list_all_panes(self) -> list[KakuPaneInfo]:
+    def _list_all_panes(self) -> list[PaneInfo]:
         return self._backend.list_panes()
 
     def _find_pane_window(
