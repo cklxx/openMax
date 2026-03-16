@@ -236,21 +236,7 @@ async def _run_lead_agent_async(
             tools=ALL_TOOLS,
         )
 
-        tool_names = [
-            "mcp__openmax__ask_user",
-            "mcp__openmax__dispatch_agent",
-            "mcp__openmax__get_agent_recommendations",
-            "mcp__openmax__read_file",
-            "mcp__openmax__read_pane_output",
-            "mcp__openmax__run_command",
-            "mcp__openmax__send_text_to_pane",
-            "mcp__openmax__list_managed_panes",
-            "mcp__openmax__mark_task_done",
-            "mcp__openmax__record_phase_anchor",
-            "mcp__openmax__remember_learning",
-            "mcp__openmax__report_completion",
-            "mcp__openmax__wait",
-        ]
+        tool_names = [f"mcp__openmax__{t.name}" for t in ALL_TOOLS]
 
         options = ClaudeAgentOptions(
             system_prompt=_load_system_prompt(),
