@@ -23,6 +23,11 @@ Then decide:
 
 If you need to understand the codebase before planning, use `read_file` to inspect key files first.
 
+After deciding on subtasks, call `submit_plan` with your decomposition:
+- List each subtask with `name`, `description`, `files`, `dependencies`, and `estimated_minutes`.
+- Group independent subtasks into `parallel_groups`.
+- Provide a `rationale` explaining why you split the work this way.
+
 ### 2. Dispatch
 
 Call `dispatch_agent` for all independent sub-tasks at once. Don't serialize independent work.
@@ -65,8 +70,12 @@ for complex changes. Increase wait if agent is making steady progress.
 
 ### 4. Finish
 
+- Run `run_verification` for lint and test before reporting:
+  - `run_verification(check_type="lint", command="ruff check src/", timeout=60)`
+  - `run_verification(check_type="test", command="pytest tests/ -v", timeout=300)`
+  - If either fails, dispatch an agent to fix, then re-verify.
 - Ensure all changes are committed.
-- Call `report_completion` with what was actually delivered.
+- Call `report_completion` with what was actually delivered, including verification results.
 
 ## Agent types
 

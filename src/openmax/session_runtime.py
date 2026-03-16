@@ -149,6 +149,7 @@ class LeadAgentRuntime:
     agent_registry: Any | None = None
     dashboard: Any | None = None
     pane_output_hashes: dict[int, list[str]] = field(default_factory=dict)
+    plan_submitted: bool = False
 
 
 _lead_agent_runtime: ContextVar[LeadAgentRuntime | None] = ContextVar(
@@ -462,6 +463,18 @@ class ContextBuilder:
                         )
                     else:
                         recent_activity.append(f"Read pane {pane_id} output")
+                continue
+
+            if event_type == "tool.run_verification":
+                check_type = str(payload.get("check_type", "")).strip()
+                status = str(payload.get("status", "")).strip()
+                exit_code = _coerce_int(payload.get("exit_code"))
+                duration = _coerce_int(payload.get("duration_s"))
+                suffix = f" (exit={exit_code})" if exit_code is not None else ""
+                time_suffix = f" in {duration}s" if duration is not None else ""
+                recent_activity.append(
+                    f"Verification [{check_type}]: {status}{suffix}{time_suffix}"
+                )
                 continue
 
             if event_type == "tool.report_completion":

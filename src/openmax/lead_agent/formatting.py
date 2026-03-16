@@ -10,6 +10,8 @@ _TOOL_CATEGORIES: dict[str, str] = {
     "dispatch_agent": "dispatch",
     "get_agent_recommendations": "dispatch",
     "run_command": "dispatch",
+    "submit_plan": "dispatch",
+    "run_verification": "system",
     "read_pane_output": "monitor",
     "list_managed_panes": "monitor",
     "read_file": "monitor",
@@ -95,11 +97,22 @@ def _format_tool_use(tool_name: str, tool_input: dict[str, Any] | None = None) -
             else "Checking which agent fits best"
         )
 
+    if normalized == "submit_plan":
+        subtasks = tool_input.get("subtasks", [])
+        count = len(subtasks) if isinstance(subtasks, list) else 0
+        return f"Submitting plan with {count} subtasks"
+
     if normalized == "run_command":
         command = str(tool_input.get("command", "")).strip()
         task_name = str(tool_input.get("task_name", "")).strip()
         label = task_name or command
         return f"Running command: {_truncate_text(label)}"
+
+    if normalized == "run_verification":
+        check_type = str(tool_input.get("check_type", "")).strip()
+        command = str(tool_input.get("command", "")).strip()
+        label = check_type or command
+        return f"Running verification: {_truncate_text(label)}"
 
     if normalized == "read_pane_output":
         pane_id = tool_input.get("pane_id")

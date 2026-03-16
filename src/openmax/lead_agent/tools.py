@@ -148,6 +148,144 @@ async def get_agent_recommendations(args: dict[str, Any]) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]}
 
 
+def _topological_sort_check(subtasks: list[dict[str, Any]]) -> str | None:
+    """Return an error message if there is a cycle, else None."""
+    name_set = {st["name"] for st in subtasks}
+    adj: dict[str, list[str]] = {st["name"]: [] for st in subtasks}
+    for st in subtasks:
+        for dep in st.get("dependencies", []):
+            if dep not in name_set:
+                return f"Dependency '{dep}' of subtask '{st['name']}' does not exist"
+            adj[dep].append(st["name"])
+
+    visited: set[str] = set()
+    in_stack: set[str] = set()
+
+    def dfs(node: str) -> str | None:
+        visited.add(node)
+        in_stack.add(node)
+        for neighbor in adj[node]:
+            if neighbor in in_stack:
+                return f"Circular dependency detected: {node} -> {neighbor}"
+            if neighbor not in visited:
+                err = dfs(neighbor)
+                if err:
+                    return err
+        in_stack.discard(node)
+        return None
+
+    for name in adj:
+        if name not in visited:
+            err = dfs(name)
+            if err:
+                return err
+    return None
+
+
+@tool(
+    "submit_plan",
+    "Submit a structured task decomposition before dispatching "
+    "agents. Validates dependencies (no cycles) and parallel "
+    "groups (no conflicts). Call this after planning and before "
+    "any dispatch_agent calls.",
+    {
+        "subtasks": list,
+        "rationale": str,
+        "parallel_groups": list,
+    },
+)
+async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
+    subtasks_raw = args.get("subtasks", [])
+    rationale = args.get("rationale", "")
+    parallel_groups = args.get("parallel_groups", [])
+
+    if not subtasks_raw:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps({"error": "No subtasks provided"}),
+                }
+            ]
+        }
+
+    # Validate: no circular dependencies
+    cycle_err = _topological_sort_check(subtasks_raw)
+    if cycle_err:
+        return {"content": [{"type": "text", "text": json.dumps({"error": cycle_err})}]}
+
+    # Validate: parallel group members exist
+    all_names = {st["name"] for st in subtasks_raw}
+    for group in parallel_groups:
+        for name in group:
+            if name not in all_names:
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(
+                                {"error": (f"Parallel group member '{name}' not in subtasks")}
+                            ),
+                        }
+                    ]
+                }
+
+    # Validate: no dependency conflicts within parallel groups
+    dep_map = {st["name"]: set(st.get("dependencies", [])) for st in subtasks_raw}
+    for group in parallel_groups:
+        for i, a in enumerate(group):
+            for b in group[i + 1 :]:
+                if a in dep_map.get(b, set()) or b in dep_map.get(a, set()):
+                    return {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": json.dumps(
+                                    {
+                                        "error": (
+                                            f"Parallel group conflict: "
+                                            f"'{a}' and '{b}' have a "
+                                            "dependency relationship"
+                                        )
+                                    }
+                                ),
+                            }
+                        ]
+                    }
+
+    # Store the plan submission
+    runtime.plan_submitted = True
+
+    plan_data = {
+        "subtasks": subtasks_raw,
+        "rationale": rationale,
+        "parallel_groups": parallel_groups,
+    }
+
+    console.print(
+        f"  [green]\u2713[/green] Plan submitted: "
+        f"{len(subtasks_raw)} subtasks, "
+        f"{len(parallel_groups)} parallel groups"
+    )
+    _append_session_event("tool.submit_plan", plan_data)
+
+    return {
+        "content": [
+            {
+                "type": "text",
+                "text": json.dumps(
+                    {
+                        "status": "accepted",
+                        "subtask_count": len(subtasks_raw),
+                        "parallel_group_count": len(parallel_groups),
+                    }
+                ),
+            }
+        ]
+    }
+
+
 @tool(
     "dispatch_agent",
     "Dispatch a sub-task to an AI agent in a terminal pane. "
@@ -165,6 +303,13 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     task_name = args["task_name"]
     agent_type = args.get("agent_type", "claude-code")
     prompt = args["prompt"]
+
+    # Soft check: warn if submit_plan hasn't been called
+    if not runtime.plan_submitted:
+        console.print(
+            "  [yellow]\u26a0[/yellow] dispatch_agent called before "
+            "submit_plan — consider submitting a structured plan first"
+        )
 
     # Enforce allowed agents constraint
     if runtime.allowed_agents:
@@ -610,6 +755,114 @@ async def run_command(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
+    "run_verification",
+    "Run a verification command (lint, test, build) and return structured pass/fail. "
+    "Executes the command in a temporary pane, polls for completion, and returns "
+    "{status, exit_code, output, duration_s}. Use after all agents finish.",
+    {
+        "check_type": str,
+        "command": str,
+        "timeout": int,
+    },
+)
+async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
+    check_type = args.get("check_type", "custom")
+    command_str = args["command"]
+    timeout = min(max(args.get("timeout", 120), 10), 600)
+
+    import shlex
+
+    try:
+        cmd_list = shlex.split(command_str)
+    except ValueError:
+        cmd_list = [command_str]
+    if not cmd_list:
+        return {"content": [{"type": "text", "text": "Error: empty command"}]}
+
+    # Wrap command to capture exit code: run cmd; echo __EXIT_$?__
+    wrapped_cmd = f'{command_str}; echo "__OPENMAX_EXIT_$?__"'
+    shell_cmd = ["bash", "-c", wrapped_cmd]
+
+    task_name = f"verify-{check_type}"
+    if runtime.agent_window_id is None:
+        pane = runtime.pane_mgr.create_window(
+            command=shell_cmd,
+            purpose=task_name,
+            agent_type="command",
+            title=f"openMax: verify {check_type}",
+            cwd=runtime.cwd,
+        )
+        runtime.agent_window_id = pane.window_id
+    else:
+        pane = runtime.pane_mgr.add_pane(
+            window_id=runtime.agent_window_id,
+            command=shell_cmd,
+            purpose=task_name,
+            agent_type="command",
+            cwd=runtime.cwd,
+        )
+
+    console.print(
+        f"  [blue]\u2713[/blue] Verifying [{check_type}]: {command_str[:60]} "
+        f"\u2192 pane {pane.pane_id}"
+    )
+
+    # Poll for the exit marker
+    start_ts = time.monotonic()
+    deadline = start_ts + timeout
+    exit_code: int | None = None
+    output = ""
+
+    while time.monotonic() < deadline:
+        await anyio.sleep(2)
+        try:
+            text = runtime.pane_mgr.get_text(pane.pane_id)
+        except Exception:
+            text = ""
+        # Look for our exit marker
+        import re
+
+        match = re.search(r"__OPENMAX_EXIT_(\d+)__", text)
+        if match:
+            exit_code = int(match.group(1))
+            # Remove the marker from output
+            output = text[: match.start()].strip()
+            break
+
+    duration_s = int(time.monotonic() - start_ts)
+
+    if exit_code is None:
+        status = "timeout"
+        output = _extract_smart_output(text, tail_lines=50) if text else ""
+    elif exit_code == 0:
+        status = "pass"
+    else:
+        status = "fail"
+
+    if not output and text:
+        output = _extract_smart_output(text, tail_lines=50)
+
+    result = {
+        "status": status,
+        "check_type": check_type,
+        "exit_code": exit_code,
+        "output": output[-2000:],  # cap output size
+        "duration_s": duration_s,
+        "command": command_str,
+    }
+
+    style = "green" if status == "pass" else "red" if status == "fail" else "yellow"
+    console.print(
+        f"  [{style}]\u2713[/{style}] Verification [{check_type}]: "
+        f"{status} (exit={exit_code}, {duration_s}s)"
+    )
+
+    _append_session_event("tool.run_verification", result)
+    return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+
+@tool(
     "read_file",
     "Read a file from the working directory. Use to understand codebase before planning. "
     "Returns file content (max 2000 lines). Specify offset/limit for large files.",
@@ -658,7 +911,9 @@ ALL_TOOLS = [
     read_file_tool,
     read_pane_output,
     run_command,
+    run_verification,
     send_text_to_pane,
+    submit_plan,
     list_managed_panes,
     mark_task_done,
     record_phase_anchor,

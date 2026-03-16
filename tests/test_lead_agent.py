@@ -533,6 +533,91 @@ def test_dashboard_add_tool_event():
     assert dashboard.tool_events[-1]["text"] == f"event {_MAX_TOOL_EVENTS + 2}"
 
 
+def test_run_verification_pass(monkeypatch, tmp_path):
+    """run_verification returns pass when exit code is 0."""
+    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    # Make get_text return output with exit marker
+    runtime.pane_mgr.get_text = lambda pane_id: "All checks passed!\n__OPENMAX_EXIT_0__\n$ "
+
+    result = anyio.run(
+        lead_agent_tools.run_verification.handler,
+        {"check_type": "lint", "command": "ruff check src/", "timeout": 30},
+    )
+
+    import json as _json
+
+    parsed = _json.loads(result["content"][0]["text"])
+    assert parsed["status"] == "pass"
+    assert parsed["exit_code"] == 0
+    assert parsed["check_type"] == "lint"
+    assert "All checks passed" in parsed["output"]
+
+    events = store.load_events("lead-test")
+    verify_events = [e for e in events if e.event_type == "tool.run_verification"]
+    assert len(verify_events) == 1
+    assert verify_events[0].payload["status"] == "pass"
+
+    _teardown_session(token)
+
+
+def test_run_verification_fail(monkeypatch, tmp_path):
+    """run_verification returns fail when exit code is non-zero."""
+    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    runtime.pane_mgr.get_text = lambda pane_id: (
+        "src/foo.py:10: E501 line too long\n__OPENMAX_EXIT_1__\n$ "
+    )
+
+    result = anyio.run(
+        lead_agent_tools.run_verification.handler,
+        {"check_type": "lint", "command": "ruff check src/", "timeout": 30},
+    )
+
+    import json as _json
+
+    parsed = _json.loads(result["content"][0]["text"])
+    assert parsed["status"] == "fail"
+    assert parsed["exit_code"] == 1
+
+    _teardown_session(token)
+
+
+def test_run_verification_timeout(monkeypatch, tmp_path):
+    """run_verification returns timeout when no exit marker found."""
+    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    # get_text never returns exit marker
+    runtime.pane_mgr.get_text = lambda pane_id: "still running...\n"
+
+    result = anyio.run(
+        lead_agent_tools.run_verification.handler,
+        {"check_type": "test", "command": "pytest tests/", "timeout": 10},
+    )
+
+    import json as _json
+
+    parsed = _json.loads(result["content"][0]["text"])
+    assert parsed["status"] == "timeout"
+    assert parsed["exit_code"] is None
+
+    _teardown_session(token)
+
+
+def test_format_tool_use_run_verification():
+    """_format_tool_use handles run_verification."""
+    from openmax.lead_agent.formatting import _format_tool_use
+
+    result = _format_tool_use(
+        "mcp__openmax__run_verification",
+        {"check_type": "lint", "command": "ruff check src/"},
+    )
+    assert result == "Running verification: lint"
+
+
 def test_read_pane_output_returns_json_with_stuck_false(monkeypatch, tmp_path):
     """read_pane_output returns JSON with stuck=false on first read."""
     runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
