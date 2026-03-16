@@ -1047,6 +1047,73 @@ def test_read_pane_output_stuck_event_recorded(monkeypatch, tmp_path):
     _teardown_session(token)
 
 
+def test_dispatch_agent_event_contains_recommended_agent(monkeypatch, tmp_path):
+    """dispatch_agent event payload includes recommended_agent from memory rankings."""
+    runtime, token, store, _meta, memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    # Record agent completions so derive_agent_rankings returns results
+    memory_store.record_run_summary(
+        cwd=str(tmp_path),
+        task="Build API endpoints",
+        notes="Codex completed the API endpoints cleanly.",
+        completion_pct=100,
+        subtasks=[
+            {
+                "name": "API",
+                "agent_type": "codex",
+                "status": "done",
+                "prompt": "Update src/api/routes.py",
+            }
+        ],
+        anchors=[{"summary": "API work succeeded"}],
+    )
+
+    try:
+        anyio.run(
+            lead_agent_tools.dispatch_agent.handler,
+            {
+                "task_name": "Refactor API",
+                "agent_type": "codex",
+                "prompt": "Refactor API endpoints",
+            },
+        )
+
+        events = store.load_events("lead-test")
+        dispatch_events = [e for e in events if e.event_type == "tool.dispatch_agent"]
+        assert len(dispatch_events) == 1
+        payload = dispatch_events[0].payload
+        assert "recommended_agent" in payload
+        assert payload["recommended_agent"] is not None
+    finally:
+        _teardown_session(token)
+
+
+def test_dispatch_agent_event_contains_override_reason(monkeypatch, tmp_path):
+    """dispatch_agent event payload includes override_reason when provided."""
+    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    try:
+        anyio.run(
+            lead_agent_tools.dispatch_agent.handler,
+            {
+                "task_name": "API",
+                "agent_type": "claude-code",
+                "prompt": "Implement API",
+                "override_reason": "User prefers claude-code for this task",
+            },
+        )
+
+        events = store.load_events("lead-test")
+        dispatch_events = [e for e in events if e.event_type == "tool.dispatch_agent"]
+        assert len(dispatch_events) == 1
+        payload = dispatch_events[0].payload
+        assert payload["override_reason"] == "User prefers claude-code for this task"
+    finally:
+        _teardown_session(token)
+
+
 def test_dispatch_agent_sets_started_at(monkeypatch, tmp_path):
     """dispatch_agent sets started_at on the subtask."""
     runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
@@ -1069,6 +1136,81 @@ def test_dispatch_agent_sets_started_at(monkeypatch, tmp_path):
         assert before <= subtask.started_at <= after
     finally:
         _teardown_session(token)
+
+
+def test_check_conflicts_clean_state(monkeypatch, tmp_path):
+    """check_conflicts returns no conflicts for a clean repo."""
+    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+
+    import subprocess as _subprocess
+
+    def mock_run(*args, **kwargs):
+        cmd = args[0] if args else kwargs.get("args", [])
+        result = _subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        if "status" in cmd:
+            result.stdout = "?? untracked.txt\n"
+        return result
+
+    monkeypatch.setattr(lead_agent_tools.subprocess, "run", mock_run)
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.check_conflicts.handler,
+            {},
+        )
+
+        import json as _json
+
+        parsed = _json.loads(result["content"][0]["text"])
+        assert parsed["conflict"] is False
+        assert parsed["details"] == "No conflicts detected"
+        assert parsed["untracked_files"] == ["untracked.txt"]
+
+        events = store.load_events("lead-test")
+        conflict_events = [e for e in events if e.event_type == "tool.check_conflicts"]
+        assert len(conflict_events) == 1
+    finally:
+        _teardown_session(token)
+
+
+def test_check_conflicts_with_conflicts(monkeypatch, tmp_path):
+    """check_conflicts detects conflict markers."""
+    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+
+    import subprocess as _subprocess
+
+    def mock_run(*args, **kwargs):
+        cmd = args[0] if args else kwargs.get("args", [])
+        if "diff" in cmd:
+            return _subprocess.CompletedProcess(
+                cmd, 1, stdout="src/foo.py:10: leftover conflict marker\n", stderr=""
+            )
+        return _subprocess.CompletedProcess(cmd, 0, stdout="UU src/foo.py\n?? new.txt\n", stderr="")
+
+    monkeypatch.setattr(lead_agent_tools.subprocess, "run", mock_run)
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.check_conflicts.handler,
+            {},
+        )
+
+        import json as _json
+
+        parsed = _json.loads(result["content"][0]["text"])
+        assert parsed["conflict"] is True
+        assert "conflict" in parsed["details"].lower() or "leftover" in parsed["details"].lower()
+        assert "new.txt" in parsed["untracked_files"]
+    finally:
+        _teardown_session(token)
+
+
+def test_format_tool_use_check_conflicts():
+    """_format_tool_use handles check_conflicts."""
+    from openmax.lead_agent.formatting import _format_tool_use
+
+    result = _format_tool_use("mcp__openmax__check_conflicts", {})
+    assert result == "Checking for git conflicts"
 
 
 def test_mark_task_done_sets_finished_at(tmp_path):

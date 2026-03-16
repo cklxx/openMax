@@ -21,6 +21,7 @@ _TOOL_CATEGORIES: dict[str, str] = {
     "record_phase_anchor": "system",
     "transition_phase": "system",
     "remember_learning": "system",
+    "check_conflicts": "system",
     "report_completion": "system",
     "wait": "system",
 }
@@ -136,6 +137,9 @@ def _format_tool_use(tool_name: str, tool_input: dict[str, Any] | None = None) -
     if normalized == "read_file":
         path = str(tool_input.get("path", "")).strip()
         return f"Reading {path}" if path else "Reading a file"
+
+    if normalized == "check_conflicts":
+        return "Checking for git conflicts"
 
     if normalized == "list_managed_panes":
         return "Reviewing active panes"

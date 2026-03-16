@@ -474,6 +474,12 @@ class ContextBuilder:
                         recent_activity.append(f"Read pane {pane_id} output")
                 continue
 
+            if event_type == "tool.check_conflicts":
+                details = str(payload.get("details", "")).strip()
+                preview = details[:80] if details else "no details"
+                recent_activity.append(f"Checked for conflicts: {preview}")
+                continue
+
             if event_type == "tool.run_verification":
                 check_type = str(payload.get("check_type", "")).strip()
                 status = str(payload.get("status", "")).strip()

@@ -77,6 +77,7 @@ for complex changes. Increase wait if agent is making steady progress.
   - `run_verification(check_type="lint", command="ruff check src/", timeout=60)`
   - `run_verification(check_type="test", command="pytest tests/ -v", timeout=300)`
   - If either fails, dispatch an agent to fix, then re-verify.
+- Before `report_completion`, call `check_conflicts` to ensure no git conflicts remain.
 - Ensure all changes are committed.
 - Call `report_completion` with what was actually delivered, including verification results.
 

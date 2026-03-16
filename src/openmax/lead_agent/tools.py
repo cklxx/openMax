@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -342,6 +343,7 @@ async def _wait_and_send_prompt(
         "task_name": str,
         "agent_type": str,
         "prompt": str,
+        "override_reason": str,
     },
 )
 async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
@@ -349,6 +351,16 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     task_name = args["task_name"]
     agent_type = args.get("agent_type", "claude-code")
     prompt = args["prompt"]
+
+    # Auto-derive recommended agent from memory rankings
+    recommended_agent = None
+    if runtime.memory_store is not None:
+        try:
+            rankings = runtime.memory_store.derive_agent_rankings(cwd=runtime.cwd, task=task_name)
+            if rankings:
+                recommended_agent = rankings[0].agent_type
+        except Exception:
+            pass
 
     # Soft check: warn if submit_plan hasn't been called
     if not runtime.plan_submitted:
@@ -476,17 +488,19 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         f"\u2192 pane {pane.pane_id} ({agent_type}) "
         f"[dim][window {runtime.agent_window_id}, {pane_count} panes][/dim]"
     )
-    _append_session_event(
-        "tool.dispatch_agent",
-        {
-            "task_name": task_name,
-            "agent_type": agent_type,
-            "prompt": prompt,
-            "pane_id": pane.pane_id,
-            "window_id": runtime.agent_window_id,
-            "panes_in_window": pane_count,
-        },
-    )
+    event_payload = {
+        "task_name": task_name,
+        "agent_type": agent_type,
+        "prompt": prompt,
+        "pane_id": pane.pane_id,
+        "window_id": runtime.agent_window_id,
+        "panes_in_window": pane_count,
+        "recommended_agent": recommended_agent,
+    }
+    override_reason = args.get("override_reason")
+    if override_reason:
+        event_payload["override_reason"] = override_reason
+    _append_session_event("tool.dispatch_agent", event_payload)
 
     return {
         "content": [
@@ -1030,6 +1044,86 @@ async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
+    "check_conflicts",
+    "Check for git conflicts and untracked files in the working directory.",
+    {},
+)
+async def check_conflicts(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
+    cwd = runtime.cwd
+
+    # Run git status --porcelain
+    try:
+        status_result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=30,
+        )
+        status_output = status_result.stdout
+    except (subprocess.TimeoutExpired, OSError) as e:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        {
+                            "conflict": False,
+                            "details": f"Error running git status: {e}",
+                            "untracked_files": [],
+                        }
+                    ),
+                }
+            ]
+        }
+
+    # Run git diff --check
+    try:
+        diff_result = subprocess.run(
+            ["git", "diff", "--check"],
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=30,
+        )
+        diff_check_failed = diff_result.returncode != 0
+        diff_output = diff_result.stdout.strip()
+    except (subprocess.TimeoutExpired, OSError):
+        diff_check_failed = False
+        diff_output = ""
+
+    # Parse untracked files and conflict markers
+    untracked_files: list[str] = []
+    conflict_markers = False
+    for line in status_output.splitlines():
+        if line.startswith("??"):
+            untracked_files.append(line[3:].strip())
+        elif line[:2] in ("UU", "AA", "DD", "AU", "UA", "DU", "UD"):
+            conflict_markers = True
+
+    has_conflict = diff_check_failed or conflict_markers
+    if has_conflict:
+        details = diff_output if diff_output else "Conflict markers detected in git status"
+    else:
+        details = "No conflicts detected"
+
+    result = {
+        "conflict": has_conflict,
+        "details": details,
+        "untracked_files": untracked_files,
+    }
+
+    console.print(
+        f"  [{'red' if has_conflict else 'green'}]"
+        f"{'⚠' if has_conflict else '✓'}[/{'red' if has_conflict else 'green'}] "
+        f"Conflict check: {details[:80]}"
+    )
+    _append_session_event("tool.check_conflicts", result)
+    return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+
+@tool(
     "read_file",
     "Read a file from the working directory. Use to understand codebase before planning. "
     "Returns file content (max 2000 lines). Specify offset/limit for large files.",
@@ -1073,6 +1167,7 @@ async def read_file_tool(args: dict[str, Any]) -> dict[str, Any]:
 # All tool objects for easy collection
 ALL_TOOLS = [
     ask_user,
+    check_conflicts,
     dispatch_agent,
     get_agent_recommendations,
     read_file_tool,
