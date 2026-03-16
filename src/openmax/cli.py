@@ -20,10 +20,62 @@ from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
 from openmax.memory import MemoryStore
 from openmax.pane_backend import resolve_pane_backend_name
 from openmax.pane_manager import PaneManager
+from openmax.provider_usage import ProviderStatus, probe_all
 from openmax.session_runtime import SessionSnapshot, SessionStore
+from openmax.usage import UsageStore
 
 console = Console()
 _ANCHOR_PREVIEW_LIMIT = 5
+
+
+def _interactive_loop(pane_mgr: PaneManager, plan: object) -> None:
+    """Post-run interactive mode for inspecting/sending to panes."""
+    console.print(
+        "\n[bold cyan]Interactive mode[/bold cyan] — "
+        "commands: inspect <pane_id>, send <pane_id> <text>, summary, quit"
+    )
+    while True:
+        try:
+            line = input("openmax> ").strip()
+        except (KeyboardInterrupt, EOFError):
+            console.print()
+            break
+        if not line:
+            continue
+        parts = line.split(None, 2)
+        cmd = parts[0].lower()
+
+        if cmd in ("quit", "q"):
+            break
+        elif cmd == "summary":
+            s = pane_mgr.summary()
+            console.print(f"Windows: {s['total_windows']} | Done: {s['done']}")
+            if hasattr(plan, "subtasks"):
+                for st in plan.subtasks:
+                    p_id = getattr(st, "pane_id", None)
+                    console.print(f"  {st.name} | {st.status.value} | pane={p_id}")
+        elif cmd == "inspect":
+            if len(parts) < 2:
+                console.print("[red]Usage: inspect <pane_id>[/red]")
+                continue
+            try:
+                pane_id = int(parts[1])
+                text = pane_mgr.get_text(pane_id)
+                console.print(text[-2000:] if len(text) > 2000 else text)
+            except (ValueError, RuntimeError) as exc:
+                console.print(f"[red]{exc}[/red]")
+        elif cmd == "send":
+            if len(parts) < 3:
+                console.print("[red]Usage: send <pane_id> <text>[/red]")
+                continue
+            try:
+                pane_id = int(parts[1])
+                pane_mgr.send_text(pane_id, parts[2])
+                console.print(f"[green]Sent to pane {pane_id}[/green]")
+            except (ValueError, RuntimeError) as exc:
+                console.print(f"[red]{exc}[/red]")
+        else:
+            console.print("[yellow]Unknown command.[/yellow] Try: inspect, send, summary, quit")
 
 
 def _resolve_cwd(cwd: str | None) -> str:
@@ -227,6 +279,8 @@ def run(
                 f"{summary['total_windows']} windows | "
                 f"{summary['done']} done"
             )
+            if not keep_panes and sys.stdout.isatty():
+                _interactive_loop(pane_mgr, plan)
     finally:
         signal.signal(signal.SIGINT, previous_sigint)
         signal.signal(signal.SIGTERM, previous_sigterm)
@@ -510,6 +564,10 @@ def inspect(session_id: str) -> None:
     if plan.report_notes:
         console.print(f"[bold]Report:[/bold] {plan.report_notes}", soft_wrap=True)
 
+    usage_rec = UsageStore().load(meta.session_id)
+    if usage_rec:
+        console.print(f"[bold]Usage:[/bold] {usage_rec.summary_line()}")
+
     console.print("[bold]Scorecard[/bold]")
     console.print(
         plan.scorecard.surface_summary,
@@ -553,6 +611,306 @@ def inspect(session_id: str) -> None:
         if task.pane_id is not None:
             parts.append(f"pane={task.pane_id}")
         console.print(f"- {' | '.join(parts)}")
+
+
+@main.command()
+@click.argument("session_id", required=False, default=None)
+@click.option(
+    "--limit",
+    default=10,
+    type=click.IntRange(min=1),
+    help="Maximum number of recent sessions to show",
+)
+@click.option("--total", is_flag=True, default=False, help="Show aggregate totals")
+def usage(session_id: str | None, limit: int, total: bool) -> None:
+    """Show usage (cost, tokens, duration) for sessions.
+
+    If SESSION_ID is provided, show usage for that session only.
+    Otherwise list recent sessions with their usage.
+    """
+    store = UsageStore()
+
+    if session_id:
+        rec = store.load(session_id)
+        if rec is None:
+            console.print(f"[yellow]No usage data for session '{session_id}'.[/yellow]")
+            raise SystemExit(1)
+        console.print(f"[bold]Session:[/bold] {rec.session_id}")
+        console.print(f"[bold]Cost:[/bold]     {rec.format_cost()}")
+        console.print(f"[bold]Tokens:[/bold]   {rec.total_tokens:,} ({rec.format_tokens()})")
+        console.print(f"[bold]Duration:[/bold] {rec.format_duration()}")
+        console.print(f"[bold]API time:[/bold] {rec.duration_api_ms / 1000:.1f}s")
+        console.print(f"[bold]Turns:[/bold]    {rec.num_turns}")
+        console.print(f"[bold]Recorded:[/bold] {_format_timestamp(rec.recorded_at)}")
+        return
+
+    records = store.list_all(limit=limit)
+    if not records:
+        console.print("[yellow]No usage data recorded yet.[/yellow]")
+        return
+
+    console.print("[bold]Recent session usage[/bold]")
+    for rec in records:
+        console.print(
+            f"  {rec.session_id} | "
+            f"{rec.format_cost()} | "
+            f"{rec.total_tokens:,} tokens | "
+            f"{rec.format_duration()} | "
+            f"{rec.num_turns} turns"
+        )
+
+    if total or len(records) > 1:
+        agg = store.aggregate(records)
+        console.print(f"\n[bold]Total ({len(records)} sessions):[/bold] {agg.summary_line()}")
+
+
+@main.command()
+@click.option("--daily", is_flag=True, default=False, help="Show daily activity breakdown")
+@click.option(
+    "--days",
+    default=7,
+    type=click.IntRange(min=1),
+    help="Number of days to show in daily view",
+)
+def status(daily: bool, days: int) -> None:
+    """Show subscription usage for installed coding agents."""
+    providers = probe_all()
+    installed = [p for p in providers if p.installed]
+
+    if not installed:
+        console.print("[yellow]No coding agents found on this system.[/yellow]")
+        raise SystemExit(1)
+
+    for provider in installed:
+        _render_provider_card(provider, daily=daily, days=days)
+
+
+def _render_provider_card(
+    p: ProviderStatus,
+    *,
+    daily: bool = False,
+    days: int = 7,
+) -> None:
+    from rich.panel import Panel
+
+    parts: list[str] = []
+
+    # ── Title bar ──────────────────────────────────────
+    name = _provider_display_name(p.provider)
+    title_parts = [f"[bold white]{name}[/bold white]"]
+    if p.version:
+        title_parts.append(f"[dim]{p.version}[/dim]")
+    if p.plan:
+        title_parts.append(f"[bold cyan]{p.plan}[/bold cyan]")
+    if p.model:
+        title_parts.append(f"[green]{_short_model(p.model)}[/green]")
+    title = "  ".join(title_parts)
+
+    # ── Quota (hero section — the most important info) ─
+    q = p.quota
+    if q and q.windows:
+        for win in q.windows:
+            remaining = max(100.0 - win.used_pct, 0)
+            bar = _quota_bar(win.used_pct)
+            reset_str = ""
+            if win.resets_at:
+                reset_str = f"  [dim]resets {_format_reset(win.resets_at)}[/dim]"
+            elif win.reset_seconds:
+                reset_str = f"  [dim]resets in {_format_seconds(win.reset_seconds)}[/dim]"
+            parts.append(
+                f"  {win.name:16s}  {bar}  [bold]{remaining:.0f}% remaining[/bold]{reset_str}"
+            )
+        # Extra usage / overages
+        if q.extra_usage_enabled:
+            if q.extra_usage_limit > 0:
+                parts.append(
+                    f"  {'extra usage':16s}  ${q.extra_usage_used:.2f} / ${q.extra_usage_limit:.0f}"
+                )
+            else:
+                parts.append(f"  {'extra usage':16s}  ${q.extra_usage_used:.2f} used")
+        if q.error and q.error != "rate limit reached":
+            parts.append(f"  [dim]quota: {q.error}[/dim]")
+        if q.error == "rate limit reached":
+            parts.append("  [bold red]RATE LIMITED[/bold red]")
+        parts.append("")
+    elif q and q.error:
+        parts.append(f"  [dim]quota: {q.error}[/dim]")
+        parts.append("")
+
+    # ── 5-hour local window ────────────────────────────
+    w = p.window_usage
+    if w and w.messages > 0:
+        model_parts = []
+        for model, count in sorted(w.models.items(), key=lambda x: x[1], reverse=True):
+            model_parts.append(f"{_short_model(model)} x{count}")
+        parts.append(
+            f"  [bold]Local 5h[/bold]  "
+            f"[bold]{_compact_num(w.total_tokens)}[/bold] tokens  "
+            f"[dim]in={_compact_num(w.input_tokens)} "
+            f"out={_compact_num(w.output_tokens)} "
+            f"cache_r={_compact_num(w.cache_read_tokens)} "
+            f"cache_w={_compact_num(w.cache_creation_tokens)}[/dim]"
+        )
+        parts.append(f"  [dim]{' | '.join(model_parts)}[/dim]")
+        parts.append("")
+
+    # ── Lifetime stats ─────────────────────────────────
+    parts.append(
+        f"  [bold]All time[/bold]  "
+        f"{p.total_sessions:,} sessions  "
+        f"{p.total_messages:,} messages  "
+        f"{_compact_num(p.total_tokens)} tokens"
+    )
+
+    # ── Model breakdown ────────────────────────────────
+    if p.model_usage:
+        for mu in sorted(p.model_usage, key=lambda m: m.total_tokens, reverse=True):
+            pct = mu.total_tokens / p.total_tokens * 100 if p.total_tokens else 0
+            bar = _mini_bar(pct)
+            parts.append(
+                f"  {bar} {_short_model(mu.model):12s}  "
+                f"[bold]{_compact_num(mu.total_tokens):>6s}[/bold]  "
+                f"[dim]in={_compact_num(mu.input_tokens)} "
+                f"out={_compact_num(mu.output_tokens)}[/dim]"
+            )
+
+    # ── Daily sparkline ────────────────────────────────
+    if p.daily_activity:
+        recent = p.daily_activity[-days:]
+        day_tokens = [sum(d.tokens_by_model.values()) for d in recent]
+        spark = _sparkline(day_tokens)
+        dates_range = f"{recent[0].date} ~ {recent[-1].date}"
+        parts.append("")
+        parts.append(f"  [bold]Daily[/bold]  [dim]{dates_range}[/dim]")
+        parts.append(f"  {spark}")
+
+        if daily:
+            max_day = max(day_tokens) if day_tokens else 1
+            for day in recent:
+                total_day_tokens = sum(day.tokens_by_model.values())
+                day_bar = _mini_bar(total_day_tokens / max_day * 100 if max_day else 0)
+                detail_parts: list[str] = []
+                if day.sessions:
+                    detail_parts.append(f"{day.sessions} sess")
+                if day.messages:
+                    detail_parts.append(f"{day.messages:,} msg")
+                if day.tool_calls:
+                    detail_parts.append(f"{day.tool_calls:,} tools")
+                detail = "  ".join(detail_parts)
+                parts.append(
+                    f"  {day.date}  {day_bar}  "
+                    f"[bold]{_compact_num(total_day_tokens):>6s}[/bold]  "
+                    f"[dim]{detail}[/dim]"
+                )
+
+    if p.error:
+        parts.append(f"\n  [red]! {p.error}[/red]")
+
+    body = "\n".join(parts)
+    panel = Panel(
+        body,
+        title=title,
+        title_align="left",
+        border_style="blue",
+        padding=(1, 2),
+    )
+    console.print(panel)
+
+
+def _quota_bar(used_pct: float) -> str:
+    """20-char quota bar: green when plenty left, red when near limit."""
+    filled = min(int(used_pct / 5), 20)
+    empty = 20 - filled
+    if used_pct >= 90:
+        color = "bold red"
+    elif used_pct >= 70:
+        color = "yellow"
+    else:
+        color = "green"
+    return f"[{color}]{'█' * filled}[/][dim]{'░' * empty}[/dim]"
+
+
+def _format_reset(iso_str: str) -> str:
+    """Format a reset timestamp as relative time."""
+    try:
+        reset_dt = datetime.fromisoformat(iso_str)
+        now = datetime.now(timezone.utc)
+        delta = reset_dt - now
+        secs = int(delta.total_seconds())
+        if secs <= 0:
+            return "now"
+        return _format_seconds(secs)
+    except (ValueError, TypeError):
+        return iso_str
+
+
+def _format_seconds(secs: int) -> str:
+    """Format seconds as human-readable duration."""
+    if secs < 60:
+        return f"{secs}s"
+    if secs < 3600:
+        return f"{secs // 60}m"
+    hours = secs // 3600
+    mins = (secs % 3600) // 60
+    if hours < 24:
+        return f"{hours}h {mins}m" if mins else f"{hours}h"
+    days = hours // 24
+    remaining_hours = hours % 24
+    return f"{days}d {remaining_hours}h" if remaining_hours else f"{days}d"
+
+
+def _mini_bar(pct: float) -> str:
+    """Tiny 8-char proportional bar."""
+    filled = min(int(pct / 12.5), 8)
+    return "[cyan]" + "█" * filled + "[/cyan]" + "[dim]░[/dim]" * (8 - filled)
+
+
+def _sparkline(values: list[int]) -> str:
+    """Unicode sparkline from a list of values."""
+    if not values:
+        return ""
+    blocks = "▁▁▂▃▄▅▆▇█"
+    max_val = max(values) if max(values) > 0 else 1
+    chars = []
+    for v in values:
+        idx = min(int(v / max_val * 8), 8) if v > 0 else 0
+        chars.append(blocks[idx])
+    return "[cyan]" + "".join(chars) + "[/cyan]"
+
+
+def _compact_num(n: int) -> str:
+    """Format large numbers compactly: 1,234 -> 1.2K, 1,234,567 -> 1.2M."""
+    if n < 1_000:
+        return str(n)
+    if n < 10_000:
+        return f"{n / 1_000:.1f}K"
+    if n < 1_000_000:
+        return f"{n / 1_000:.0f}K"
+    if n < 10_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n < 1_000_000_000:
+        return f"{n / 1_000_000:.0f}M"
+    return f"{n / 1_000_000_000:.1f}B"
+
+
+def _short_model(name: str) -> str:
+    """Shorten model names for display."""
+    replacements = {
+        "claude-opus-4-6": "opus-4.6",
+        "claude-sonnet-4-6": "sonnet-4.6",
+        "claude-opus-4-5-20251101": "opus-4.5",
+        "claude-sonnet-4-5-20251001": "sonnet-4.5",
+        "claude-haiku-4-5-20251001": "haiku-4.5",
+    }
+    return replacements.get(name, name)
+
+
+def _provider_display_name(provider: str) -> str:
+    names = {
+        "claude-code": "Claude Code",
+        "codex": "Codex CLI",
+    }
+    return names.get(provider, provider.replace("-", " ").title())
 
 
 @main.command()
