@@ -225,20 +225,55 @@ def _derive_agent_stats(
     )
 
 
+_MIN_RECENT_KEEP = 10
+
+
 def _eviction_score(entry: dict, now: datetime) -> float:
-    """Lower score = keep. Higher score = evict first."""
+    """Higher score = evict first. Considers age, confidence, hit_count, relevance."""
     created = entry.get("created_at", "")
     try:
         entry_time = datetime.fromisoformat(created.replace("Z", "+00:00"))
-        age_days = (now - entry_time).days
+        age_days = max((now - entry_time).days, 0)
     except (ValueError, TypeError):
         age_days = 365  # Unknown age = old
 
-    # Check if entry has recent matches (metadata.last_matched)
-    last_matched = entry.get("metadata", {}).get("last_matched")
-    no_recent_match = 1 if last_matched is None else 0
+    metadata = entry.get("metadata", {})
+    if not isinstance(metadata, dict):
+        metadata = {}
 
-    return age_days * 0.3 + no_recent_match * 0.7
+    # Confidence: higher confidence → lower eviction score (keep)
+    confidence = entry.get("confidence")
+    if isinstance(confidence, (int, float)) and confidence > 0:
+        confidence_bonus = min(confidence, 10) / 10.0  # 0.0–1.0
+    else:
+        confidence_bonus = 0.0
+
+    # Hit count: more hits → lower eviction score (keep)
+    hit_count = metadata.get("hit_count", 0)
+    if not isinstance(hit_count, (int, float)):
+        hit_count = 0
+    hit_bonus = min(int(hit_count), 20) / 20.0  # 0.0–1.0
+
+    # Recent match: entries that were recently matched are more valuable
+    last_matched = metadata.get("last_matched")
+    no_recent_match = 1.0 if last_matched is None else 0.0
+
+    # Completion: higher completion_pct → more valuable
+    completion_pct = entry.get("completion_pct")
+    if isinstance(completion_pct, (int, float)) and completion_pct > 0:
+        completion_bonus = min(completion_pct, 100) / 100.0
+    else:
+        completion_bonus = 0.0
+
+    # Weighted score: age pushes up (evict), bonuses push down (keep)
+    score = (
+        age_days * 0.3
+        + no_recent_match * 0.5
+        - confidence_bonus * 2.0
+        - hit_bonus * 2.0
+        - completion_bonus * 1.0
+    )
+    return score
 
 
 def _aggregate_agent_stats(

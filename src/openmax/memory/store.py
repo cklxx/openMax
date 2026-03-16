@@ -13,6 +13,7 @@ from typing import Any
 
 from openmax.memory._utils import (
     _MAX_ENTRIES_PER_WORKSPACE,
+    _MIN_RECENT_KEEP,
     _dedupe,
     _derive_agent_stats,
     _derive_performance_signals,
@@ -419,9 +420,11 @@ class MemoryStore:
         payload["updated_at"] = utc_now_iso()
         if len(entries) > _MAX_ENTRIES_PER_WORKSPACE:
             now = datetime.now(timezone.utc)
-            # Protect the 50 most recent run_summary entries
+            # Protect the N most recent entries regardless of score
+            recent_ids = {e.get("memory_id") for e in entries[-_MIN_RECENT_KEEP:]}
+            # Also protect the most recent run_summary entries
             run_summaries = [e for e in entries if e.get("kind") == "run_summary"]
-            protected_ids = {
+            protected_ids = recent_ids | {
                 e.get("memory_id") for e in run_summaries[-_MAX_ENTRIES_PER_WORKSPACE:]
             }
             evictable = [e for e in entries if e.get("memory_id") not in protected_ids]
