@@ -179,6 +179,67 @@ def test_minimum_recent_entries_retained(tmp_path):
         assert f"lesson-{i}" in summaries
 
 
+def test_pinned_entries_never_evicted(tmp_path):
+    """Pinned entries survive eviction even when they are old."""
+    store = MemoryStore(base_dir=tmp_path)
+    cwd = str(tmp_path / "project")
+
+    # Record first entry and pin it
+    first = store.record_lesson(cwd=cwd, task="important-task", lesson="critical-lesson")
+    store.pin_entry(cwd, first.memory_id)
+
+    # Fill to capacity with more lessons to trigger eviction
+    for i in range(_MAX_ENTRIES_PER_WORKSPACE + 5):
+        store.record_lesson(cwd=cwd, task=f"task-{i}", lesson=f"lesson-{i}")
+
+    entries = store.load_entries(cwd)
+    assert len(entries) <= _MAX_ENTRIES_PER_WORKSPACE
+    # The pinned entry must still be present
+    ids = {e.memory_id for e in entries}
+    assert first.memory_id in ids
+    # Verify it is still pinned
+    pinned_entry = next(e for e in entries if e.memory_id == first.memory_id)
+    assert pinned_entry.pinned is True
+
+
+def test_pin_unpin_roundtrip(tmp_path):
+    """Pin and unpin toggle the pinned flag correctly."""
+    store = MemoryStore(base_dir=tmp_path)
+    cwd = str(tmp_path / "project")
+
+    entry = store.record_lesson(cwd=cwd, task="task", lesson="lesson")
+    assert entry.pinned is False
+
+    assert store.pin_entry(cwd, entry.memory_id) is True
+    entries = store.load_entries(cwd)
+    assert entries[0].pinned is True
+
+    assert store.unpin_entry(cwd, entry.memory_id) is True
+    entries = store.load_entries(cwd)
+    assert entries[0].pinned is False
+
+    # Non-existent ID returns False
+    assert store.pin_entry(cwd, "nonexistent") is False
+
+
+def test_hit_tracking_on_build_context(tmp_path):
+    """build_context increments hit_count and sets last_matched."""
+    store = MemoryStore(base_dir=tmp_path)
+    cwd = str(tmp_path / "project")
+
+    store.record_lesson(cwd=cwd, task="fix auth bug", lesson="auth needs sanitization")
+    store.record_lesson(cwd=cwd, task="add logging", lesson="use structured logging")
+
+    # Build context with a matching task
+    ctx = store.build_context(cwd=cwd, task="fix auth bug in login", limit=4)
+    assert ctx is not None
+
+    # Reload and check hit_count was bumped
+    entries = store.load_entries(cwd)
+    hit_counts = [e.metadata.get("hit_count", 0) for e in entries]
+    assert any(c > 0 for c in hit_counts)
+
+
 def test_max_memory_entries_constant():
     """MAX_MEMORY_ENTRIES is 100 and aliases _MAX_ENTRIES_PER_WORKSPACE."""
     assert MAX_MEMORY_ENTRIES == 100
