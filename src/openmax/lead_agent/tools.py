@@ -298,6 +298,9 @@ def _try_reuse_done_pane(
             and st.pane_id is not None
             and runtime.pane_mgr.is_pane_alive(st.pane_id)
         ):
+            console.print(
+                f"  [cyan]\u21bb[/cyan] Reusing pane {st.pane_id} (was {st.name}) for {task_name}"
+            )
             return SimpleNamespace(
                 pane_id=st.pane_id,
                 window_id=runtime.agent_window_id,
