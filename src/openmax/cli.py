@@ -684,6 +684,58 @@ def status(daily: bool, days: int) -> None:
     for provider in installed:
         _render_provider_card(provider, daily=daily, days=days)
 
+    if len(installed) > 1:
+        _render_total_summary(installed)
+
+
+def _render_total_summary(providers: list[ProviderStatus]) -> None:
+    from rich.panel import Panel
+
+    total_sessions = sum(p.total_sessions for p in providers)
+    total_messages = sum(p.total_messages for p in providers)
+    total_tokens = sum(p.total_tokens for p in providers)
+
+    parts: list[str] = []
+    parts.append(
+        f"  [bold]{len(providers)}[/bold] agents  "
+        f"[bold]{total_sessions:,}[/bold] sessions  "
+        f"[bold]{total_messages:,}[/bold] messages  "
+        f"[bold]{_compact_num(total_tokens)}[/bold] tokens"
+    )
+
+    # Per-provider one-liner with quota highlight
+    for p in providers:
+        name = _provider_display_name(p.provider)
+        q = p.quota
+        if q and q.windows:
+            # Show the tightest (most used) window
+            tightest = max(q.windows, key=lambda w: w.used_pct)
+            remaining = max(100.0 - tightest.used_pct, 0)
+            if remaining <= 0:
+                badge = "[bold red]LIMIT[/bold red]"
+            elif remaining <= 20:
+                badge = f"[red]{remaining:.0f}%[/red]"
+            elif remaining <= 50:
+                badge = f"[yellow]{remaining:.0f}%[/yellow]"
+            else:
+                badge = f"[green]{remaining:.0f}%[/green]"
+            parts.append(
+                f"  {name:14s}  {badge} left ({tightest.name})  "
+                f"[dim]{_compact_num(p.total_tokens)} tokens[/dim]"
+            )
+        else:
+            parts.append(f"  {name:14s}  [dim]{_compact_num(p.total_tokens)} tokens[/dim]")
+
+    body = "\n".join(parts)
+    panel = Panel(
+        body,
+        title="[bold white]Total[/bold white]",
+        title_align="left",
+        border_style="dim",
+        padding=(0, 2),
+    )
+    console.print(panel)
+
 
 def _render_provider_card(
     p: ProviderStatus,
