@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.1.9
+
+### Predictive Memory System
+
+Three optimisations inspired by the predictive memory paradigm — shifting from
+passive "query → retrieve" to proactive "predict → pre-stage":
+
+- **Session-end prediction**: on run completion, automatically predict likely
+  follow-up queries (e.g. "write tests" after a code task) and store predictions
+  alongside the run summary for future context pre-staging
+- **Query-distribution-weighted priority**: track per-workspace task-category
+  distribution (code / testing / debugging / refactor / architecture / docs) and
+  boost memory entries matching high-frequency categories
+- **Dual-buffer context**: `build_context` splits into an *active buffer*
+  (keyword-matched, ~67% budget) and a *predictive buffer* (prediction-matched +
+  distribution-boosted, ~33% budget), solving the orthogonal-causal retrieval
+  blind spot where the query and the needed memory share no keywords
+
+### Auth & Setup
+
+- New `openmax setup` command: runs `claude setup-token` for long-lived auth
+- Dedicated `auth.py` module extracts auth detection from doctor/adapters
+- `openmax setup --status` shows current auth state
+- Claude Code adapter simplified — no longer reads OAuth token inline
+
+### Dashboard & UX
+
+- New `dashboard.py`: live run-progress display with phase tracking
+- Lead agent prompt refined for clearer three-phase workflow
+- Session runtime improvements for resume context handling
+
 ## 0.1.8
 
 - `openmax doctor` command: checks Python, Kaku, agent CLIs, and auth status
