@@ -84,7 +84,11 @@ def _format_tool_use(tool_name: str, tool_input: dict[str, Any] | None = None) -
 
     if normalized == "ask_user":
         question = str(tool_input.get("question", "")).strip()
-        return f"Asking user: {_truncate_text(question)}" if question else "Asking user a question"
+        choices = tool_input.get("choices") or []
+        suffix = f" ({len(choices)} choices)" if choices else ""
+        if question:
+            return f"Asking user{suffix}: {_truncate_text(question)}"
+        return "Asking user a question"
 
     if normalized == "dispatch_agent":
         task_name = str(tool_input.get("task_name", "")).strip() or "sub-task"

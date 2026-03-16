@@ -846,7 +846,8 @@ def test_read_pane_output_returns_exited_when_pane_dead(monkeypatch, tmp_path):
 
     parsed = _json.loads(result["content"][0]["text"])
     assert parsed["exited"] is True
-    assert "output before death" in parsed["text"]
+    # Early exit returns placeholder since pane is already gone
+    assert parsed["stuck"] is False
 
     _teardown_session(token)
 

@@ -352,6 +352,18 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     agent_type = args.get("agent_type", "claude-code")
     prompt = args["prompt"]
 
+    # Prevent duplicate task names — auto-suffix if already exists
+    existing_names = {st.name for st in runtime.plan.subtasks}
+    if task_name in existing_names:
+        suffix = 2
+        while f"{task_name}-{suffix}" in existing_names:
+            suffix += 1
+        original = task_name
+        task_name = f"{task_name}-{suffix}"
+        console.print(
+            f"  [yellow]\u26a0[/yellow] Task '{original}' already exists, renamed to '{task_name}'"
+        )
+
     # Auto-derive recommended agent from memory rankings
     recommended_agent = None
     if runtime.memory_store is not None:
@@ -362,11 +374,11 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         except Exception:
             pass
 
-    # Soft check: warn if submit_plan hasn't been called
-    if not runtime.plan_submitted:
+    # Warn once if dispatching multiple agents without a plan
+    if not runtime.plan_submitted and len(runtime.plan.subtasks) >= 1:
         console.print(
-            "  [yellow]\u26a0[/yellow] dispatch_agent called before "
-            "submit_plan — consider submitting a structured plan first"
+            "  [yellow]\u26a0[/yellow] Multiple agents dispatched without "
+            "submit_plan — consider submitting a structured plan"
         )
 
     # Enforce allowed agents constraint
@@ -536,6 +548,21 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime()
     pane_id = args["pane_id"]
     try:
+        # Early exit if pane is already gone
+        if not runtime.pane_mgr.is_pane_alive(pane_id):
+            result = json.dumps(
+                {
+                    "text": "(pane no longer exists)",
+                    "stuck": False,
+                    "exited": True,
+                }
+            )
+            _append_session_event(
+                "tool.read_pane_output",
+                {"pane_id": pane_id, "preview": "", "stuck": False, "exited": True},
+            )
+            return {"content": [{"type": "text", "text": result}]}
+
         text = runtime.pane_mgr.get_text(pane_id)
         text = _extract_smart_output(text, tail_lines=100)
 
@@ -582,6 +609,16 @@ async def send_text_to_pane(args: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime()
     pane_id = args["pane_id"]
     text = args["text"]
+    if not runtime.pane_mgr.is_pane_alive(pane_id):
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"Error: pane {pane_id} no longer exists. "
+                    "Re-dispatch the task to a new pane.",
+                }
+            ]
+        }
     runtime.pane_mgr.send_text(pane_id, text)
     console.print(f"  [yellow]\u2192[/yellow] Sent to pane {pane_id}: {text[:80]}")
     if runtime.dashboard is not None:
@@ -792,25 +829,38 @@ async def report_completion(args: dict[str, Any]) -> dict[str, Any]:
 @tool(
     "ask_user",
     "Ask the human operator a question and wait for their answer. "
-    "Use when the goal is genuinely ambiguous or you need a decision only the user can make. "
-    "Do NOT use for routine confirmations.",
-    {"question": str},
+    "Use when the goal is genuinely ambiguous or you need a decision "
+    "only the user can make. Do NOT use for routine confirmations. "
+    "Pass choices as a list of options — the user can pick by number "
+    "or type a free-form answer.",
+    {"question": str, "choices": list},
 )
 async def ask_user(args: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime()
     question = args["question"]
+    choices: list[str] = args.get("choices") or []
 
     # Pause the dashboard so the prompt is visible
     if runtime.dashboard is not None:
         runtime.dashboard.stop()
 
-    console.print(
-        Panel(
-            f"[bold yellow]Lead agent asks:[/bold yellow]\n{question}",
-            border_style="yellow",
-        )
-    )
-    answer: str = await anyio.to_thread.run_sync(lambda: input("Your answer: "))
+    body = f"[bold yellow]Lead agent asks:[/bold yellow]\n{question}"
+    if choices:
+        for i, choice in enumerate(choices, 1):
+            body += f"\n  [cyan]{i}.[/cyan] {choice}"
+        body += "\n\n[dim]Enter a number or type your own answer[/dim]"
+
+    console.print(Panel(body, border_style="yellow"))
+    raw: str = await anyio.to_thread.run_sync(lambda: input("Your answer: "))
+    raw = raw.strip()
+
+    # Resolve numbered choice
+    answer = raw
+    if choices and raw.isdigit():
+        idx = int(raw) - 1
+        if 0 <= idx < len(choices):
+            answer = choices[idx]
+            console.print(f"  [dim]→ {answer}[/dim]")
 
     # Resume the dashboard
     if runtime.dashboard is not None:
@@ -818,7 +868,7 @@ async def ask_user(args: dict[str, Any]) -> dict[str, Any]:
 
     _append_session_event(
         "tool.ask_user",
-        {"question": question, "answer": answer},
+        {"question": question, "choices": choices, "answer": answer},
     )
     return {"content": [{"type": "text", "text": answer}]}
 

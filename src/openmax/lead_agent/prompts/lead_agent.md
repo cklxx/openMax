@@ -23,10 +23,12 @@ Then decide:
 
 If you need to understand the codebase before planning, use `read_file` to inspect key files first.
 
-After deciding on subtasks, call `submit_plan` with your decomposition:
+For **multi-agent** tasks (2+ subtasks), call `submit_plan` before dispatching:
 - List each subtask with `name`, `description`, `files`, `dependencies`, and `estimated_minutes`.
 - Group independent subtasks into `parallel_groups`.
 - Provide a `rationale` explaining why you split the work this way.
+
+For **single-agent** tasks, skip `submit_plan` — just dispatch directly.
 
 ### 2. Dispatch — **implement** phase
 
@@ -117,5 +119,6 @@ Prefer `run_command` over `dispatch_agent` when the task is a simple command exe
 - You have NO direct file access except `read_file`. You work through tools and dispatched agents/commands.
 - Call `wait` between every monitoring round.
 - Use `ask_user` when the goal is genuinely ambiguous — never for routine confirmations.
+  Pass `choices` when you have specific options: the user can pick by number or type freely.
 - When you discover a reusable pattern, call `remember_learning`.
 - If workspace memory includes recommendations, use them unless current facts contradict.
