@@ -260,6 +260,22 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
                         ]
                     }
 
+    # Warn about file ownership overlaps within parallel groups
+    file_map: dict[str, set[str]] = {}
+    for st in subtasks_raw:
+        files = st.get("files", [])
+        if isinstance(files, list):
+            file_map[st["name"]] = set(files)
+    file_warnings: list[str] = []
+    for group in parallel_groups:
+        for i, a in enumerate(group):
+            for b in group[i + 1 :]:
+                overlap = file_map.get(a, set()) & file_map.get(b, set())
+                if overlap:
+                    file_warnings.append(
+                        f"'{a}' and '{b}' share files: {', '.join(sorted(overlap))}"
+                    )
+
     # Store the plan submission
     runtime.plan_submitted = True
 
@@ -272,20 +288,120 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
     console.print(f"  [bold cyan]{P}[/bold cyan]  plan: {len(subtasks_raw)} subtasks")
     _append_session_event("tool.submit_plan", plan_data)
 
+    result_data: dict[str, Any] = {
+        "status": "accepted",
+        "subtask_count": len(subtasks_raw),
+        "parallel_group_count": len(parallel_groups),
+    }
+    if file_warnings:
+        result_data["file_overlap_warnings"] = file_warnings
+        for warning in file_warnings:
+            console.print(f"  [yellow]![/yellow]  File overlap: {warning}")
+
     return {
         "content": [
             {
                 "type": "text",
-                "text": json.dumps(
-                    {
-                        "status": "accepted",
-                        "subtask_count": len(subtasks_raw),
-                        "parallel_group_count": len(parallel_groups),
-                    }
-                ),
+                "text": json.dumps(result_data),
             }
         ]
     }
+
+
+def _sanitize_branch_name(task_name: str) -> str:
+    """Convert task name to a valid git branch name."""
+    import re
+
+    slug = re.sub(r"[^a-zA-Z0-9_-]", "-", task_name.strip())
+    slug = re.sub(r"-+", "-", slug).strip("-")
+    return f"openmax/{slug}" if slug else f"openmax/task-{int(time.time())}"
+
+
+def _get_integration_branch(cwd: str) -> str | None:
+    """Get the current git branch name, or None if not in a git repo."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def _create_agent_branch(cwd: str, branch_name: str) -> tuple[str | None, str | None]:
+    """Create a git branch and worktree for an agent.
+
+    Returns (worktree_path, error_message). On success error_message is None.
+    """
+    worktree_base = Path(cwd) / ".openmax-worktrees"
+    worktree_dir = worktree_base / branch_name.replace("/", "_")
+
+    try:
+        # Create branch from HEAD
+        result = subprocess.run(
+            ["git", "branch", branch_name],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return None, f"Failed to create branch: {result.stderr.strip()}"
+
+        # Create worktree
+        worktree_dir.parent.mkdir(parents=True, exist_ok=True)
+        result = subprocess.run(
+            ["git", "worktree", "add", str(worktree_dir), branch_name],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            # Clean up branch if worktree creation failed
+            subprocess.run(
+                ["git", "branch", "-D", branch_name],
+                cwd=cwd,
+                capture_output=True,
+                timeout=10,
+            )
+            return None, f"Failed to create worktree: {result.stderr.strip()}"
+
+        return str(worktree_dir), None
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return None, f"Git error: {e}"
+
+
+def _cleanup_agent_branch(cwd: str, branch_name: str) -> str | None:
+    """Remove worktree and delete branch. Returns error message or None."""
+    worktree_base = Path(cwd) / ".openmax-worktrees"
+    worktree_dir = worktree_base / branch_name.replace("/", "_")
+
+    try:
+        if worktree_dir.exists():
+            subprocess.run(
+                ["git", "worktree", "remove", str(worktree_dir), "--force"],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        subprocess.run(
+            ["git", "branch", "-D", branch_name],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return f"Cleanup error: {e}"
+    return None
 
 
 def _try_reuse_done_pane(
@@ -423,7 +539,23 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         except Exception:
             pass  # Don't fail dispatch if memory lookup fails
 
-    cmd_spec = adapter.get_command(prompt, cwd=runtime.cwd)
+    # -- Branch isolation: create per-agent branch + worktree --
+    branch_name: str | None = None
+    agent_cwd = runtime.cwd
+
+    if runtime.integration_branch is None:
+        runtime.integration_branch = _get_integration_branch(runtime.cwd)
+
+    branch_name_candidate = _sanitize_branch_name(task_name)
+    worktree_path, branch_err = _create_agent_branch(runtime.cwd, branch_name_candidate)
+    if worktree_path is not None:
+        branch_name = branch_name_candidate
+        agent_cwd = worktree_path
+        console.print(f"  [dim]{P}  branch {branch_name} → {worktree_path}[/dim]")
+    elif branch_err:
+        console.print(f"  [yellow]![/yellow]  Branch isolation skipped: {branch_err}")
+
+    cmd_spec = adapter.get_command(prompt, cwd=agent_cwd)
     launch_env = cmd_spec.env or None
 
     # -- Try to reuse a done pane with the same agent type --
@@ -443,7 +575,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
             "purpose": task_name,
             "agent_type": agent_type,
             "title": f"openMax: {runtime.plan.goal[:40]}",
-            "cwd": runtime.cwd,
+            "cwd": agent_cwd,
         }
         if launch_env:
             pane_kwargs["env"] = launch_env
@@ -465,7 +597,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
             "command": cmd_spec.launch_cmd,
             "purpose": task_name,
             "agent_type": agent_type,
-            "cwd": runtime.cwd,
+            "cwd": agent_cwd,
         }
         if launch_env:
             pane_kwargs["env"] = launch_env
@@ -487,6 +619,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         status=TaskStatus.RUNNING,
         pane_id=pane.pane_id,
         retry_count=retry_count,
+        branch_name=branch_name,
         started_at=time.time(),
     )
     _upsert_subtask(subtask)
@@ -517,6 +650,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         "panes_in_window": pane_count,
         "recommended_agent": recommended_agent,
         "retry_count": retry_count,
+        "branch_name": branch_name,
     }
     override_reason = args.get("override_reason")
     if override_reason:
@@ -536,6 +670,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
                         "task_name": task_name,
                         "panes_in_window": pane_count,
                         "retry_count": retry_count,
+                        "branch_name": branch_name,
                     }
                 ),
             }
@@ -716,6 +851,131 @@ async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
+    "merge_agent_branch",
+    "Merge an agent's branch back to the integration branch. "
+    "Call after mark_task_done when the agent worked on an isolated branch. "
+    "Returns {status, commit} on success or {status, files, diff} on conflict.",
+    {"task_name": str},
+)
+async def merge_agent_branch(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
+    task_name = args["task_name"]
+
+    # Find the subtask
+    target: SubTask | None = None
+    for st in runtime.plan.subtasks:
+        if st.name == task_name:
+            target = st
+            break
+
+    if target is None:
+        return {
+            "content": [
+                {"type": "text", "text": json.dumps({"error": f"Task '{task_name}' not found"})}
+            ]
+        }
+
+    if not target.branch_name:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps({"status": "skipped", "reason": "No branch for this task"}),
+                }
+            ]
+        }
+
+    integration = runtime.integration_branch or "main"
+    cwd = runtime.cwd
+    branch = target.branch_name
+
+    try:
+        # Ensure we're on the integration branch
+        subprocess.run(
+            ["git", "checkout", integration],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        # Attempt merge
+        merge_result = subprocess.run(
+            ["git", "merge", "--no-edit", branch],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        if merge_result.returncode == 0:
+            # Get merge commit hash
+            hash_result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            commit_hash = hash_result.stdout.strip()
+
+            # Clean up worktree and branch
+            _cleanup_agent_branch(cwd, branch)
+
+            console.print(
+                f"  [bold green]\u2713[/bold green]  Merged {branch} \u2192 {integration}"
+                f" ({commit_hash[:8]})"
+            )
+
+            result_data = {
+                "status": "merged",
+                "commit": commit_hash,
+                "task_name": task_name,
+            }
+            _append_session_event("tool.merge_agent_branch", result_data)
+            return {"content": [{"type": "text", "text": json.dumps(result_data)}]}
+
+        # Merge conflict — abort and report
+        subprocess.run(
+            ["git", "merge", "--abort"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        # Parse conflict files from merge output
+        conflict_files: list[str] = []
+        for line in merge_result.stdout.splitlines():
+            if line.startswith("CONFLICT"):
+                parts = line.split("Merge conflict in ")
+                if len(parts) > 1:
+                    conflict_files.append(parts[1].strip())
+
+        diff_text = merge_result.stdout[:2000]
+        console.print(
+            f"  [bold red]\u2717[/bold red]  Merge conflict for {branch}:"
+            f" {len(conflict_files)} file(s)"
+        )
+
+        result_data = {
+            "status": "conflict",
+            "task_name": task_name,
+            "files": conflict_files,
+            "diff": diff_text,
+        }
+        _append_session_event("tool.merge_agent_branch", result_data)
+        return {"content": [{"type": "text", "text": json.dumps(result_data)}]}
+
+    except (OSError, subprocess.TimeoutExpired) as e:
+        error_msg = f"Git merge error: {e}"
+        console.print(f"  [bold red]\u2717[/bold red]  {error_msg}")
+        result_data = {"status": "error", "task_name": task_name, "error": error_msg}
+        _append_session_event("tool.merge_agent_branch", result_data)
+        return {"content": [{"type": "text", "text": json.dumps(result_data)}]}
+
+
+@tool(
     "record_phase_anchor",
     "Persist a concise workflow anchor when a lifecycle phase is completed.",
     {"phase": str, "summary": str, "completion_pct": int},
@@ -864,7 +1124,7 @@ async def report_completion(args: dict[str, Any]) -> dict[str, Any]:
         f"  [{pct_color}]{pct}%[/{pct_color}] complete\n  {notes}",
         title="[bold]Result[/bold]",
         title_align="left",
-        border_style="cyan",
+        border_style="dim cyan",
         padding=(0, 2),
     )
     console.print()
@@ -893,7 +1153,13 @@ async def report_completion(args: dict[str, Any]) -> dict[str, Any]:
 async def ask_user(args: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime()
     question = args["question"]
-    choices: list[str] = args.get("choices") or []
+    raw_choices = args.get("choices") or []
+    if isinstance(raw_choices, str):
+        try:
+            raw_choices = json.loads(raw_choices)
+        except (json.JSONDecodeError, ValueError):
+            raw_choices = [raw_choices]
+    choices: list[str] = list(raw_choices)
 
     # Pause the dashboard so the prompt is visible
     if runtime.dashboard is not None:
@@ -1365,6 +1631,7 @@ ALL_TOOLS = [
     find_files_tool,
     get_agent_recommendations,
     grep_files_tool,
+    merge_agent_branch,
     read_file_tool,
     read_pane_output,
     run_command,

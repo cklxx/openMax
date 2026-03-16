@@ -25,6 +25,7 @@ class SubTask:
     retry_count: int = 0
     max_retries: int = 2
     completion_notes: str | None = None
+    branch_name: str | None = None
     started_at: float | None = None
     finished_at: float | None = None
 

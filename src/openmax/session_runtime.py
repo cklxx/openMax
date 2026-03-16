@@ -63,6 +63,7 @@ class SubtaskState:
     status: TaskStatusLiteral
     pane_id: int | None = None
     pane_history: list[int] = field(default_factory=list)
+    branch_name: str | None = None
 
 
 @dataclass
@@ -153,6 +154,7 @@ class LeadAgentRuntime:
     pane_output_hashes: dict[int, list[str]] = field(default_factory=dict)
     plan_submitted: bool = False
     current_phase: str = "research"
+    integration_branch: str | None = None
 
 
 _lead_agent_runtime: ContextVar[LeadAgentRuntime | None] = ContextVar(
@@ -481,6 +483,21 @@ class ContextBuilder:
                 recent_activity.append(f"Checked for conflicts: {preview}")
                 continue
 
+            if event_type == "tool.merge_agent_branch":
+                name = str(payload.get("task_name", "")).strip()
+                status = str(payload.get("status", "")).strip()
+                commit = str(payload.get("commit", "")).strip()
+                if status == "merged":
+                    recent_activity.append(f"Merged branch for '{name}' (commit {commit[:8]})")
+                elif status == "conflict":
+                    conflict_files = payload.get("files", [])
+                    recent_activity.append(
+                        f"Merge conflict for '{name}': {len(conflict_files)} file(s)"
+                    )
+                else:
+                    recent_activity.append(f"Merge attempt for '{name}': {status}")
+                continue
+
             if event_type == "tool.run_verification":
                 check_type = str(payload.get("check_type", "")).strip()
                 status = str(payload.get("status", "")).strip()
@@ -699,16 +716,18 @@ def serialize_tasks(tasks: list[Any]) -> list[dict[str, Any]]:
         pane_id = getattr(task, "pane_id", None)
         status = getattr(task, "status")
         status_value = getattr(status, "value", status)
-        serialized.append(
-            {
-                "name": getattr(task, "name"),
-                "agent_type": getattr(task, "agent_type"),
-                "prompt": getattr(task, "prompt"),
-                "status": str(status_value),
-                "pane_id": pane_id,
-                "pane_history": [pane_id] if pane_id is not None else [],
-            }
-        )
+        entry: dict[str, Any] = {
+            "name": getattr(task, "name"),
+            "agent_type": getattr(task, "agent_type"),
+            "prompt": getattr(task, "prompt"),
+            "status": str(status_value),
+            "pane_id": pane_id,
+            "pane_history": [pane_id] if pane_id is not None else [],
+        }
+        branch_name = getattr(task, "branch_name", None)
+        if branch_name:
+            entry["branch_name"] = branch_name
+        serialized.append(entry)
     return serialized
 
 
@@ -722,6 +741,7 @@ def _task_states_from_payload(value: Any) -> list[SubtaskState]:
         status = str(item.get("status", "pending"))
         if status.startswith("TaskStatus."):
             status = status.rsplit(".", 1)[-1].lower()
+        branch = item.get("branch_name")
         result.append(
             SubtaskState(
                 name=str(item.get("name", "")),
@@ -732,6 +752,7 @@ def _task_states_from_payload(value: Any) -> list[SubtaskState]:
                 pane_history=[
                     pane for pane in item.get("pane_history", []) if isinstance(pane, int)
                 ],
+                branch_name=str(branch) if branch else None,
             )
         )
     return result

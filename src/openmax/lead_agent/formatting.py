@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 _TOOL_NAME_PREFIX = "mcp__openmax__"
@@ -19,6 +20,7 @@ _TOOL_CATEGORIES: dict[str, str] = {
     "read_file": "monitor",
     "send_text_to_pane": "intervention",
     "ask_user": "intervention",
+    "merge_agent_branch": "system",
     "mark_task_done": "system",
     "record_phase_anchor": "system",
     "transition_phase": "system",
@@ -87,6 +89,11 @@ def _format_tool_use(tool_name: str, tool_input: dict[str, Any] | None = None) -
     if normalized == "ask_user":
         question = str(tool_input.get("question", "")).strip()
         choices = tool_input.get("choices") or []
+        if isinstance(choices, str):
+            try:
+                choices = json.loads(choices)
+            except (json.JSONDecodeError, ValueError):
+                choices = [choices]
         suffix = f" ({len(choices)} choices)" if choices else ""
         if question:
             return f"Asking user{suffix}: {_truncate_text(question)}"
@@ -161,6 +168,10 @@ def _format_tool_use(tool_name: str, tool_input: dict[str, Any] | None = None) -
     if normalized == "mark_task_done":
         task_name = str(tool_input.get("task_name", "")).strip()
         return f"Marking {task_name} done" if task_name else "Marking a sub-task done"
+
+    if normalized == "merge_agent_branch":
+        task_name = str(tool_input.get("task_name", "")).strip()
+        return f"Merging branch for {task_name}" if task_name else "Merging agent branch"
 
     if normalized == "record_phase_anchor":
         phase = _format_phase_name(str(tool_input.get("phase", "")))

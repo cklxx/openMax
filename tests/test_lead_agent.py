@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import subprocess
 import time
 from types import SimpleNamespace
 
@@ -1413,3 +1415,340 @@ def test_subtask_max_retries_default():
     st = SubTask(name="t", agent_type="claude-code", prompt="p")
     assert st.max_retries == 2
     assert st.retry_count == 0
+
+
+# ── Branch Isolation Tests ──────────────────────────────────────────────
+
+
+def _init_git_repo(path):
+    """Create a minimal git repo at path with an initial commit."""
+    subprocess.run(["git", "init"], cwd=str(path), capture_output=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=str(path),
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=str(path),
+        capture_output=True,
+    )
+    # Create initial commit
+    (path / "README.md").write_text("# test\n")
+    subprocess.run(["git", "add", "."], cwd=str(path), capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init"],
+        cwd=str(path),
+        capture_output=True,
+        check=True,
+    )
+
+
+def test_dispatch_creates_branch_and_worktree(monkeypatch, tmp_path):
+    """dispatch_agent creates an isolated branch + worktree in a git repo."""
+    _init_git_repo(tmp_path)
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.dispatch_agent.handler,
+            {"task_name": "my-feature", "agent_type": "generic", "prompt": "Do stuff"},
+        )
+        parsed = json.loads(result["content"][0]["text"])
+        assert parsed["status"] == "dispatched"
+        assert parsed["branch_name"] == "openmax/my-feature"
+
+        # SubTask should have branch_name set
+        st = runtime.plan.subtasks[0]
+        assert st.branch_name == "openmax/my-feature"
+
+        # Worktree should exist
+        worktree_dir = tmp_path / ".openmax-worktrees" / "openmax_my-feature"
+        assert worktree_dir.exists()
+
+        # Branch should exist
+        branches = subprocess.run(
+            ["git", "branch", "--list", "openmax/my-feature"],
+            cwd=str(tmp_path),
+            capture_output=True,
+            text=True,
+        )
+        assert "openmax/my-feature" in branches.stdout
+    finally:
+        _teardown_session(token)
+
+
+def test_dispatch_fallback_when_no_git(monkeypatch, tmp_path):
+    """dispatch_agent gracefully falls back when not in a git repo."""
+    # tmp_path is not a git repo, so branch creation should fail gracefully
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.dispatch_agent.handler,
+            {"task_name": "no-git", "agent_type": "generic", "prompt": "Do stuff"},
+        )
+        parsed = json.loads(result["content"][0]["text"])
+        assert parsed["status"] == "dispatched"
+        # branch_name should be None since git failed
+        assert parsed["branch_name"] is None
+
+        st = runtime.plan.subtasks[0]
+        assert st.branch_name is None
+    finally:
+        _teardown_session(token)
+
+
+def test_merge_agent_branch_success(monkeypatch, tmp_path):
+    """merge_agent_branch merges a branch with non-conflicting changes."""
+    _init_git_repo(tmp_path)
+    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime.integration_branch = "main"
+    _patch_time(monkeypatch)
+
+    try:
+        # Dispatch to create branch + worktree
+        anyio.run(
+            lead_agent_tools.dispatch_agent.handler,
+            {"task_name": "feat-a", "agent_type": "generic", "prompt": "Add file"},
+        )
+        st = runtime.plan.subtasks[0]
+        assert st.branch_name == "openmax/feat-a"
+
+        # Simulate agent making a change in the worktree
+        worktree_dir = tmp_path / ".openmax-worktrees" / "openmax_feat-a"
+        (worktree_dir / "new_file.txt").write_text("hello\n")
+        subprocess.run(["git", "add", "."], cwd=str(worktree_dir), capture_output=True, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "add new_file"],
+            cwd=str(worktree_dir),
+            capture_output=True,
+            check=True,
+        )
+
+        # Mark done and merge
+        st.status = TaskStatus.DONE
+        result = anyio.run(
+            lead_agent_tools.merge_agent_branch.handler,
+            {"task_name": "feat-a"},
+        )
+        parsed = json.loads(result["content"][0]["text"])
+        assert parsed["status"] == "merged"
+        assert len(parsed["commit"]) >= 7
+
+        # File should exist on main
+        assert (tmp_path / "new_file.txt").exists()
+
+        # Session event should be recorded
+        events = store.load_events("lead-test")
+        merge_events = [e for e in events if e.event_type == "tool.merge_agent_branch"]
+        assert len(merge_events) == 1
+        assert merge_events[0].payload["status"] == "merged"
+    finally:
+        _teardown_session(token)
+
+
+def test_merge_agent_branch_conflict(monkeypatch, tmp_path):
+    """merge_agent_branch detects and reports conflicts."""
+    _init_git_repo(tmp_path)
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime.integration_branch = "main"
+    _patch_time(monkeypatch)
+
+    try:
+        # Dispatch to create branch
+        anyio.run(
+            lead_agent_tools.dispatch_agent.handler,
+            {"task_name": "feat-conflict", "agent_type": "generic", "prompt": "Edit README"},
+        )
+        st = runtime.plan.subtasks[0]
+
+        # Simulate agent editing README in worktree
+        worktree_dir = tmp_path / ".openmax-worktrees" / "openmax_feat-conflict"
+        (worktree_dir / "README.md").write_text("# agent version\n")
+        subprocess.run(["git", "add", "."], cwd=str(worktree_dir), capture_output=True, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "agent edit"],
+            cwd=str(worktree_dir),
+            capture_output=True,
+            check=True,
+        )
+
+        # Also edit README on main (creating conflict)
+        (tmp_path / "README.md").write_text("# main version\n")
+        subprocess.run(["git", "add", "."], cwd=str(tmp_path), capture_output=True, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "main edit"],
+            cwd=str(tmp_path),
+            capture_output=True,
+            check=True,
+        )
+
+        # Attempt merge — should conflict
+        st.status = TaskStatus.DONE
+        result = anyio.run(
+            lead_agent_tools.merge_agent_branch.handler,
+            {"task_name": "feat-conflict"},
+        )
+        parsed = json.loads(result["content"][0]["text"])
+        assert parsed["status"] == "conflict"
+        assert isinstance(parsed["files"], list)
+    finally:
+        _teardown_session(token)
+
+
+def test_merge_agent_branch_no_branch(monkeypatch, tmp_path):
+    """merge_agent_branch returns skipped when task has no branch."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    # Add a subtask without branch_name
+    st = SubTask(name="no-branch", agent_type="generic", prompt="p", status=TaskStatus.DONE)
+    runtime.plan.subtasks.append(st)
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.merge_agent_branch.handler,
+            {"task_name": "no-branch"},
+        )
+        parsed = json.loads(result["content"][0]["text"])
+        assert parsed["status"] == "skipped"
+    finally:
+        _teardown_session(token)
+
+
+def test_merge_agent_branch_task_not_found(monkeypatch, tmp_path):
+    """merge_agent_branch returns error for unknown task name."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.merge_agent_branch.handler,
+            {"task_name": "nonexistent"},
+        )
+        parsed = json.loads(result["content"][0]["text"])
+        assert "error" in parsed
+    finally:
+        _teardown_session(token)
+
+
+def test_submit_plan_file_overlap_warning(monkeypatch, tmp_path):
+    """submit_plan warns about file overlaps in parallel groups."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.submit_plan.handler,
+            {
+                "subtasks": [
+                    {
+                        "name": "a",
+                        "description": "Task A",
+                        "files": ["src/api.py", "src/shared.py"],
+                        "dependencies": [],
+                    },
+                    {
+                        "name": "b",
+                        "description": "Task B",
+                        "files": ["src/db.py", "src/shared.py"],
+                        "dependencies": [],
+                    },
+                ],
+                "rationale": "Two parallel tasks with shared file",
+                "parallel_groups": [["a", "b"]],
+            },
+        )
+        parsed = json.loads(result["content"][0]["text"])
+        assert parsed["status"] == "accepted"
+        assert "file_overlap_warnings" in parsed
+        assert len(parsed["file_overlap_warnings"]) == 1
+        assert "src/shared.py" in parsed["file_overlap_warnings"][0]
+    finally:
+        _teardown_session(token)
+
+
+def test_submit_plan_no_file_overlap(monkeypatch, tmp_path):
+    """submit_plan does not warn when parallel group files are disjoint."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.submit_plan.handler,
+            {
+                "subtasks": [
+                    {
+                        "name": "a",
+                        "description": "Task A",
+                        "files": ["src/api.py"],
+                        "dependencies": [],
+                    },
+                    {
+                        "name": "b",
+                        "description": "Task B",
+                        "files": ["src/db.py"],
+                        "dependencies": [],
+                    },
+                ],
+                "rationale": "Non-overlapping tasks",
+                "parallel_groups": [["a", "b"]],
+            },
+        )
+        parsed = json.loads(result["content"][0]["text"])
+        assert parsed["status"] == "accepted"
+        assert "file_overlap_warnings" not in parsed
+    finally:
+        _teardown_session(token)
+
+
+def test_format_tool_use_merge_agent_branch():
+    """_format_tool_use formats merge_agent_branch correctly."""
+    result = lead_agent_formatting._format_tool_use(
+        "mcp__openmax__merge_agent_branch",
+        {"task_name": "my-feature"},
+    )
+    assert "my-feature" in result
+    assert "Merging" in result
+
+
+def test_sanitize_branch_name():
+    """_sanitize_branch_name produces valid git branch names."""
+    assert lead_agent_tools._sanitize_branch_name("my feature") == "openmax/my-feature"
+    assert lead_agent_tools._sanitize_branch_name("a/b/c") == "openmax/a-b-c"
+    assert lead_agent_tools._sanitize_branch_name("ok-name") == "openmax/ok-name"
+
+
+def test_session_runtime_merge_event_reconstruction(tmp_path):
+    """reconstruct_plan handles tool.merge_agent_branch events."""
+    from openmax.session_runtime import ContextBuilder, SessionMeta
+
+    meta = SessionMeta(
+        session_id="test",
+        task="test goal",
+        cwd=str(tmp_path),
+        task_hash="abc",
+        status="active",
+    )
+    from openmax.session_runtime import LeadEvent
+
+    events = [
+        LeadEvent(
+            event_id="e1",
+            event_type="tool.merge_agent_branch",
+            session_id="test",
+            cwd=str(tmp_path),
+            task_hash="abc",
+            timestamp="2026-01-01T00:00:00+00:00",
+            payload={
+                "status": "merged",
+                "task_name": "feat-a",
+                "commit": "abc1234567890",
+            },
+        ),
+    ]
+
+    builder = ContextBuilder()
+    plan = builder.reconstruct_plan(meta, events)
+    assert any("Merged branch for 'feat-a'" in a for a in plan.recent_activity)
