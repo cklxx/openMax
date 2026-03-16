@@ -132,14 +132,15 @@ def test_ci_smoke_exercises_headless_noninteractive_dispatch_and_session_cli(
         inspect_result = runner.invoke(cli.main, ["inspect", session_meta.session_id])
 
         assert runs_result.exit_code == 0
-        assert "ci-smoke-session" in runs_result.output
-        assert "completion=100%" in runs_result.output
+        assert "ci-smoke-ses" in runs_result.output  # truncated to 12 chars in table
+        assert "100%" in runs_result.output
 
         assert inspect_result.exit_code == 0
-        assert "Session: ci-smoke-session" in inspect_result.output
+        assert "ci-smoke-session" in inspect_result.output
         assert "Headless smoke agent completed" in inspect_result.output
-        assert "Smoke task | done | ci-smoke | pane=" in inspect_result.output
-        assert "status=active" in inspect_result.output
+        assert "Smoke task" in inspect_result.output
+        assert "ci-smoke" in inspect_result.output
+        assert "active" in inspect_result.output
     finally:
         pane_mgr.cleanup_all()
         reset_lead_agent_runtime(token)

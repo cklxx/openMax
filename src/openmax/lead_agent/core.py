@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import anyio
@@ -14,11 +15,11 @@ from claude_agent_sdk import (
     ToolUseBlock,
     create_sdk_mcp_server,
 )
-from rich.panel import Panel
 
+from openmax import __version__
 from openmax.agent_registry import AgentRegistry, built_in_agent_registry
-from openmax.dashboard import RunDashboard, console
-from openmax.lead_agent.formatting import _format_tool_use, tool_category, tool_style
+from openmax.dashboard import P, RunDashboard, console, print_agent_text
+from openmax.lead_agent.formatting import _format_tool_use, tool_category
 from openmax.lead_agent.tools import (
     ALL_TOOLS,
     _append_session_event,
@@ -42,13 +43,6 @@ from openmax.session_runtime import (
 from openmax.usage import UsageStore, usage_from_result
 
 _PROMPT_DIR = Path(__file__).parent / "prompts"
-
-_CATEGORY_ICONS = {
-    "dispatch": ">>",
-    "monitor": "~~",
-    "intervention": "!!",
-    "system": "..",
-}
 
 
 def _load_system_prompt() -> str:
@@ -271,15 +265,19 @@ async def _run_lead_agent_async(
             allowed_agents=allowed_agents,
         )
 
-        console.print(
-            Panel(
-                f"[bold]Goal:[/bold] {task}"
-                + (f"\n[bold]Session:[/bold] {session_id}" if session_id else "")
-                + ("\n[bold]Mode:[/bold] resume" if resume else ""),
-                title="openMax Lead Agent",
-                border_style="blue",
-            )
-        )
+        console.print()
+        console.print(f"  [bold cyan]OPENMAX[/bold cyan] [dim]v{__version__}[/dim]")
+        console.print()
+        console.print(f"  {P}  {task}")
+        meta_parts: list[str] = []
+        if session_id:
+            meta_parts.append(f"session: {session_id}")
+        if resume:
+            meta_parts.append("mode: resume")
+        if meta_parts:
+            joined = " \u2502 ".join(meta_parts)
+            console.print(f"  {P}  [dim]{joined}[/dim]")
+        console.print()
 
         async with ClaudeSDKClient(options=options) as client:
             startup_stage = "prompt_submission"
@@ -287,18 +285,23 @@ async def _run_lead_agent_async(
 
             startup_stage = "response_stream"
             async for msg in client.receive_response():
-                startup_complete = True
+                if not startup_complete:
+                    startup_complete = True
+                    dashboard.mark_connected()
                 if isinstance(msg, AssistantMessage):
                     for block in msg.content:
                         if isinstance(block, TextBlock) and block.text.strip():
-                            console.print(block.text)
+                            print_agent_text(block.text)
                             _append_session_event("lead.message", {"text": block.text})
                         elif isinstance(block, ToolUseBlock):
                             formatted = _format_tool_use(block.name, block.input)
                             cat = tool_category(block.name)
-                            style = tool_style(cat)
-                            icon = _CATEGORY_ICONS.get(cat, "..")
-                            console.print(f"  [{style}]{icon} {formatted}[/{style}]")
+                            # Show dispatch/intervention prominently;
+                            # monitor (polling) and system (bookkeeping) are noise.
+                            if cat == "dispatch":
+                                console.print(f"  [bold cyan]{P}[/bold cyan]  {formatted}")
+                            elif cat == "intervention":
+                                console.print(f"  [bold yellow]{P}[/bold yellow]  {formatted}")
                             if dashboard is not None:
                                 dashboard.add_tool_event(formatted, cat)
                 elif isinstance(msg, ResultMessage):
@@ -318,12 +321,16 @@ async def _run_lead_agent_async(
                                 ),
                             },
                         )
+                    elapsed_s = time.monotonic() - dashboard.start_time
+                    if elapsed_s >= 60:
+                        m, s = divmod(int(elapsed_s), 60)
+                        elapsed_str = f"{m}m {s}s"
+                    else:
+                        elapsed_str = f"{elapsed_s:.1f}s"
+                    console.print()
                     console.print(
-                        Panel(
-                            usage.summary_line(),
-                            title="Lead Agent Summary",
-                            border_style="green",
-                        )
+                        f"  [bold green]\u2713 done[/bold green] in {elapsed_str}"
+                        f"  [dim]{usage.summary_line()}[/dim]"
                     )
 
         if runtime.session_meta is not None and runtime.session_store is not None:
@@ -344,7 +351,7 @@ async def _run_lead_agent_async(
             None if startup_complete else _classify_startup_failure(exc, startup_stage)
         )
         if startup_failure is not None:
-            console.print(Panel(startup_failure.console_message(), border_style="red"))
+            console.print(f"[bold red]Error:[/bold red] {startup_failure.console_message()}")
         if runtime.session_meta is not None and runtime.session_store is not None:
             runtime.session_meta.status = "failed" if startup_failure is not None else "aborted"
             runtime.session_store.save_meta(runtime.session_meta)

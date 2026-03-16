@@ -8,12 +8,14 @@ _TOOL_NAME_PREFIX = "mcp__openmax__"
 
 _TOOL_CATEGORIES: dict[str, str] = {
     "dispatch_agent": "dispatch",
-    "get_agent_recommendations": "dispatch",
-    "run_command": "dispatch",
-    "submit_plan": "dispatch",
+    "get_agent_recommendations": "system",
+    "run_command": "system",
+    "submit_plan": "system",
     "run_verification": "system",
     "read_pane_output": "monitor",
     "list_managed_panes": "monitor",
+    "find_files": "monitor",
+    "grep_files": "monitor",
     "read_file": "monitor",
     "send_text_to_pane": "intervention",
     "ask_user": "intervention",
@@ -27,9 +29,9 @@ _TOOL_CATEGORIES: dict[str, str] = {
 }
 
 _CATEGORY_STYLES: dict[str, str] = {
-    "dispatch": "bold green",
-    "monitor": "cyan",
-    "intervention": "bold yellow",
+    "dispatch": "bold",
+    "monitor": "dim",
+    "intervention": "bold",
     "system": "dim",
 }
 
@@ -137,6 +139,14 @@ def _format_tool_use(tool_name: str, tool_input: dict[str, Any] | None = None) -
         if pane_id is not None:
             return f"Sending follow-up to pane {pane_id}"
         return "Sending follow-up to an agent"
+
+    if normalized == "find_files":
+        pattern = str(tool_input.get("pattern", "")).strip()
+        return f"Finding files: {pattern}" if pattern else "Finding files"
+
+    if normalized == "grep_files":
+        pattern = str(tool_input.get("pattern", "")).strip()
+        return f"Searching: {_truncate_text(pattern)}" if pattern else "Searching files"
 
     if normalized == "read_file":
         path = str(tool_input.get("path", "")).strip()

@@ -86,6 +86,7 @@ class PaneManager:
         self._backend = backend or create_pane_backend(backend_name)
         self._panes: dict[int, ManagedPane] = {}
         self._windows: dict[int, ManagedWindow] = {}
+        self._last_output: dict[int, str] = {}  # pane_id -> last successful get_text
 
     # ── Properties ─────────────────────────────────────────────────
 
@@ -246,8 +247,18 @@ class PaneManager:
             self._backend.send_enter(pane_id)
 
     def get_text(self, pane_id: int, start_line: int | None = None) -> str:
-        """Read text content from a pane."""
-        return self._backend.get_text(pane_id, start_line=start_line)
+        """Read text content from a pane. Caches output so dead panes still return data."""
+        try:
+            text = self._backend.get_text(pane_id, start_line=start_line)
+            # Cache every successful read so we can return it after pane dies.
+            self._last_output[pane_id] = text
+            return text
+        except Exception:
+            # Pane gone — return cached output if available.
+            cached = self._last_output.get(pane_id)
+            if cached is not None:
+                return cached
+            raise
 
     def activate_pane(self, pane_id: int) -> None:
         """Focus a pane."""

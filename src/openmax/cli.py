@@ -101,11 +101,13 @@ def _parse_allowed_agents(agents: str | None, available_agents: set[str]) -> lis
     return parsed
 
 
-def _format_timestamp(value: str) -> str:
+def _format_timestamp(value: str, short: bool = False) -> str:
     try:
         dt = datetime.fromisoformat(value).astimezone(timezone.utc)
     except ValueError:
         return value
+    if short:
+        return dt.strftime("%m-%d %H:%M")
     return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
@@ -247,9 +249,8 @@ def run(
     previous_sigterm = signal.getsignal(signal.SIGTERM)
 
     def _cleanup_and_exit(signum, _frame):
-        console.print("\n[yellow]Interrupted — cleaning up panes...[/yellow]")
+        console.print("\n[dim]Interrupted — cleaning up...[/dim]")
         _do_cleanup()
-        console.print("[green]All managed panes closed.[/green]")
         sys.exit(130 if signum == signal.SIGINT else 143)
 
     signal.signal(signal.SIGINT, _cleanup_and_exit)
@@ -274,21 +275,17 @@ def run(
             # Session complete — show final summary before cleanup
             summary = pane_mgr.summary()
             console.print(
-                f"\n[bold green]Done.[/bold green] "
-                f"{len(plan.subtasks)} sub-tasks | "
-                f"{summary['total_windows']} windows | "
-                f"{summary['done']} done"
+                f"\n[bold]Done.[/bold] {len(plan.subtasks)} sub-tasks, {summary['done']} done"
             )
             if not keep_panes and sys.stdout.isatty():
                 _interactive_loop(pane_mgr, plan)
     finally:
         signal.signal(signal.SIGINT, previous_sigint)
         signal.signal(signal.SIGTERM, previous_sigterm)
-        if not keep_panes:
-            console.print("[dim]Closing managed panes...[/dim]")
+        if not keep_panes and not _cleaned_up:
+            console.print("[dim]Closing panes...[/dim]")
             _do_cleanup()
-            console.print("[green]All managed panes closed.[/green]")
-        else:
+        elif keep_panes:
             console.print("[dim]Keeping panes open (--keep-panes).[/dim]")
 
 
@@ -381,63 +378,57 @@ def recommendation_eval(cwd: str | None) -> None:
         console.print("[yellow]No structured run summaries available yet.[/yellow]")
         return
 
-    console.print(f"[bold]Offline recommendation eval for {cwd}[/bold]")
-    console.print(
-        "Strategy: "
-        + " | ".join(
-            [
-                f"runs={report.strategy.total_runs}",
-                f"evaluated={report.strategy.evaluated_runs}",
-                f"covered={report.strategy.covered_runs}",
-                f"hits={report.strategy.hit_runs}",
-            ]
-        )
+    from rich.table import Table
+
+    console.print(f"[bold]Recommendation eval[/bold]  [dim]{cwd}[/dim]")
+
+    tbl = Table(show_edge=False, pad_edge=False)
+    tbl.add_column("", style="bold")
+    tbl.add_column("Runs", justify="right")
+    tbl.add_column("Evaluated", justify="right")
+    tbl.add_column("Covered", justify="right")
+    tbl.add_column("Hits", justify="right")
+    tbl.add_column("Coverage", justify="right")
+    tbl.add_column("Hit rate", justify="right")
+    tbl.add_column("Avg %", justify="right")
+    tbl.add_column("Fail rate", justify="right")
+
+    s = report.strategy
+    b = report.baseline
+    tbl.add_row(
+        "Strategy",
+        str(s.total_runs),
+        str(s.evaluated_runs),
+        str(s.covered_runs),
+        str(s.hit_runs),
+        f"{s.coverage:.0%}",
+        f"{s.hit_rate:.0%}",
+        f"{s.average_completion_pct:.1f}%",
+        f"{s.average_failure_rate:.0%}",
     )
-    console.print(
-        "  "
-        + " | ".join(
-            [
-                f"coverage={report.strategy.coverage:.0%}",
-                f"hit_rate={report.strategy.hit_rate:.0%}",
-                f"avg_completion={report.strategy.average_completion_pct:.1f}%",
-                f"avg_failure_rate={report.strategy.average_failure_rate:.0%}",
-            ]
-        )
+    tbl.add_row(
+        f"Baseline ({b.label})",
+        str(b.total_runs),
+        str(b.evaluated_runs),
+        str(b.covered_runs),
+        str(b.hit_runs),
+        f"{b.coverage:.0%}",
+        f"{b.hit_rate:.0%}",
+        f"{b.average_completion_pct:.1f}%",
+        f"{b.average_failure_rate:.0%}",
     )
-    console.print(
-        "Baseline: "
-        + " | ".join(
-            [
-                f"policy={report.baseline.label}",
-                f"runs={report.baseline.total_runs}",
-                f"evaluated={report.baseline.evaluated_runs}",
-                f"covered={report.baseline.covered_runs}",
-                f"hits={report.baseline.hit_runs}",
-            ]
-        )
+    tbl.add_row(
+        "[dim]Delta[/dim]",
+        "",
+        "",
+        "",
+        "",
+        f"{report.coverage_delta:+.0%}",
+        f"{report.hit_rate_lift:+.0%}",
+        f"{report.completion_pct_delta:+.1f}pts",
+        f"{report.failure_rate_delta:+.0%}",
     )
-    console.print(
-        "  "
-        + " | ".join(
-            [
-                f"coverage={report.baseline.coverage:.0%}",
-                f"hit_rate={report.baseline.hit_rate:.0%}",
-                f"avg_completion={report.baseline.average_completion_pct:.1f}%",
-                f"avg_failure_rate={report.baseline.average_failure_rate:.0%}",
-            ]
-        )
-    )
-    console.print(
-        "Delta: "
-        + " | ".join(
-            [
-                f"coverage_delta={report.coverage_delta:+.0%}",
-                f"hit_rate_lift={report.hit_rate_lift:+.0%}",
-                f"completion_delta={report.completion_pct_delta:+.1f}pts",
-                f"failure_rate_delta={report.failure_rate_delta:+.0%}",
-            ]
-        )
-    )
+    console.print(tbl)
 
 
 @main.command("list-agents")
@@ -481,53 +472,57 @@ def list_agents(cwd: str | None, verbose: bool) -> None:
 )
 def runs(status: str | None, limit: int) -> None:
     """List recent persisted sessions."""
+    from rich.table import Table
+
     store = SessionStore()
     sessions = store.list_sessions(status=status.lower() if status else None, limit=limit)
     if not sessions:
         console.print("[yellow]No sessions found.[/yellow]")
         return
 
-    console.print("[bold]Recent sessions[/bold]")
+    tbl = Table(show_edge=False, pad_edge=False)
+    tbl.add_column("Session", style="bold", no_wrap=True)
+    tbl.add_column("Status", no_wrap=True)
+    tbl.add_column("Phase", style="dim", no_wrap=True)
+    tbl.add_column("%", justify="right", no_wrap=True)
+    tbl.add_column("Updated", style="dim", no_wrap=True)
+    tbl.add_column("Task", max_width=36, no_wrap=True, overflow="ellipsis")
+
     for meta in sessions:
-        latest_phase = meta.latest_phase or "unknown"
+        latest_phase = meta.latest_phase or "-"
         completion = None
-        scorecard_surface: str | None = None
         try:
             snapshot = store.load_snapshot(meta.session_id)
             latest_phase = snapshot.plan.latest_phase or latest_phase
             completion = snapshot.plan.completion_pct
-            scorecard_surface = (
-                f"scorecard={snapshot.plan.scorecard.surface_summary} | "
-                f"{snapshot.plan.scorecard.surface_details}"
-            )
         except RuntimeError:
             pass
-        console.print(
-            " | ".join(
-                [
-                    meta.session_id,
-                    meta.status,
-                    f"phase={latest_phase}",
-                    f"completion={_format_completion(completion)}",
-                    f"updated={_format_timestamp(meta.updated_at)}",
-                    meta.task,
-                ]
-            )
+
+        status_style = {
+            "completed": "green",
+            "active": "yellow",
+            "failed": "red",
+            "aborted": "dim",
+        }.get(meta.status, "white")
+
+        tbl.add_row(
+            meta.session_id[:16],
+            f"[{status_style}]{meta.status}[/{status_style}]",
+            latest_phase,
+            _format_completion(completion),
+            _format_timestamp(meta.updated_at, short=True),
+            meta.task[:50],
         )
-        if scorecard_surface is not None:
-            console.print(scorecard_surface, soft_wrap=True, markup=False)
-        if snapshot.load_warnings:
-            console.print(
-                "warnings=" + " | ".join(snapshot.load_warnings),
-                soft_wrap=True,
-                markup=False,
-            )
+
+    console.print(tbl)
 
 
 @main.command()
 @click.argument("session_id")
 def inspect(session_id: str) -> None:
     """Inspect a persisted session."""
+    from rich.table import Table
+
     store = SessionStore()
     try:
         snapshot = store.load_snapshot(session_id)
@@ -536,81 +531,90 @@ def inspect(session_id: str) -> None:
 
     meta = snapshot.meta
     plan = snapshot.plan
-    console.print(f"[bold]Session:[/bold] {meta.session_id}")
-    console.print(f"[bold]Task:[/bold] {meta.task}")
-    console.print(f"[bold]Workspace:[/bold] {meta.cwd}")
+
+    status_style = {
+        "completed": "green",
+        "active": "yellow",
+        "failed": "red",
+        "aborted": "dim",
+    }.get(meta.status, "white")
+
+    # Header
+    console.print(f"[bold]{meta.session_id}[/bold]  [{status_style}]{meta.status}[/{status_style}]")
+    console.print(f"  [dim]task:[/dim]      {meta.task}")
+    console.print(f"  [dim]workspace:[/dim] {meta.cwd}")
     console.print(
-        " | ".join(
-            [
-                f"status={meta.status}",
-                f"created={_format_timestamp(meta.created_at)}",
-                f"updated={_format_timestamp(meta.updated_at)}",
-            ]
-        )
+        f"  [dim]created:[/dim]   {_format_timestamp(meta.created_at)}  "
+        f"[dim]updated:[/dim] {_format_timestamp(meta.updated_at)}"
     )
     console.print(
-        " | ".join(
-            [
-                f"latest_phase={plan.latest_phase or 'unknown'}",
-                f"completion={_format_completion(plan.completion_pct)}",
-                f"subtasks={_render_subtask_counts(snapshot)}",
-            ]
-        ),
-        soft_wrap=True,
+        f"  [dim]phase:[/dim]     {plan.latest_phase or 'unknown'}  "
+        f"[dim]completion:[/dim] {_format_completion(plan.completion_pct)}  "
+        f"[dim]subtasks:[/dim] {_render_subtask_counts(snapshot)}"
     )
-    console.print("[bold]Outcome[/bold]")
-    console.print(f"status={meta.status}", soft_wrap=True, markup=False)
-    console.print(f"summary={_describe_outcome(snapshot)}", soft_wrap=True, markup=False)
+
+    # Outcome
+    console.print()
+    console.print(f"  [dim]outcome:[/dim]   {_describe_outcome(snapshot)}")
     if plan.report_notes:
-        console.print(f"[bold]Report:[/bold] {plan.report_notes}", soft_wrap=True)
+        console.print(f"  [dim]report:[/dim]    {plan.report_notes}")
 
     usage_rec = UsageStore().load(meta.session_id)
     if usage_rec:
-        console.print(f"[bold]Usage:[/bold] {usage_rec.summary_line()}")
+        console.print(f"  [dim]usage:[/dim]     {usage_rec.summary_line()}")
 
-    console.print("[bold]Scorecard[/bold]")
-    console.print(
-        plan.scorecard.surface_summary,
-        soft_wrap=True,
-        markup=False,
-    )
-    console.print(
-        plan.scorecard.surface_details,
-        soft_wrap=True,
-        markup=False,
-    )
+    # Scorecard
+    console.print()
+    console.print(f"  [dim]scorecard:[/dim] {plan.scorecard.surface_summary}")
+    if plan.scorecard.surface_details:
+        console.print(f"             {plan.scorecard.surface_details}")
 
     if snapshot.load_warnings:
-        console.print("[bold]Diagnostics[/bold]")
+        console.print()
+        console.print("[bold yellow]Diagnostics[/bold yellow]")
         for warning in snapshot.load_warnings:
-            console.print(f"- {warning}", soft_wrap=True, markup=False)
+            console.print(f"  - {warning}", soft_wrap=True, markup=False)
 
-    console.print("[bold]Recent activity[/bold]")
-    if not plan.recent_activity:
-        console.print("- none")
-    else:
+    # Activity
+    if plan.recent_activity:
+        console.print()
+        console.print("[bold]Recent activity[/bold]")
         for item in plan.recent_activity[-8:]:
-            console.print(f"- {item}", soft_wrap=True, markup=False)
+            console.print(f"  {item}", soft_wrap=True, markup=False)
 
+    # Anchors
     anchors = plan.anchors[-_ANCHOR_PREVIEW_LIMIT:]
-    console.print("[bold]Anchors[/bold]")
-    if not anchors:
-        console.print("- none")
-    else:
+    if anchors:
+        console.print()
+        console.print("[bold]Anchors[/bold]")
         for anchor in anchors:
             summary = anchor.summary or "no summary"
-            console.print(f"- {anchor.phase} | {_format_timestamp(anchor.timestamp)} | {summary}")
+            console.print(f"  {anchor.phase:12s} {_format_timestamp(anchor.timestamp)}  {summary}")
 
-    console.print("[bold]Subtasks[/bold]")
-    if not plan.subtasks:
-        console.print("- none")
-        return
+    # Subtasks table
+    if plan.subtasks:
+        console.print()
+        tbl = Table(show_edge=False, pad_edge=False, title="Subtasks")
+        tbl.add_column("Name", style="bold")
+        tbl.add_column("Status")
+        tbl.add_column("Agent", style="dim")
+        tbl.add_column("Pane", justify="right", style="dim")
 
-    for task in plan.subtasks:
-        parts = [task.name, task.status, task.agent_type]
-        if task.pane_id is not None:
-            parts.append(f"pane={task.pane_id}")
-        console.print(f"- {' | '.join(parts)}")
+        for task in plan.subtasks:
+            st_style = {
+                "done": "green",
+                "running": "yellow",
+                "error": "red",
+                "pending": "dim",
+            }.get(task.status, "white")
+            pane_str = str(task.pane_id) if task.pane_id is not None else "-"
+            tbl.add_row(
+                task.name,
+                f"[{st_style}]{task.status}[/{st_style}]",
+                task.agent_type,
+                pane_str,
+            )
+        console.print(tbl)
 
 
 @main.command()
@@ -644,20 +648,29 @@ def usage(session_id: str | None, limit: int, total: bool) -> None:
         console.print(f"[bold]Recorded:[/bold] {_format_timestamp(rec.recorded_at)}")
         return
 
+    from rich.table import Table
+
     records = store.list_all(limit=limit)
     if not records:
         console.print("[yellow]No usage data recorded yet.[/yellow]")
         return
 
-    console.print("[bold]Recent session usage[/bold]")
+    tbl = Table(title="Session usage", show_edge=False, pad_edge=False)
+    tbl.add_column("Session", style="bold")
+    tbl.add_column("Cost", justify="right")
+    tbl.add_column("Tokens", justify="right")
+    tbl.add_column("Duration", justify="right")
+    tbl.add_column("Turns", justify="right")
+
     for rec in records:
-        console.print(
-            f"  {rec.session_id} | "
-            f"{rec.format_cost()} | "
-            f"{rec.total_tokens:,} tokens | "
-            f"{rec.format_duration()} | "
-            f"{rec.num_turns} turns"
+        tbl.add_row(
+            rec.session_id[:12],
+            rec.format_cost(),
+            f"{rec.total_tokens:,}",
+            rec.format_duration(),
+            str(rec.num_turns),
         )
+    console.print(tbl)
 
     if total or len(records) > 1:
         agg = store.aggregate(records)
