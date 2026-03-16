@@ -168,6 +168,9 @@ def test_cleanup_all_retries_tracked_stragglers(monkeypatch):
         ("kill_pane", 12),
         ("list_panes",),
         ("kill_pane", 12),
+        # Second list for orphan sweep in managed windows
+        ("list_panes",),
+        ("kill_pane", 12),  # pane 12 still in window 5
     ]
     assert manager.panes == {}
     assert manager.windows == {}

@@ -295,30 +295,31 @@ class PaneManager:
         for pane_id in managed_pane_ids:
             self._kill_pane_process(pane_id)
 
-        # Verify: some panes may survive the first kill (e.g. interactive CLIs
-        # that trap signals).  Re-check and retry once.
+        # Verify: some panes may survive the first kill (e.g. interactive
+        # CLIs that trap signals).  Re-check and retry once.
         time.sleep(0.5)
         try:
             alive_panes = self._list_all_panes()
         except RuntimeError:
             alive_panes = []
 
-        alive_ids = {p.pane_id for p in alive_panes}
-
         # Retry stragglers from our managed set
-        stragglers = alive_ids & set(managed_pane_ids)
-        for pane_id in stragglers:
-            self._kill_pane_process(pane_id)
+        stragglers = [p for p in alive_panes if p.pane_id in managed_pane_ids]
+        for p in stragglers:
+            self._kill_pane_process(p.pane_id)
 
         # Kill any panes still sitting in our managed windows (replacement
         # shells or panes spawned by the terminal after we killed ours).
-        orphans = [
-            p.pane_id
-            for p in alive_panes
-            if p.window_id in managed_window_ids and p.pane_id not in managed_pane_ids
-        ]
-        for pane_id in orphans:
-            self._kill_pane_process(pane_id)
+        # Re-list to catch panes Kaku may have created after our kills.
+        if managed_window_ids:
+            time.sleep(0.3)
+            try:
+                still_alive = self._list_all_panes()
+            except RuntimeError:
+                still_alive = []
+            for p in still_alive:
+                if p.window_id in managed_window_ids:
+                    self._kill_pane_process(p.pane_id)
 
         self._panes.clear()
         self._windows.clear()
