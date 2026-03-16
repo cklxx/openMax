@@ -30,6 +30,26 @@ class PlanResult:
 
 
 @dataclass
+class PlannedSubtask:
+    """A subtask in a structured plan, before dispatch."""
+
+    name: str
+    description: str
+    files: list[str] = field(default_factory=list)
+    dependencies: list[str] = field(default_factory=list)
+    estimated_minutes: int | None = None
+
+
+@dataclass
+class PlanSubmission:
+    """Structured output of the submit_plan tool."""
+
+    subtasks: list[PlannedSubtask] = field(default_factory=list)
+    rationale: str = ""
+    parallel_groups: list[list[str]] = field(default_factory=list)
+
+
+@dataclass
 class LeadAgentStartupError(RuntimeError):
     category: str
     stage: str

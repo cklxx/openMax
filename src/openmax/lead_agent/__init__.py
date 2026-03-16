@@ -13,18 +13,23 @@ from openmax.lead_agent.tools import (
     remember_learning,
     report_completion,
     send_text_to_pane,
+    submit_plan,
     wait_tool,
 )
 from openmax.lead_agent.types import (
     LeadAgentStartupError,
+    PlannedSubtask,
     PlanResult,
+    PlanSubmission,
     SubTask,
     TaskStatus,
 )
 
 __all__ = [
     "LeadAgentStartupError",
+    "PlannedSubtask",
     "PlanResult",
+    "PlanSubmission",
     "SubTask",
     "TaskStatus",
     "_format_tool_use",
@@ -39,6 +44,7 @@ __all__ = [
     "report_completion",
     "run_lead_agent",
     "send_text_to_pane",
+    "submit_plan",
     "tool_category",
     "tool_style",
     "wait_tool",

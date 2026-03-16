@@ -636,6 +636,125 @@ def test_read_pane_output_returns_json_with_stuck_false(monkeypatch, tmp_path):
     _teardown_session(token)
 
 
+def test_submit_plan_accepts_valid_plan(monkeypatch, tmp_path):
+    """submit_plan accepts a valid plan with no cycles."""
+    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+
+    result = anyio.run(
+        lead_agent_tools.submit_plan.handler,
+        {
+            "subtasks": [
+                {
+                    "name": "backend",
+                    "description": "Build API",
+                    "files": ["src/api.py"],
+                },
+                {
+                    "name": "frontend",
+                    "description": "Build UI",
+                    "files": ["src/ui.tsx"],
+                    "dependencies": ["backend"],
+                },
+            ],
+            "rationale": "Backend first, then frontend depends on API types",
+            "parallel_groups": [],
+        },
+    )
+
+    import json as _json
+
+    parsed = _json.loads(result["content"][0]["text"])
+    assert parsed["status"] == "accepted"
+    assert parsed["subtask_count"] == 2
+    assert runtime.plan_submitted is True
+
+    events = store.load_events("lead-test")
+    plan_events = [e for e in events if e.event_type == "tool.submit_plan"]
+    assert len(plan_events) == 1
+
+    _teardown_session(token)
+
+
+def test_submit_plan_rejects_circular_dependency(monkeypatch, tmp_path):
+    """submit_plan rejects a plan with circular dependencies."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+
+    result = anyio.run(
+        lead_agent_tools.submit_plan.handler,
+        {
+            "subtasks": [
+                {"name": "A", "description": "Task A", "dependencies": ["B"]},
+                {"name": "B", "description": "Task B", "dependencies": ["A"]},
+            ],
+            "rationale": "Circular",
+            "parallel_groups": [],
+        },
+    )
+
+    import json as _json
+
+    parsed = _json.loads(result["content"][0]["text"])
+    assert "error" in parsed
+    assert "Circular" in parsed["error"] or "circular" in parsed["error"].lower()
+    assert runtime.plan_submitted is not True
+
+    _teardown_session(token)
+
+
+def test_submit_plan_rejects_parallel_group_with_dependency(monkeypatch, tmp_path):
+    """submit_plan rejects parallel groups where members depend on each other."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+
+    result = anyio.run(
+        lead_agent_tools.submit_plan.handler,
+        {
+            "subtasks": [
+                {"name": "A", "description": "Task A"},
+                {"name": "B", "description": "Task B", "dependencies": ["A"]},
+            ],
+            "rationale": "They should be parallel",
+            "parallel_groups": [["A", "B"]],
+        },
+    )
+
+    import json as _json
+
+    parsed = _json.loads(result["content"][0]["text"])
+    assert "error" in parsed
+    assert "conflict" in parsed["error"].lower() or "dependency" in parsed["error"].lower()
+
+    _teardown_session(token)
+
+
+def test_dispatch_agent_warns_without_submit_plan(monkeypatch, tmp_path, capsys):
+    """dispatch_agent prints a warning when called before submit_plan."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    # plan_submitted is False by default
+    anyio.run(
+        lead_agent_tools.dispatch_agent.handler,
+        {"task_name": "API", "agent_type": "generic", "prompt": "Implement API"},
+    )
+
+    # The warning is printed via rich console, so we check the subtask was still created
+    assert len(runtime.plan.subtasks) == 1
+    assert runtime.plan_submitted is False
+
+    _teardown_session(token)
+
+
+def test_format_tool_use_submit_plan():
+    """_format_tool_use handles submit_plan."""
+    from openmax.lead_agent.formatting import _format_tool_use
+
+    result = _format_tool_use(
+        "mcp__openmax__submit_plan",
+        {"subtasks": [{"name": "A"}, {"name": "B"}, {"name": "C"}]},
+    )
+    assert result == "Submitting plan with 3 subtasks"
+
+
 def test_read_pane_output_detects_stuck_after_three_identical_reads(monkeypatch, tmp_path):
     """Three consecutive identical outputs trigger stuck=true."""
     runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)

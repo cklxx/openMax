@@ -425,6 +425,13 @@ class ContextBuilder:
                     )
                 continue
 
+            if event_type == "tool.submit_plan":
+                subtask_count = len(payload.get("subtasks", []))
+                rationale = str(payload.get("rationale", "")).strip()
+                preview = rationale[:100] if rationale else "no rationale"
+                recent_activity.append(f"Plan submitted: {subtask_count} subtasks — {preview}")
+                continue
+
             if event_type == "tool.mark_task_done":
                 name = str(payload.get("task_name", "")).strip()
                 if name:
