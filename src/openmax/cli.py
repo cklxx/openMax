@@ -277,7 +277,10 @@ def run(
             console.print(
                 f"\n[bold]Done.[/bold] {len(plan.subtasks)} sub-tasks, {summary['done']} done"
             )
-            if not keep_panes and sys.stdout.isatty():
+            has_incomplete = any(
+                st.status.value not in ("done", "permanent_error") for st in plan.subtasks
+            )
+            if has_incomplete and not keep_panes and sys.stdout.isatty():
                 _interactive_loop(pane_mgr, plan)
     finally:
         signal.signal(signal.SIGINT, previous_sigint)
@@ -382,7 +385,13 @@ def recommendation_eval(cwd: str | None) -> None:
 
     console.print(f"[bold]Recommendation eval[/bold]  [dim]{cwd}[/dim]")
 
-    tbl = Table(show_edge=False, pad_edge=False)
+    tbl = Table(
+        show_header=True,
+        header_style="bold dim",
+        show_edge=False,
+        pad_edge=False,
+        padding=(0, 1),
+    )
     tbl.add_column("", style="bold")
     tbl.add_column("Runs", justify="right")
     tbl.add_column("Evaluated", justify="right")
@@ -480,7 +489,14 @@ def runs(status: str | None, limit: int) -> None:
         console.print("[yellow]No sessions found.[/yellow]")
         return
 
-    tbl = Table(show_edge=False, pad_edge=False)
+    tbl = Table(
+        show_header=True,
+        header_style="bold dim",
+        show_edge=False,
+        pad_edge=False,
+        padding=(0, 1),
+        expand=True,
+    )
     tbl.add_column("Session", style="bold", no_wrap=True)
     tbl.add_column("Status", no_wrap=True)
     tbl.add_column("Phase", style="dim", no_wrap=True)
@@ -594,7 +610,16 @@ def inspect(session_id: str) -> None:
     # Subtasks table
     if plan.subtasks:
         console.print()
-        tbl = Table(show_edge=False, pad_edge=False, title="Subtasks")
+        tbl = Table(
+            show_header=True,
+            header_style="bold dim",
+            show_edge=False,
+            pad_edge=False,
+            padding=(0, 1),
+            title="Subtasks",
+            title_style="bold",
+            expand=True,
+        )
         tbl.add_column("Name", style="bold")
         tbl.add_column("Status")
         tbl.add_column("Agent", style="dim")
@@ -655,7 +680,16 @@ def usage(session_id: str | None, limit: int, total: bool) -> None:
         console.print("[yellow]No usage data recorded yet.[/yellow]")
         return
 
-    tbl = Table(title="Session usage", show_edge=False, pad_edge=False)
+    tbl = Table(
+        title="Session usage",
+        title_style="bold",
+        show_header=True,
+        header_style="bold dim",
+        show_edge=False,
+        pad_edge=False,
+        padding=(0, 1),
+        expand=True,
+    )
     tbl.add_column("Session", style="bold")
     tbl.add_column("Cost", justify="right")
     tbl.add_column("Tokens", justify="right")
@@ -876,7 +910,7 @@ def _render_provider_card(
         body,
         title=title,
         title_align="left",
-        border_style="blue",
+        border_style="dim cyan",
         padding=(1, 2),
     )
     console.print(panel)
