@@ -38,6 +38,7 @@
 | 9.1 | Plan Approval | P3 | 8.1 | pending | `tools.py`, `cli.py`, `lead_agent/core.py` |
 | 9.2 | Acceptance Confirmation | P3 | 8.3 | pending | `lead_agent.md`, `lead_agent/core.py` |
 | 10.2 | Resume Enhancement | P3 | — | pending | `session_runtime.py`, `lead_agent/core.py` |
+| 11.1 | Branch Isolation | P1 | — | done | `tools.py`, `lead_agent.md` |
 
 ## Dispatch Waves
 
@@ -84,4 +85,20 @@ Follow dependency chains from the table above.
 
 10.1 Failure Auto-Retry (independent)
 10.2 Resume Enhancement (independent)
+
+11.1 Branch Isolation (independent)
 ```
+
+## Completed (chronological)
+
+1. **4.1** Stuck Detection
+2. **5.2** Build Verification
+3. **1.1** Structured Decomposition
+4. **7.1** Memory Eviction
+5. **10.1** Failure Auto-Retry
+6. **6.3** Token Tracking
+7. **8.1** Phase Gating
+8. **3.1** Context Injection
+9. **4.2** Dashboard Elapsed Time
+10. **5.1** Git Conflict Detection
+11. **11.1** Branch Isolation
