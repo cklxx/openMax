@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -286,12 +287,15 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_STUCK_THRESHOLD = 3  # consecutive identical outputs to trigger stuck
+
+
 @tool(
     "read_pane_output",
     "Read the current terminal output of an agent pane (~100 tail lines). "
-    "Error lines from earlier output are surfaced at the top with [ERROR] prefix. "
-    "Look for done signals (committed, summary), errors (Traceback, FAILED), "
-    "or stuck signals (same output, unanswered question).",
+    "Error lines from earlier output appear at the top with [ERROR] prefix. "
+    "Returns JSON with 'text' and 'stuck' fields. "
+    "stuck=true when output is unchanged for 3 consecutive reads (~60-90s).",
     {"pane_id": int},
 )
 async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
@@ -300,14 +304,31 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
     try:
         text = runtime.pane_mgr.get_text(pane_id)
         text = _extract_smart_output(text, tail_lines=100)
+
+        # Track output hashes for stuck detection
+        output_hash = hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()
+        hash_history = runtime.pane_output_hashes.setdefault(pane_id, [])
+        hash_history.append(output_hash)
+        # Keep only the last _STUCK_THRESHOLD entries
+        if len(hash_history) > _STUCK_THRESHOLD:
+            runtime.pane_output_hashes[pane_id] = hash_history[-_STUCK_THRESHOLD:]
+            hash_history = runtime.pane_output_hashes[pane_id]
+
+        stuck = (
+            len(hash_history) >= _STUCK_THRESHOLD
+            and len(set(hash_history[-_STUCK_THRESHOLD:])) == 1
+        )
+
+        result = json.dumps({"text": text, "stuck": stuck})
         _append_session_event(
             "tool.read_pane_output",
             {
                 "pane_id": pane_id,
                 "preview": text[:500],
+                "stuck": stuck,
             },
         )
-        return {"content": [{"type": "text", "text": text}]}
+        return {"content": [{"type": "text", "text": result}]}
     except RuntimeError as e:
         return {"content": [{"type": "text", "text": f"Error: {e}"}]}
 

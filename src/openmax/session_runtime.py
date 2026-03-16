@@ -148,6 +148,7 @@ class LeadAgentRuntime:
     allowed_agents: list[str] | None = None
     agent_registry: Any | None = None
     dashboard: Any | None = None
+    pane_output_hashes: dict[int, list[str]] = field(default_factory=dict)
 
 
 _lead_agent_runtime: ContextVar[LeadAgentRuntime | None] = ContextVar(
@@ -454,7 +455,13 @@ class ContextBuilder:
             if event_type == "tool.read_pane_output":
                 pane_id = _coerce_int(payload.get("pane_id"))
                 if pane_id is not None:
-                    recent_activity.append(f"Read pane {pane_id} output")
+                    stuck = payload.get("stuck", False)
+                    if stuck:
+                        recent_activity.append(
+                            f"Read pane {pane_id} output [STUCK — no change detected]"
+                        )
+                    else:
+                        recent_activity.append(f"Read pane {pane_id} output")
                 continue
 
             if event_type == "tool.report_completion":

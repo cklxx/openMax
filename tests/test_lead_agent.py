@@ -531,3 +531,104 @@ def test_dashboard_add_tool_event():
     assert len(dashboard.tool_events) == _MAX_TOOL_EVENTS
     assert dashboard.tool_events[0]["text"] == "event 3"
     assert dashboard.tool_events[-1]["text"] == f"event {_MAX_TOOL_EVENTS + 2}"
+
+
+def test_read_pane_output_returns_json_with_stuck_false(monkeypatch, tmp_path):
+    """read_pane_output returns JSON with stuck=false on first read."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+
+    result = anyio.run(
+        lead_agent_tools.read_pane_output.handler,
+        {"pane_id": 101},
+    )
+
+    import json as _json
+
+    parsed = _json.loads(result["content"][0]["text"])
+    assert "text" in parsed
+    assert parsed["stuck"] is False
+
+    _teardown_session(token)
+
+
+def test_read_pane_output_detects_stuck_after_three_identical_reads(monkeypatch, tmp_path):
+    """Three consecutive identical outputs trigger stuck=true."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+
+    # DummyPaneManager.get_text returns the same text for same pane_id,
+    # so 3 reads should trigger stuck detection.
+    for _ in range(2):
+        result = anyio.run(
+            lead_agent_tools.read_pane_output.handler,
+            {"pane_id": 101},
+        )
+        import json as _json
+
+        parsed = _json.loads(result["content"][0]["text"])
+        assert parsed["stuck"] is False
+
+    # Third read — should be stuck
+    result = anyio.run(
+        lead_agent_tools.read_pane_output.handler,
+        {"pane_id": 101},
+    )
+    parsed = _json.loads(result["content"][0]["text"])
+    assert parsed["stuck"] is True
+
+    _teardown_session(token)
+
+
+def test_read_pane_output_resets_stuck_on_new_output(monkeypatch, tmp_path):
+    """Stuck resets when output changes."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    call_count = 0
+
+    def varying_get_text(pane_id):
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 3:
+            return "same output\n$ "
+        return f"new output {call_count}\n$ "
+
+    runtime.pane_mgr.get_text = varying_get_text
+
+    # 3 identical reads → stuck
+    for _ in range(3):
+        result = anyio.run(
+            lead_agent_tools.read_pane_output.handler,
+            {"pane_id": 101},
+        )
+    import json as _json
+
+    parsed = _json.loads(result["content"][0]["text"])
+    assert parsed["stuck"] is True
+
+    # New output → not stuck
+    result = anyio.run(
+        lead_agent_tools.read_pane_output.handler,
+        {"pane_id": 101},
+    )
+    parsed = _json.loads(result["content"][0]["text"])
+    assert parsed["stuck"] is False
+
+    _teardown_session(token)
+
+
+def test_read_pane_output_stuck_event_recorded(monkeypatch, tmp_path):
+    """Session event records stuck=true when detected."""
+    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+
+    for _ in range(3):
+        anyio.run(
+            lead_agent_tools.read_pane_output.handler,
+            {"pane_id": 101},
+        )
+
+    events = store.load_events("lead-test")
+    read_events = [e for e in events if e.event_type == "tool.read_pane_output"]
+    assert len(read_events) == 3
+    assert read_events[0].payload["stuck"] is False
+    assert read_events[1].payload["stuck"] is False
+    assert read_events[2].payload["stuck"] is True
+
+    _teardown_session(token)
