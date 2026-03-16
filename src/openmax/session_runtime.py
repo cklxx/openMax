@@ -305,7 +305,11 @@ class SessionStore:
         """Return the most recent non-completed session matching task_hash, or None."""
         candidates = self.list_sessions()
         for meta in candidates:
-            if meta.task_hash == task_hash_value and meta.status not in ("completed", "aborted", "failed"):
+            if meta.task_hash == task_hash_value and meta.status not in (
+                "completed",
+                "aborted",
+                "failed",
+            ):
                 return meta
         return None
 

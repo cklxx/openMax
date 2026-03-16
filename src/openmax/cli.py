@@ -137,11 +137,13 @@ def run(
         try:
             from openmax.session_runtime import SessionStore as _SS
             from openmax.session_runtime import task_hash as _th
+
             _store = _SS()
             _th_val = _th(task, cwd)
             _existing = _store.find_active_session(_th_val)
             if _existing and _existing.status not in ("completed", "aborted", "failed"):
                 import datetime as _dt
+
                 try:
                     _ago_dt = _dt.datetime.fromisoformat(_existing.updated_at)
                     _delta = _dt.datetime.now(_dt.timezone.utc) - _ago_dt
@@ -386,7 +388,9 @@ def recommendation_eval(cwd: str | None) -> None:
 
 @main.command("list-agents")
 @click.option("--cwd", default=None, help="Working directory used for workspace agent config")
-@click.option("--verbose", "-v", is_flag=True, default=False, help="Show command template for each agent")
+@click.option(
+    "--verbose", "-v", is_flag=True, default=False, help="Show command template for each agent"
+)
 def list_agents(cwd: str | None, verbose: bool) -> None:
     """List built-in and configured agents."""
     cwd = _resolve_cwd(cwd)
@@ -402,7 +406,7 @@ def list_agents(cwd: str | None, verbose: bool) -> None:
         line = f"- {definition.name} [dim]({source})[/dim]"
         if verbose:
             adapter = definition.adapter
-            if hasattr(adapter, '_command_template'):
+            if hasattr(adapter, "_command_template"):
                 cmd_preview = " ".join(adapter._command_template)[:60]
                 line += f"\n    cmd: {cmd_preview}"
         console.print(line)
@@ -626,16 +630,12 @@ def setup(status: bool) -> None:
 
     if not shutil.which("claude"):
         console.print("[red]claude CLI not found.[/red]")
-        console.print(
-            "Install it first: "
-            "https://docs.anthropic.com/en/docs/claude-code"
-        )
+        console.print("Install it first: https://docs.anthropic.com/en/docs/claude-code")
         raise SystemExit(1)
 
     console.print("[bold]openMax Setup[/bold]\n")
     console.print(
-        "This will run [bold]claude setup-token[/bold] to configure "
-        "a long-lived token.\n"
+        "This will run [bold]claude setup-token[/bold] to configure a long-lived token.\n"
     )
 
     ok = run_claude_setup_token()

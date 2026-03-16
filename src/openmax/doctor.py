@@ -28,7 +28,7 @@ def _get_version(cmd: str) -> str | None:
         )
         out = (result.stdout + result.stderr).strip()
         # grab first non-empty line, trim to 20 chars
-        first = next((l.strip() for l in out.splitlines() if l.strip()), "")
+        first = next((ln.strip() for ln in out.splitlines() if ln.strip()), "")
         return first[:40] or None
     except Exception:
         return None
@@ -95,7 +95,11 @@ def run_checks() -> list[CheckResult]:
         _check_kaku(),
         _check_cli("claude", "claude", "See https://docs.anthropic.com/en/docs/claude-code"),
         _check_cli("codex", "codex", "npm install -g @openai/codex  (optional)"),
-        _check_cli("opencode", "opencode", "See https://github.com/opencode-ai/opencode  (optional)"),
+        _check_cli(
+            "opencode",
+            "opencode",
+            "See https://github.com/opencode-ai/opencode  (optional)",
+        ),
         _check_claude_auth(),
         _check_openai_auth(),
     ]
