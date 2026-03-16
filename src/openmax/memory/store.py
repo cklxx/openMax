@@ -263,7 +263,7 @@ class MemoryStore:
                 predictions_used.extend(str(p) for p in preds[:2])
 
         # ── Format output ─────────────────────────────────────────
-        lines = ["Learned memory for this workspace:"]
+        lines = ["Prior workspace learnings (use these to guide decisions):"]
         task_scope = infer_code_scope(task)
         if task_scope:
             lines.append("Relevant code scope: " + ", ".join(task_scope[:5]))
@@ -283,7 +283,7 @@ class MemoryStore:
 
         # Active entries first
         if active_entries:
-            lines.append("Direct matches:")
+            lines.append("Relevant past runs:")
         for entry in active_entries:
             lines.append(self._format_entry_line(entry))
             for insight in entry.insights[:2]:
@@ -291,7 +291,7 @@ class MemoryStore:
 
         # Predictive entries second
         if predictive_entries:
-            lines.append("Predictive context (likely relevant):")
+            lines.append("Related context:")
         for entry in predictive_entries:
             lines.append(self._format_entry_line(entry))
             for insight in entry.insights[:1]:

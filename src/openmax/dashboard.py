@@ -28,6 +28,9 @@ def _elapsed(start: float) -> str:
     return f"{m}m {s:02d}s" if m else f"{s}s"
 
 
+_MAX_TOOL_EVENTS = 8
+
+
 class RunDashboard:
     def __init__(self, goal: str) -> None:
         self.goal = goal[:60]
@@ -36,6 +39,7 @@ class RunDashboard:
         self.completion_pct: int | None = None
         self.subtasks: dict[str, dict] = {}  # name -> {agent, pane_id, status}
         self.pane_activity: dict[int, str] = {}  # pane_id -> last_line
+        self.tool_events: list[dict] = []  # {text, category, ts}
         self._live: Live | None = None
         self._active = False
 
@@ -79,6 +83,18 @@ class RunDashboard:
 
     def update_pane_activity(self, pane_id: int, last_line: str) -> None:
         self.pane_activity[pane_id] = last_line
+        self._refresh()
+
+    def add_tool_event(self, text: str, category: str = "system") -> None:
+        self.tool_events.append(
+            {
+                "text": text,
+                "category": category,
+                "ts": time.monotonic(),
+            }
+        )
+        if len(self.tool_events) > _MAX_TOOL_EVENTS:
+            self.tool_events = self.tool_events[-_MAX_TOOL_EVENTS:]
         self._refresh()
 
     # ── Rendering ─────────────────────────────────────────────────
@@ -137,13 +153,29 @@ class RunDashboard:
                 )
             lines.append(tbl)
 
-        # Latest pane activity
+        # Tool activity
+        if self.tool_events:
+            lines.append(Text(""))
+            lines.append(Text("Tool Activity", style="bold dim"))
+            _cat_colors = {
+                "dispatch": "green",
+                "monitor": "cyan",
+                "intervention": "yellow",
+                "system": "dim",
+            }
+            for evt in self.tool_events[-5:]:
+                color = _cat_colors.get(evt["category"], "dim")
+                age = int(time.monotonic() - evt["ts"])
+                age_str = f"{age}s ago" if age > 0 else "now"
+                lines.append(Text(f"  [{age_str}] {evt['text'][:70]}", style=color))
+
+        # Latest pane activity (up to 3 panes)
         if self.pane_activity:
             lines.append(Text(""))
-            # Show most recently updated pane
-            pane_id, last_line = next(reversed(self.pane_activity.items()))
-            preview = last_line[:70].strip()
-            lines.append(Text(f"Pane {pane_id}: {preview!r}", style="dim"))
+            recent_panes = list(self.pane_activity.items())[-3:]
+            for pane_id, last_line in recent_panes:
+                preview = last_line[:70].strip()
+                lines.append(Text(f"Pane {pane_id}: {preview!r}", style="dim"))
 
         # Build the inner grid
         grid = Table.grid(expand=True)

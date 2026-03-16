@@ -564,7 +564,8 @@ class ContextBuilder:
 
         if open_tasks:
             task_lines = [
-                f"- {task.name} [{task.status}] via {task.agent_type}"
+                f"- **Action required** {task.name} [{task.status}]"
+                f" via {task.agent_type}"
                 + (f" pane={task.pane_id}" if task.pane_id is not None else "")
                 for task in open_tasks
             ]

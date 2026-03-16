@@ -18,7 +18,7 @@ from rich.panel import Panel
 
 from openmax.agent_registry import AgentRegistry, built_in_agent_registry
 from openmax.dashboard import RunDashboard, console
-from openmax.lead_agent.formatting import _format_tool_use
+from openmax.lead_agent.formatting import _format_tool_use, tool_category, tool_style
 from openmax.lead_agent.tools import (
     ALL_TOOLS,
     _append_session_event,
@@ -39,8 +39,16 @@ from openmax.session_runtime import (
     bind_lead_agent_runtime,
     reset_lead_agent_runtime,
 )
+from openmax.usage import UsageStore, usage_from_result
 
 _PROMPT_DIR = Path(__file__).parent / "prompts"
+
+_CATEGORY_ICONS = {
+    "dispatch": ">>",
+    "monitor": "~~",
+    "intervention": "!!",
+    "system": "..",
+}
 
 
 def _load_system_prompt() -> str:
@@ -89,19 +97,19 @@ def _build_lead_prompt(
     memory_context: str | None,
     allowed_agents: list[str] | None = None,
 ) -> str:
-    parts = [f"Goal: {task}", f"Working directory: {cwd}"]
+    parts = [f"## Goal\n{task}", f"Working directory: {cwd}"]
     if allowed_agents:
+        agents_str = ", ".join(allowed_agents)
         parts.append(
-            f"Allowed agents (in preference order): {', '.join(allowed_agents)}. "
-            f"Use '{allowed_agents[0]}' as the default unless another is better suited. "
+            f"Allowed agents: {agents_str} (prefer '{allowed_agents[0]}'). "
             f"Do NOT use agent types outside this list."
         )
     if session_id:
         parts.append(f"Session ID: {session_id}")
     if resume_context:
-        parts.append("Recovered session context:\n" + resume_context)
+        parts.append("## Prior Session State (resume)\n" + resume_context)
     if memory_context:
-        parts.append(memory_context)
+        parts.append("## Workspace Memory\n" + memory_context)
     parts.append("Execute now. Follow the workflow in your system prompt.")
     return "\n\n".join(parts)
 
@@ -229,10 +237,12 @@ async def _run_lead_agent_async(
         )
 
         tool_names = [
+            "mcp__openmax__ask_user",
             "mcp__openmax__dispatch_agent",
             "mcp__openmax__get_agent_recommendations",
             "mcp__openmax__read_file",
             "mcp__openmax__read_pane_output",
+            "mcp__openmax__run_command",
             "mcp__openmax__send_text_to_pane",
             "mcp__openmax__list_managed_panes",
             "mcp__openmax__mark_task_done",
@@ -299,14 +309,20 @@ async def _run_lead_agent_async(
                             _append_session_event("lead.message", {"text": block.text})
                         elif isinstance(block, ToolUseBlock):
                             formatted = _format_tool_use(block.name, block.input)
-                            console.print(f"  [dim]\u2699 {formatted}[/dim]")
+                            cat = tool_category(block.name)
+                            style = tool_style(cat)
+                            icon = _CATEGORY_ICONS.get(cat, "..")
+                            console.print(f"  [{style}]{icon} {formatted}[/{style}]")
+                            if dashboard is not None:
+                                dashboard.add_tool_event(formatted, cat)
                 elif isinstance(msg, ResultMessage):
-                    cost = msg.total_cost_usd or 0
+                    sid = session_id or "__unnamed__"
+                    usage = usage_from_result(sid, msg)
+                    if session_id:
+                        UsageStore().save(usage)
                     console.print(
                         Panel(
-                            f"Cost: ${cost:.4f}\n"
-                            f"Duration: {msg.duration_ms / 1000:.1f}s\n"
-                            f"Turns: {msg.num_turns}",
+                            usage.summary_line(),
                             title="Lead Agent Summary",
                             border_style="green",
                         )

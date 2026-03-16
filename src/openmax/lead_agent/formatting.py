@@ -6,6 +6,40 @@ from typing import Any
 
 _TOOL_NAME_PREFIX = "mcp__openmax__"
 
+_TOOL_CATEGORIES: dict[str, str] = {
+    "dispatch_agent": "dispatch",
+    "get_agent_recommendations": "dispatch",
+    "run_command": "dispatch",
+    "read_pane_output": "monitor",
+    "list_managed_panes": "monitor",
+    "read_file": "monitor",
+    "send_text_to_pane": "intervention",
+    "ask_user": "intervention",
+    "mark_task_done": "system",
+    "record_phase_anchor": "system",
+    "remember_learning": "system",
+    "report_completion": "system",
+    "wait": "system",
+}
+
+_CATEGORY_STYLES: dict[str, str] = {
+    "dispatch": "bold green",
+    "monitor": "cyan",
+    "intervention": "bold yellow",
+    "system": "dim",
+}
+
+
+def tool_category(tool_name: str) -> str:
+    """Return the category for a tool name (dispatch/monitor/intervention/system)."""
+    normalized = tool_name.removeprefix(_TOOL_NAME_PREFIX)
+    return _TOOL_CATEGORIES.get(normalized, "system")
+
+
+def tool_style(category: str) -> str:
+    """Return the Rich style string for a tool category."""
+    return _CATEGORY_STYLES.get(category, "dim")
+
 
 def _truncate_text(value: str, limit: int = 72) -> str:
     text = " ".join(value.split())
@@ -44,6 +78,10 @@ def _format_tool_use(tool_name: str, tool_input: dict[str, Any] | None = None) -
     normalized = tool_name.removeprefix(_TOOL_NAME_PREFIX)
     tool_input = tool_input or {}
 
+    if normalized == "ask_user":
+        question = str(tool_input.get("question", "")).strip()
+        return f"Asking user: {_truncate_text(question)}" if question else "Asking user a question"
+
     if normalized == "dispatch_agent":
         task_name = str(tool_input.get("task_name", "")).strip() or "sub-task"
         agent_type = str(tool_input.get("agent_type", "")).strip() or "default agent"
@@ -56,6 +94,12 @@ def _format_tool_use(tool_name: str, tool_input: dict[str, Any] | None = None) -
             if task
             else "Checking which agent fits best"
         )
+
+    if normalized == "run_command":
+        command = str(tool_input.get("command", "")).strip()
+        task_name = str(tool_input.get("task_name", "")).strip()
+        label = task_name or command
+        return f"Running command: {_truncate_text(label)}"
 
     if normalized == "read_pane_output":
         pane_id = tool_input.get("pane_id")

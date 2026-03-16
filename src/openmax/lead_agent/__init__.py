@@ -1,8 +1,9 @@
 """Lead Agent — orchestration via claude-agent-sdk with custom tools."""
 
 from openmax.lead_agent.core import run_lead_agent
-from openmax.lead_agent.formatting import _format_tool_use
+from openmax.lead_agent.formatting import _format_tool_use, tool_category, tool_style
 from openmax.lead_agent.tools import (
+    ask_user,
     dispatch_agent,
     get_agent_recommendations,
     mark_task_done,
@@ -27,6 +28,7 @@ __all__ = [
     "SubTask",
     "TaskStatus",
     "_format_tool_use",
+    "ask_user",
     "dispatch_agent",
     "get_agent_recommendations",
     "mark_task_done",
@@ -37,5 +39,7 @@ __all__ = [
     "report_completion",
     "run_lead_agent",
     "send_text_to_pane",
+    "tool_category",
+    "tool_style",
     "wait_tool",
 ]

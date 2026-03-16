@@ -51,6 +51,11 @@ class DummyPaneManager:
 _fake_time = 0.0
 
 
+async def _fake_run_sync(fn):
+    """Async replacement for anyio.to_thread.run_sync in tests."""
+    return fn()
+
+
 async def _no_sleep(seconds: float) -> None:
     global _fake_time  # noqa: PLW0603
     _fake_time += seconds
@@ -435,3 +440,94 @@ def test_run_lead_agent_records_structured_bootstrap_failure(monkeypatch, tmp_pa
     events = store.load_events("startup-bootstrap-failure")
     assert events[-1].event_type == "session.startup_failed"
     assert events[-1].payload["category"] == "bootstrap"
+
+
+def test_ask_user_returns_answer_and_persists_event(monkeypatch, tmp_path):
+    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    monkeypatch.setattr(
+        lead_agent_tools.anyio,
+        "to_thread",
+        SimpleNamespace(run_sync=_fake_run_sync),
+    )
+    monkeypatch.setattr("builtins.input", lambda _prompt: "yes, proceed")
+
+    result = anyio.run(
+        lead_agent_tools.ask_user.handler,
+        {"question": "Should I refactor the auth module?"},
+    )
+
+    assert result["content"][0]["text"] == "yes, proceed"
+    events = store.load_events("lead-test")
+    ask_events = [e for e in events if e.event_type == "tool.ask_user"]
+    assert len(ask_events) == 1
+    assert ask_events[0].payload["question"] == "Should I refactor the auth module?"
+    assert ask_events[0].payload["answer"] == "yes, proceed"
+
+    _teardown_session(token)
+
+
+def test_ask_user_pauses_and_resumes_dashboard(monkeypatch, tmp_path):
+    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    monkeypatch.setattr(
+        lead_agent_tools.anyio,
+        "to_thread",
+        SimpleNamespace(run_sync=_fake_run_sync),
+    )
+    monkeypatch.setattr("builtins.input", lambda _prompt: "ok")
+
+    lifecycle: list[str] = []
+
+    class FakeDashboard:
+        def stop(self):
+            lifecycle.append("stop")
+
+        def start(self):
+            lifecycle.append("start")
+
+    runtime.dashboard = FakeDashboard()
+
+    anyio.run(
+        lead_agent_tools.ask_user.handler,
+        {"question": "Continue?"},
+    )
+
+    assert lifecycle == ["stop", "start"]
+
+    _teardown_session(token)
+
+
+def test_format_tool_use_handles_ask_user():
+    result = lead_agent_formatting._format_tool_use(
+        "mcp__openmax__ask_user",
+        {"question": "Which database should I target?"},
+    )
+    assert result == "Asking user: Which database should I target?"
+
+
+def test_tool_category_and_style():
+    from openmax.lead_agent.formatting import tool_category, tool_style
+
+    assert tool_category("mcp__openmax__dispatch_agent") == "dispatch"
+    assert tool_category("mcp__openmax__read_pane_output") == "monitor"
+    assert tool_category("mcp__openmax__send_text_to_pane") == "intervention"
+    assert tool_category("mcp__openmax__ask_user") == "intervention"
+    assert tool_category("mcp__openmax__wait") == "system"
+    assert tool_category("mcp__openmax__unknown_tool") == "system"
+
+    assert tool_style("dispatch") == "bold green"
+    assert tool_style("monitor") == "cyan"
+    assert tool_style("intervention") == "bold yellow"
+    assert tool_style("system") == "dim"
+    assert tool_style("unknown") == "dim"
+
+
+def test_dashboard_add_tool_event():
+    from openmax.dashboard import _MAX_TOOL_EVENTS, RunDashboard
+
+    dashboard = RunDashboard("test goal")
+    for i in range(_MAX_TOOL_EVENTS + 3):
+        dashboard.add_tool_event(f"event {i}", "dispatch")
+
+    assert len(dashboard.tool_events) == _MAX_TOOL_EVENTS
+    assert dashboard.tool_events[0]["text"] == "event 3"
+    assert dashboard.tool_events[-1]["text"] == f"event {_MAX_TOOL_EVENTS + 2}"

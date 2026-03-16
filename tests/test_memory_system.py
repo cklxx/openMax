@@ -39,7 +39,7 @@ def test_memory_store_builds_relevant_context(tmp_path):
     assert context is not None
     assert context.matched_entries >= 1
     assert "Prefer codex for API surface changes." in context.text
-    assert "Learned memory for this workspace:" in context.text
+    assert "Prior workspace learnings (use these to guide decisions):" in context.text
     assert "Workspace facts:" in context.text
     assert "Dispatch API work to codex first." in context.text
 
@@ -1025,7 +1025,7 @@ def test_dual_buffer_separates_active_and_predictive_entries(tmp_path):
     assert context.matched_entries >= 1
     assert context.active_entries >= 0
     assert context.active_entries + context.predictive_entries == context.matched_entries
-    assert "Learned memory for this workspace:" in context.text
+    assert "Prior workspace learnings (use these to guide decisions):" in context.text
     lower_text = context.text.lower()
     assert "api routes" in lower_text or "routes" in lower_text
 

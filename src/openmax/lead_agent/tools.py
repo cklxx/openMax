@@ -150,6 +150,8 @@ async def get_agent_recommendations(args: dict[str, Any]) -> dict[str, Any]:
 @tool(
     "dispatch_agent",
     "Dispatch a sub-task to an AI agent in a terminal pane. "
+    "The prompt is the agent's ONLY context — include file paths, constraints, "
+    "and any knowledge it cannot discover on its own. "
     "All agents share one window with smart grid layout. Returns pane_id.",
     {
         "task_name": str,
@@ -286,7 +288,10 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "read_pane_output",
-    "Read the current terminal output of an agent pane to check progress.",
+    "Read the current terminal output of an agent pane (~100 tail lines). "
+    "Error lines from earlier output are surfaced at the top with [ERROR] prefix. "
+    "Look for done signals (committed, summary), errors (Traceback, FAILED), "
+    "or stuck signals (same output, unanswered question).",
     {"pane_id": int},
 )
 async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
@@ -309,7 +314,8 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "send_text_to_pane",
-    "Send text to an agent pane. Use to give follow-up instructions or intervene.",
+    "Send text to an agent pane. Use to answer agent questions, correct drift, "
+    "or give follow-up instructions. Text is pasted and submitted automatically.",
     {"pane_id": int, "text": str},
 )
 async def send_text_to_pane(args: dict[str, Any]) -> dict[str, Any]:
@@ -344,7 +350,8 @@ async def list_managed_panes(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "mark_task_done",
-    "Mark a sub-task as completed.",
+    "Mark a sub-task as completed. Call only after verifying the agent has "
+    "committed its changes and output looks correct.",
     {"task_name": str},
 )
 async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:
@@ -408,7 +415,9 @@ async def remember_learning(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "report_completion",
-    "Report overall goal completion percentage and summary. Call when all tasks are done.",
+    "Report overall goal completion percentage and summary. Call exactly once "
+    "when all tasks are done. Describe what was delivered, not what was attempted. "
+    "This saves a run summary to workspace memory.",
     {"completion_pct": int, "notes": str},
 )
 async def report_completion(args: dict[str, Any]) -> dict[str, Any]:
@@ -434,9 +443,44 @@ async def report_completion(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
+    "ask_user",
+    "Ask the human operator a question and wait for their answer. "
+    "Use when the goal is genuinely ambiguous or you need a decision only the user can make. "
+    "Do NOT use for routine confirmations.",
+    {"question": str},
+)
+async def ask_user(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
+    question = args["question"]
+
+    # Pause the dashboard so the prompt is visible
+    if runtime.dashboard is not None:
+        runtime.dashboard.stop()
+
+    console.print(
+        Panel(
+            f"[bold yellow]Lead agent asks:[/bold yellow]\n{question}",
+            border_style="yellow",
+        )
+    )
+    answer: str = await anyio.to_thread.run_sync(lambda: input("Your answer: "))
+
+    # Resume the dashboard
+    if runtime.dashboard is not None:
+        runtime.dashboard.start()
+
+    _append_session_event(
+        "tool.ask_user",
+        {"question": question, "answer": answer},
+    )
+    return {"content": [{"type": "text", "text": answer}]}
+
+
+@tool(
     "wait",
     "Wait for a specified number of seconds before continuing. "
-    "Use this between monitoring checks to avoid excessive polling.",
+    "Use between monitoring rounds: 10-15s for simple tasks, 20-30s for complex ones. "
+    "Increase if the agent is making steady progress.",
     {"seconds": int},
 )
 async def wait_tool(args: dict[str, Any]) -> dict[str, Any]:
@@ -444,6 +488,104 @@ async def wait_tool(args: dict[str, Any]) -> dict[str, Any]:
     console.print(f"  [dim]\u23f3 Waiting {seconds}s...[/dim]")
     await anyio.sleep(seconds)
     return {"content": [{"type": "text", "text": f"Waited {seconds}s"}]}
+
+
+@tool(
+    "run_command",
+    "Run any CLI command in a terminal pane. Works for both one-shot commands "
+    "(e.g. 'npm test', 'cargo build', 'git log') and interactive programs "
+    "(e.g. 'python', 'htop', 'psql'). Set interactive=true for long-running "
+    "or interactive programs, false (default) for one-shot commands. "
+    "The pane stays in the shared window "
+    "and can be monitored with read_pane_output / send_text_to_pane.",
+    {
+        "command": str,
+        "task_name": str,
+        "interactive": bool,
+    },
+)
+async def run_command(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
+    command_str = args["command"]
+    task_name = args.get("task_name", command_str[:40])
+    interactive = args.get("interactive", False)
+
+    import shlex
+
+    try:
+        cmd_list = shlex.split(command_str)
+    except ValueError:
+        cmd_list = [command_str]
+
+    if not cmd_list:
+        return {"content": [{"type": "text", "text": "Error: empty command"}]}
+
+    if runtime.agent_window_id is None:
+        pane = runtime.pane_mgr.create_window(
+            command=cmd_list,
+            purpose=task_name,
+            agent_type="command",
+            title=f"openMax: {runtime.plan.goal[:40]}",
+            cwd=runtime.cwd,
+        )
+        runtime.agent_window_id = pane.window_id
+    else:
+        pane = runtime.pane_mgr.add_pane(
+            window_id=runtime.agent_window_id,
+            command=cmd_list,
+            purpose=task_name,
+            agent_type="command",
+            cwd=runtime.cwd,
+        )
+
+    subtask = SubTask(
+        name=task_name,
+        agent_type="command",
+        prompt=command_str,
+        status=TaskStatus.RUNNING,
+        pane_id=pane.pane_id,
+    )
+    _upsert_subtask(subtask)
+    if runtime.dashboard is not None:
+        runtime.dashboard.update_subtask(task_name, "command", pane.pane_id, "running")
+
+    win = runtime.pane_mgr.windows.get(runtime.agent_window_id)
+    pane_count = len(win.pane_ids) if win else 1
+    mode = "interactive" if interactive else "one-shot"
+    console.print(
+        f"  [green]\u2713[/green] Running [{mode}] [bold]{command_str[:60]}[/bold] "
+        f"\u2192 pane {pane.pane_id} "
+        f"[dim][window {runtime.agent_window_id}, {pane_count} panes][/dim]"
+    )
+    _append_session_event(
+        "tool.run_command",
+        {
+            "command": command_str,
+            "task_name": task_name,
+            "interactive": interactive,
+            "pane_id": pane.pane_id,
+            "window_id": runtime.agent_window_id,
+        },
+    )
+
+    return {
+        "content": [
+            {
+                "type": "text",
+                "text": json.dumps(
+                    {
+                        "status": "launched",
+                        "pane_id": pane.pane_id,
+                        "window_id": runtime.agent_window_id,
+                        "command": command_str,
+                        "task_name": task_name,
+                        "interactive": interactive,
+                        "panes_in_window": pane_count,
+                    }
+                ),
+            }
+        ]
+    }
 
 
 @tool(
@@ -489,10 +631,12 @@ async def read_file_tool(args: dict[str, Any]) -> dict[str, Any]:
 
 # All tool objects for easy collection
 ALL_TOOLS = [
+    ask_user,
     dispatch_agent,
     get_agent_recommendations,
     read_file_tool,
     read_pane_output,
+    run_command,
     send_text_to_pane,
     list_managed_panes,
     mark_task_done,
