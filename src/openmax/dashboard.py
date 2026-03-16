@@ -28,6 +28,23 @@ def _elapsed(start: float) -> str:
     return f"{m}m {s:02d}s" if m else f"{s}s"
 
 
+def _format_subtask_elapsed(info: dict) -> str:
+    """Format elapsed/took time for a subtask."""
+    started = info.get("started_at")
+    finished = info.get("finished_at")
+    status = info.get("status", "")
+    if started is None:
+        return "-"
+    if status == "done" and finished is not None:
+        duration = int(finished - started)
+    elif status == "running":
+        duration = int(time.time() - started)
+    else:
+        return "-"
+    m, s = divmod(duration, 60)
+    return f"{m}m {s:02d}s" if m else f"{s}s"
+
+
 _MAX_TOOL_EVENTS = 8
 
 
@@ -77,8 +94,17 @@ class RunDashboard:
         agent: str,
         pane_id: int | None,
         status: str,
+        started_at: float | None = None,
+        finished_at: float | None = None,
     ) -> None:
-        self.subtasks[name] = {"agent": agent, "pane_id": pane_id, "status": status}
+        existing = self.subtasks.get(name, {})
+        self.subtasks[name] = {
+            "agent": agent,
+            "pane_id": pane_id,
+            "status": status,
+            "started_at": started_at or existing.get("started_at"),
+            "finished_at": finished_at or existing.get("finished_at"),
+        }
         self._refresh()
 
     def update_pane_activity(self, pane_id: int, last_line: str) -> None:
@@ -132,6 +158,7 @@ class RunDashboard:
             tbl.add_column("Agent", style="dim")
             tbl.add_column("Pane", justify="right")
             tbl.add_column("Status")
+            tbl.add_column("Time", justify="right", style="dim")
 
             for name, info in self.subtasks.items():
                 st = info.get("status", "pending")
@@ -150,6 +177,7 @@ class RunDashboard:
                     info.get("agent", ""),
                     pane_str,
                     Text(st, style=color),
+                    _format_subtask_elapsed(info),
                 )
             lines.append(tbl)
 

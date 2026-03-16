@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 
 import anyio
@@ -140,6 +141,7 @@ def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
     assert st.prompt == "Implement API"
     assert st.status == TaskStatus.RUNNING
     assert st.pane_id == 101
+    assert st.started_at is not None
     assert runtime.pane_mgr.sent == [(101, "Implement API")]
 
     _teardown_session(token)
@@ -1043,3 +1045,55 @@ def test_read_pane_output_stuck_event_recorded(monkeypatch, tmp_path):
     assert read_events[2].payload["stuck"] is True
 
     _teardown_session(token)
+
+
+def test_dispatch_agent_sets_started_at(monkeypatch, tmp_path):
+    """dispatch_agent sets started_at on the subtask."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    try:
+        before = time.time()
+        anyio.run(
+            lead_agent_tools.dispatch_agent.handler,
+            {
+                "task_name": "test-task",
+                "agent_type": "claude-code",
+                "prompt": "Test",
+            },
+        )
+        after = time.time()
+
+        subtask = runtime.plan.subtasks[0]
+        assert subtask.started_at is not None
+        assert before <= subtask.started_at <= after
+    finally:
+        _teardown_session(token)
+
+
+def test_mark_task_done_sets_finished_at(tmp_path):
+    """mark_task_done sets finished_at on the subtask."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+
+    subtask = SubTask(
+        name="test-task",
+        agent_type="claude-code",
+        prompt="test",
+        status=TaskStatus.RUNNING,
+        pane_id=101,
+        started_at=time.time() - 60,
+    )
+    runtime.plan.subtasks.append(subtask)
+
+    try:
+        before = time.time()
+        anyio.run(
+            lead_agent_tools.mark_task_done.handler,
+            {"task_name": "test-task"},
+        )
+        after = time.time()
+
+        assert subtask.finished_at is not None
+        assert before <= subtask.finished_at <= after
+    finally:
+        _teardown_session(token)

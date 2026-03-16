@@ -6,6 +6,7 @@ import hashlib
 import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import anyio
@@ -286,6 +287,48 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _try_reuse_done_pane(
+    runtime: LeadAgentRuntime, agent_type: str, task_name: str
+) -> SimpleNamespace | None:
+    """Find a done pane with the same agent type to reuse."""
+    for st in runtime.plan.subtasks:
+        if (
+            st.agent_type == agent_type
+            and st.status == TaskStatus.DONE
+            and st.pane_id is not None
+            and runtime.pane_mgr.is_pane_alive(st.pane_id)
+        ):
+            return SimpleNamespace(
+                pane_id=st.pane_id,
+                window_id=runtime.agent_window_id,
+            )
+    return None
+
+
+async def _wait_and_send_prompt(
+    runtime: LeadAgentRuntime,
+    pane: SimpleNamespace,
+    cmd_spec: Any,
+    agent_type: str,
+) -> None:
+    """Wait for CLI ready then send the initial prompt."""
+    if cmd_spec.ready_patterns:
+        ready = await _wait_for_pane_ready(
+            runtime.pane_mgr,
+            pane.pane_id,
+            cmd_spec.ready_patterns,
+            timeout=max(cmd_spec.ready_delay_seconds * 4, 30.0),
+        )
+        if not ready:
+            console.print(
+                f"  [yellow]\u26a0[/yellow] Pane {pane.pane_id} ({agent_type}) "
+                "did not show ready signal within timeout \u2014 sending prompt anyway"
+            )
+    else:
+        await anyio.sleep(cmd_spec.ready_delay_seconds)
+    runtime.pane_mgr.send_text(pane.pane_id, cmd_spec.initial_input)
+
+
 @tool(
     "dispatch_agent",
     "Dispatch a sub-task to an AI agent in a terminal pane. "
@@ -350,7 +393,17 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     cmd_spec = adapter.get_command(prompt, cwd=runtime.cwd)
     launch_env = cmd_spec.env or None
 
-    if runtime.agent_window_id is None:
+    # ── Try to reuse a done pane with the same agent type ────────
+    reused_pane = _try_reuse_done_pane(runtime, agent_type, task_name)
+
+    if reused_pane is not None:
+        pane = reused_pane
+        # Reset context: send /clear, wait briefly, then send new prompt
+        runtime.pane_mgr.send_text(pane.pane_id, "/clear")
+        await anyio.sleep(1.0)
+        if cmd_spec.interactive and cmd_spec.initial_input:
+            runtime.pane_mgr.send_text(pane.pane_id, cmd_spec.initial_input)
+    elif runtime.agent_window_id is None:
         # First agent -> create a new window
         pane_kwargs = {
             "command": cmd_spec.launch_cmd,
@@ -363,6 +416,15 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
             pane_kwargs["env"] = launch_env
         pane = runtime.pane_mgr.create_window(**pane_kwargs)
         runtime.agent_window_id = pane.window_id
+
+        # Wait for CLI ready then send initial prompt
+        if cmd_spec.interactive and cmd_spec.initial_input:
+            await _wait_and_send_prompt(
+                runtime,
+                pane,
+                cmd_spec,
+                agent_type,
+            )
     else:
         # Subsequent agents -> add pane to the same window (auto layout)
         pane_kwargs = {
@@ -376,23 +438,14 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
             pane_kwargs["env"] = launch_env
         pane = runtime.pane_mgr.add_pane(**pane_kwargs)
 
-    # For interactive agents, wait for CLI ready then send initial prompt
-    if cmd_spec.interactive and cmd_spec.initial_input:
-        if cmd_spec.ready_patterns:
-            ready = await _wait_for_pane_ready(
-                runtime.pane_mgr,
-                pane.pane_id,
-                cmd_spec.ready_patterns,
-                timeout=max(cmd_spec.ready_delay_seconds * 4, 30.0),
+        # Wait for CLI ready then send initial prompt
+        if cmd_spec.interactive and cmd_spec.initial_input:
+            await _wait_and_send_prompt(
+                runtime,
+                pane,
+                cmd_spec,
+                agent_type,
             )
-            if not ready:
-                console.print(
-                    f"  [yellow]\u26a0[/yellow] Pane {pane.pane_id} ({agent_type}) "
-                    "did not show ready signal within timeout \u2014 sending prompt anyway"
-                )
-        else:
-            await anyio.sleep(cmd_spec.ready_delay_seconds)
-        runtime.pane_mgr.send_text(pane.pane_id, cmd_spec.initial_input)
 
     subtask = SubTask(
         name=task_name,
@@ -405,7 +458,10 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     _upsert_subtask(subtask)
     if runtime.dashboard is not None:
         runtime.dashboard.update_subtask(
-            task_name, agent_type, pane.pane_id, "running",
+            task_name,
+            agent_type,
+            pane.pane_id,
+            "running",
             started_at=subtask.started_at,
         )
 
@@ -553,7 +609,14 @@ async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:
                 st.completion_notes = notes
             console.print(f"  [green]\u2713\u2713[/green] [bold]{task_name}[/bold] done")
             if runtime.dashboard is not None:
-                runtime.dashboard.update_subtask(task_name, st.agent_type, st.pane_id, "done")
+                runtime.dashboard.update_subtask(
+                    task_name,
+                    st.agent_type,
+                    st.pane_id,
+                    "done",
+                    started_at=st.started_at,
+                    finished_at=st.finished_at,
+                )
             _append_session_event("tool.mark_task_done", {"task_name": task_name})
             return {"content": [{"type": "text", "text": f"Marked '{task_name}' as done"}]}
     return {"content": [{"type": "text", "text": f"Task '{task_name}' not found"}]}
