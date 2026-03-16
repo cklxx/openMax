@@ -878,6 +878,70 @@ def test_read_pane_output_returns_exited_false_when_pane_alive(monkeypatch, tmp_
     _teardown_session(token)
 
 
+def test_transition_phase_valid(tmp_path):
+    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
+    runtime.session_meta.latest_phase = "research"
+    store.save_meta(runtime.session_meta)
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.transition_phase.handler,
+            {
+                "from_phase": "research",
+                "to_phase": "implement",
+                "gate_summary": "Plan complete with 3 subtasks identified",
+                "artifacts": ["plan.md"],
+            },
+        )
+        text = result["content"][0]["text"]
+        assert "Transitioned" in text
+        assert runtime.session_meta.latest_phase == "implement"
+    finally:
+        _teardown_session(token)
+
+
+def test_transition_phase_short_summary_rejected(tmp_path):
+    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.transition_phase.handler,
+            {
+                "from_phase": "research",
+                "to_phase": "implement",
+                "gate_summary": "short",
+                "artifacts": [],
+            },
+        )
+        text = result["content"][0]["text"]
+        assert "Error" in text
+        assert "20 characters" in text
+    finally:
+        _teardown_session(token)
+
+
+def test_transition_phase_mismatched_phase_rejected(tmp_path):
+    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
+    runtime.session_meta.latest_phase = "research"
+    store.save_meta(runtime.session_meta)
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.transition_phase.handler,
+            {
+                "from_phase": "implement",
+                "to_phase": "verify",
+                "gate_summary": "This should fail because phase mismatch",
+                "artifacts": [],
+            },
+        )
+        text = result["content"][0]["text"]
+        assert "Error" in text
+        assert "does not match" in text
+    finally:
+        _teardown_session(token)
+
+
 def test_read_pane_output_stuck_event_recorded(monkeypatch, tmp_path):
     """Session event records stuck=true when detected."""
     runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)

@@ -486,6 +486,14 @@ class ContextBuilder:
                 )
                 continue
 
+            if event_type == "tool.transition_phase":
+                from_p = str(payload.get("from_phase", "")).strip()
+                to_p = str(payload.get("to_phase", "")).strip()
+                summary = str(payload.get("gate_summary", "")).strip()
+                preview = summary[:60] + "..." if len(summary) > 60 else summary
+                recent_activity.append(f"Phase: {from_p} \u2192 {to_p}: {preview}")
+                continue
+
             if event_type == "tool.report_completion":
                 completion_pct = _coerce_int(payload.get("completion_pct"))
                 report_notes = str(payload.get("notes", "")).strip() or report_notes

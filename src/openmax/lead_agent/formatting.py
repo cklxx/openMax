@@ -19,6 +19,7 @@ _TOOL_CATEGORIES: dict[str, str] = {
     "ask_user": "intervention",
     "mark_task_done": "system",
     "record_phase_anchor": "system",
+    "transition_phase": "system",
     "remember_learning": "system",
     "report_completion": "system",
     "wait": "system",
@@ -150,6 +151,11 @@ def _format_tool_use(tool_name: str, tool_input: dict[str, Any] | None = None) -
         if summary:
             return f"Saving {phase} checkpoint{suffix}: {_truncate_text(summary)}"
         return f"Saving {phase} checkpoint{suffix}"
+
+    if normalized == "transition_phase":
+        from_p = str(tool_input.get("from_phase", "")).strip()
+        to_p = str(tool_input.get("to_phase", "")).strip()
+        return f"Transitioning phase: {from_p} \u2192 {to_p}"
 
     if normalized == "remember_learning":
         lesson = str(tool_input.get("lesson", "")).strip()
