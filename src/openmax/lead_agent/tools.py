@@ -12,10 +12,8 @@ from typing import Any
 
 import anyio
 from claude_agent_sdk import tool
-from rich.panel import Panel
 
-from openmax.dashboard import console
-from openmax.lead_agent.formatting import _format_phase_name, _truncate_text
+from openmax.dashboard import P, console
 from openmax.lead_agent.types import SubTask, TaskStatus
 from openmax.memory import serialize_subtasks
 from openmax.pane_manager import PaneManager
@@ -25,6 +23,12 @@ from openmax.session_runtime import (
     get_lead_agent_runtime,
     serialize_tasks,
 )
+
+_VALID_PHASE_TRANSITIONS: dict[str, set[str]] = {
+    "research": {"implement"},
+    "implement": {"verify"},
+    "verify": {"finish", "implement"},  # allow re-dispatch via verify → implement
+}
 
 
 def _runtime() -> LeadAgentRuntime:
@@ -265,11 +269,7 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
         "parallel_groups": parallel_groups,
     }
 
-    console.print(
-        f"  [green]\u2713[/green] Plan submitted: "
-        f"{len(subtasks_raw)} subtasks, "
-        f"{len(parallel_groups)} parallel groups"
-    )
+    console.print(f"  {P}  plan: {len(subtasks_raw)} subtasks")
     _append_session_event("tool.submit_plan", plan_data)
 
     return {
@@ -299,9 +299,7 @@ def _try_reuse_done_pane(
             and st.pane_id is not None
             and runtime.pane_mgr.is_pane_alive(st.pane_id)
         ):
-            console.print(
-                f"  [cyan]\u21bb[/cyan] Reusing pane {st.pane_id} (was {st.name}) for {task_name}"
-            )
+            console.print(f"  [dim]{P}  reusing pane {st.pane_id} for {task_name}[/dim]")
             return SimpleNamespace(
                 pane_id=st.pane_id,
                 window_id=runtime.agent_window_id,
@@ -325,7 +323,7 @@ async def _wait_and_send_prompt(
         )
         if not ready:
             console.print(
-                f"  [yellow]\u26a0[/yellow] Pane {pane.pane_id} ({agent_type}) "
+                f"  [yellow]![/yellow]Pane {pane.pane_id} ({agent_type}) "
                 "did not show ready signal within timeout \u2014 sending prompt anyway"
             )
     else:
@@ -336,7 +334,7 @@ async def _wait_and_send_prompt(
 @tool(
     "dispatch_agent",
     "Dispatch a sub-task to an AI agent in a terminal pane. "
-    "The prompt is the agent's ONLY context — include file paths, constraints, "
+    "The prompt is the agent's ONLY context \u2014 include file paths, constraints, "
     "and any knowledge it cannot discover on its own. "
     "All agents share one window with smart grid layout. Returns pane_id.",
     {
@@ -352,7 +350,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     agent_type = args.get("agent_type", "claude-code")
     prompt = args["prompt"]
 
-    # Prevent duplicate task names — auto-suffix if already exists
+    # Prevent duplicate task names \u2014 auto-suffix if already exists
     existing_names = {st.name for st in runtime.plan.subtasks}
     if task_name in existing_names:
         suffix = 2
@@ -361,7 +359,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         original = task_name
         task_name = f"{task_name}-{suffix}"
         console.print(
-            f"  [yellow]\u26a0[/yellow] Task '{original}' already exists, renamed to '{task_name}'"
+            f"  [yellow]![/yellow]Task '{original}' already exists, renamed to '{task_name}'"
         )
 
     # Auto-derive recommended agent from memory rankings
@@ -374,20 +372,12 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         except Exception:
             pass
 
-    # Warn once if dispatching multiple agents without a plan
-    if not runtime.plan_submitted and len(runtime.plan.subtasks) >= 1:
-        console.print(
-            "  [yellow]\u26a0[/yellow] Multiple agents dispatched without "
-            "submit_plan — consider submitting a structured plan"
-        )
-
     # Enforce allowed agents constraint
     if runtime.allowed_agents:
         if agent_type not in runtime.allowed_agents:
             fallback = runtime.allowed_agents[0]
             console.print(
-                f"  [yellow]\u26a0[/yellow] Agent '{agent_type}' not allowed, "
-                f"using '{fallback}' instead"
+                f"  [yellow]![/yellow]Agent '{agent_type}' not allowed, using '{fallback}' instead"
             )
             agent_type = fallback
 
@@ -397,8 +387,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         if fallback is None:
             raise RuntimeError("No agents are configured")
         console.print(
-            f"  [yellow]\u26a0[/yellow] Agent '{agent_type}' not configured, "
-            f"using '{fallback}' instead"
+            f"  [yellow]![/yellow]Agent '{agent_type}' not configured, using '{fallback}' instead"
         )
         agent_type = fallback
         adapter = runtime.agent_registry.get(agent_type)
@@ -420,7 +409,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     cmd_spec = adapter.get_command(prompt, cwd=runtime.cwd)
     launch_env = cmd_spec.env or None
 
-    # ── Try to reuse a done pane with the same agent type ────────
+    # -- Try to reuse a done pane with the same agent type --
     reused_pane = _try_reuse_done_pane(runtime, agent_type, task_name)
 
     if reused_pane is not None:
@@ -496,9 +485,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     win = runtime.pane_mgr.windows.get(runtime.agent_window_id)
     pane_count = len(win.pane_ids) if win else 1
     console.print(
-        f"  [green]\u2713[/green] Dispatched [bold]{task_name}[/bold] "
-        f"\u2192 pane {pane.pane_id} ({agent_type}) "
-        f"[dim][window {runtime.agent_window_id}, {pane_count} panes][/dim]"
+        f"  {P}  [bold]{task_name}[/bold] \u2192 pane {pane.pane_id} [dim]({agent_type})[/dim]"
     )
     event_payload = {
         "task_name": task_name,
@@ -548,22 +535,25 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime()
     pane_id = args["pane_id"]
     try:
-        # Early exit if pane is already gone
-        if not runtime.pane_mgr.is_pane_alive(pane_id):
+        pane_alive = runtime.pane_mgr.is_pane_alive(pane_id)
+
+        # get_text returns cached output even if pane is dead.
+        try:
+            text = runtime.pane_mgr.get_text(pane_id)
+        except Exception:
+            text = ""
+
+        if not pane_alive:
+            text = _extract_smart_output(text, tail_lines=100) if text else ""
             result = json.dumps(
-                {
-                    "text": "(pane no longer exists)",
-                    "stuck": False,
-                    "exited": True,
-                }
+                {"text": text or "(pane no longer exists)", "stuck": False, "exited": True}
             )
             _append_session_event(
                 "tool.read_pane_output",
-                {"pane_id": pane_id, "preview": "", "stuck": False, "exited": True},
+                {"pane_id": pane_id, "preview": text[:500], "stuck": False, "exited": True},
             )
             return {"content": [{"type": "text", "text": result}]}
 
-        text = runtime.pane_mgr.get_text(pane_id)
         text = _extract_smart_output(text, tail_lines=100)
 
         # Track output hashes for stuck detection
@@ -620,7 +610,7 @@ async def send_text_to_pane(args: dict[str, Any]) -> dict[str, Any]:
             ]
         }
     runtime.pane_mgr.send_text(pane_id, text)
-    console.print(f"  [yellow]\u2192[/yellow] Sent to pane {pane_id}: {text[:80]}")
+    # core.py already prints the intervention line.
     if runtime.dashboard is not None:
         runtime.dashboard.update_pane_activity(pane_id, text[:80])
     _append_session_event(
@@ -661,7 +651,7 @@ async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:
             st.finished_at = time.time()
             if notes:
                 st.completion_notes = notes
-            console.print(f"  [green]\u2713\u2713[/green] [bold]{task_name}[/bold] done")
+            console.print(f"  {P}  [bold]{task_name}[/bold] done")
             if runtime.dashboard is not None:
                 runtime.dashboard.update_subtask(
                     task_name,
@@ -689,12 +679,7 @@ async def record_phase_anchor(args: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime()
     if runtime.dashboard is not None:
         runtime.dashboard.update_phase(phase, completion_pct)
-    suffix = f" ({completion_pct}%)" if completion_pct is not None else ""
-    preview = _truncate_text(summary)
-    message = f"  [cyan]\u21ba[/cyan] Saved {_format_phase_name(phase)} checkpoint{suffix}"
-    if preview:
-        message += f": {preview}"
-    console.print(message)
+    # No console output \u2014 internal bookkeeping, not user-facing.
     return {"content": [{"type": "text", "text": f"Recorded anchor for phase '{phase}'"}]}
 
 
@@ -730,22 +715,38 @@ async def transition_phase(args: dict[str, Any]) -> dict[str, Any]:
             ]
         }
 
-    # Validate from_phase matches current (if session has a phase)
-    current_phase = None
-    if runtime.session_meta:
-        current_phase = (runtime.session_meta.latest_phase or "").strip().lower()
-    if current_phase and from_phase != current_phase:
+    # Validate from_phase matches current phase on the runtime
+    current = runtime.current_phase
+    if from_phase != current:
         return {
             "content": [
                 {
                     "type": "text",
                     "text": (
-                        f"Error: from_phase '{from_phase}' does not match "
-                        f"current phase '{current_phase}'"
+                        f"Error: from_phase '{from_phase}' does not match current phase '{current}'"
                     ),
                 }
             ]
         }
+
+    # Validate to_phase is a valid next phase
+    allowed = _VALID_PHASE_TRANSITIONS.get(from_phase)
+    if allowed is None or to_phase not in allowed:
+        valid_str = ", ".join(sorted(allowed)) if allowed else "none"
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        f"Error: invalid transition '{from_phase}' → '{to_phase}'. "
+                        f"Valid next phases: {valid_str}"
+                    ),
+                }
+            ]
+        }
+
+    # Update current phase on the runtime
+    runtime.current_phase = to_phase
 
     # Record phase anchor and update session
     _record_phase_anchor(to_phase, gate_summary)
@@ -793,7 +794,7 @@ async def remember_learning(args: dict[str, Any]) -> dict[str, Any]:
         rationale=rationale,
         confidence=confidence,
     )
-    console.print(f"  [magenta]\U0001f9e0[/magenta] Learned: {lesson[:80]}")
+    # No console output \u2014 internal bookkeeping.
     return {"content": [{"type": "text", "text": "Stored reusable lesson"}]}
 
 
@@ -807,13 +808,8 @@ async def remember_learning(args: dict[str, Any]) -> dict[str, Any]:
 async def report_completion(args: dict[str, Any]) -> dict[str, Any]:
     pct = args["completion_pct"]
     notes = args["notes"]
-    console.print(
-        Panel(
-            f"[bold]Completion: {pct}%[/bold]\n{notes}",
-            title="Progress Report",
-            border_style="cyan",
-        )
-    )
+    console.rule(style="dim")
+    console.print(f"\n  {P}  [bold]{pct}%[/bold] {notes}")
     _append_session_event(
         "tool.report_completion",
         {
@@ -831,7 +827,7 @@ async def report_completion(args: dict[str, Any]) -> dict[str, Any]:
     "Ask the human operator a question and wait for their answer. "
     "Use when the goal is genuinely ambiguous or you need a decision "
     "only the user can make. Do NOT use for routine confirmations. "
-    "Pass choices as a list of options — the user can pick by number "
+    "Pass choices as a list of options \u2014 the user can pick by number "
     "or type a free-form answer.",
     {"question": str, "choices": list},
 )
@@ -844,13 +840,11 @@ async def ask_user(args: dict[str, Any]) -> dict[str, Any]:
     if runtime.dashboard is not None:
         runtime.dashboard.stop()
 
-    body = f"[bold yellow]Lead agent asks:[/bold yellow]\n{question}"
+    console.print(f"\n  {P}  [bold]{question}[/bold]")
     if choices:
         for i, choice in enumerate(choices, 1):
-            body += f"\n  [cyan]{i}.[/cyan] {choice}"
-        body += "\n\n[dim]Enter a number or type your own answer[/dim]"
-
-    console.print(Panel(body, border_style="yellow"))
+            console.print(f"    [bold]{i}.[/bold] {choice}")
+        console.print("    [dim]Enter a number or type your own answer[/dim]")
     raw: str = await anyio.to_thread.run_sync(lambda: input("Your answer: "))
     raw = raw.strip()
 
@@ -860,7 +854,7 @@ async def ask_user(args: dict[str, Any]) -> dict[str, Any]:
         idx = int(raw) - 1
         if 0 <= idx < len(choices):
             answer = choices[idx]
-            console.print(f"  [dim]→ {answer}[/dim]")
+            console.print(f"  [dim]\u2192 {answer}[/dim]")
 
     # Resume the dashboard
     if runtime.dashboard is not None:
@@ -882,19 +876,15 @@ async def ask_user(args: dict[str, Any]) -> dict[str, Any]:
 )
 async def wait_tool(args: dict[str, Any]) -> dict[str, Any]:
     seconds = min(max(args.get("seconds", 30), 5), 120)
-    console.print(f"  [dim]\u23f3 Waiting {seconds}s...[/dim]")
     await anyio.sleep(seconds)
     return {"content": [{"type": "text", "text": f"Waited {seconds}s"}]}
 
 
 @tool(
     "run_command",
-    "Run any CLI command in a terminal pane. Works for both one-shot commands "
-    "(e.g. 'npm test', 'cargo build', 'git log') and interactive programs "
-    "(e.g. 'python', 'htop', 'psql'). Set interactive=true for long-running "
-    "or interactive programs, false (default) for one-shot commands. "
-    "The pane stays in the shared window "
-    "and can be monitored with read_pane_output / send_text_to_pane.",
+    "Run a CLI command in a terminal pane. For build/test/git/servers/databases \u2014 "
+    "NOT for file search or exploration (use find_files/grep_files/read_file instead). "
+    "Set interactive=true for long-running programs, false (default) for one-shot.",
     {
         "command": str,
         "task_name": str,
@@ -948,12 +938,7 @@ async def run_command(args: dict[str, Any]) -> dict[str, Any]:
 
     win = runtime.pane_mgr.windows.get(runtime.agent_window_id)
     pane_count = len(win.pane_ids) if win else 1
-    mode = "interactive" if interactive else "one-shot"
-    console.print(
-        f"  [green]\u2713[/green] Running [{mode}] [bold]{command_str[:60]}[/bold] "
-        f"\u2192 pane {pane.pane_id} "
-        f"[dim][window {runtime.agent_window_id}, {pane_count} panes][/dim]"
-    )
+    console.print(f"  {P}  [bold]{command_str[:60]}[/bold] \u2192 pane {pane.pane_id}")
     _append_session_event(
         "tool.run_command",
         {
@@ -1034,16 +1019,15 @@ async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
             cwd=runtime.cwd,
         )
 
-    console.print(
-        f"  [blue]\u2713[/blue] Verifying [{check_type}]: {command_str[:60]} "
-        f"\u2192 pane {pane.pane_id}"
-    )
+    console.print(f"  {P}  verify {check_type}: {command_str[:60]} \u2192 pane {pane.pane_id}")
 
     # Poll for the exit marker
     start_ts = time.monotonic()
     deadline = start_ts + timeout
     exit_code: int | None = None
     output = ""
+
+    import re
 
     while time.monotonic() < deadline:
         await anyio.sleep(2)
@@ -1052,13 +1036,13 @@ async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
         except Exception:
             text = ""
         # Look for our exit marker
-        import re
-
         match = re.search(r"__OPENMAX_EXIT_(\d+)__", text)
         if match:
             exit_code = int(match.group(1))
-            # Remove the marker from output
             output = text[: match.start()].strip()
+            break
+        # If pane died, cached output is all we'll ever get — stop polling.
+        if not runtime.pane_mgr.is_pane_alive(pane.pane_id):
             break
 
     duration_s = int(time.monotonic() - start_ts)
@@ -1083,11 +1067,8 @@ async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
         "command": command_str,
     }
 
-    style = "green" if status == "pass" else "red" if status == "fail" else "yellow"
-    console.print(
-        f"  [{style}]\u2713[/{style}] Verification [{check_type}]: "
-        f"{status} (exit={exit_code}, {duration_s}s)"
-    )
+    mark = "pass" if status == "pass" else "FAIL"
+    console.print(f"  {P}  {check_type}: {mark} [dim]({duration_s}s)[/dim]")
 
     _append_session_event("tool.run_verification", result)
     return {"content": [{"type": "text", "text": json.dumps(result)}]}
@@ -1164,19 +1145,109 @@ async def check_conflicts(args: dict[str, Any]) -> dict[str, Any]:
         "untracked_files": untracked_files,
     }
 
-    console.print(
-        f"  [{'red' if has_conflict else 'green'}]"
-        f"{'⚠' if has_conflict else '✓'}[/{'red' if has_conflict else 'green'}] "
-        f"Conflict check: {details[:80]}"
-    )
+    msg = "conflicts found" if has_conflict else "no conflicts"
+    console.print(f"  {P}  {msg}")
     _append_session_event("tool.check_conflicts", result)
     return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
 
+# ── File exploration tools (instant, no pane needed) ──────────────────
+
+
+@tool(
+    "find_files",
+    "Search for files by glob pattern in the working directory. "
+    "Returns matching file paths instantly (no pane needed). Max 200 results. "
+    "Examples: '**/*.md', 'src/**/*.py', '**/roadmap*', 'docs/**'.",
+    {"pattern": str, "path": str},
+)
+async def find_files_tool(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
+    pattern = args["pattern"]
+    rel_path = args.get("path", ".")
+
+    target_dir = (Path(runtime.cwd) / rel_path).resolve()
+    cwd_resolved = Path(runtime.cwd).resolve()
+    if not str(target_dir).startswith(str(cwd_resolved)):
+        return {"content": [{"type": "text", "text": "Error: path outside working directory"}]}
+
+    try:
+        matches = sorted(target_dir.glob(pattern))
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
+    filtered = [
+        m
+        for m in matches
+        if not any(part.startswith(".") for part in m.relative_to(cwd_resolved).parts)
+        and "__pycache__" not in str(m)
+    ][:200]
+
+    rel_paths = [str(m.relative_to(cwd_resolved)) for m in filtered]
+    result = f"Found {len(rel_paths)} file(s):\n" + "\n".join(rel_paths)
+    console.print(f"  [dim]{P}  find '{pattern}' \u2192 {len(rel_paths)} file(s)[/dim]")
+    return {"content": [{"type": "text", "text": result}]}
+
+
+@tool(
+    "grep_files",
+    "Search file contents for a regex pattern. Returns matching lines with "
+    "file paths and line numbers instantly (no pane needed). Max 100 matches. "
+    "Use glob param to filter files (e.g. '**/*.py').",
+    {"pattern": str, "glob": str, "max_results": int},
+)
+async def grep_files_tool(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
+    pattern = args["pattern"]
+    file_glob = args.get("glob", "**/*")
+    max_results = min(args.get("max_results", 100), 200)
+
+    import re
+
+    try:
+        regex = re.compile(pattern, re.IGNORECASE)
+    except re.error as e:
+        return {"content": [{"type": "text", "text": f"Error: invalid regex: {e}"}]}
+
+    cwd_resolved = Path(runtime.cwd).resolve()
+    matches: list[str] = []
+
+    try:
+        for filepath in sorted(cwd_resolved.glob(file_glob)):
+            if not filepath.is_file():
+                continue
+            if any(part.startswith(".") for part in filepath.relative_to(cwd_resolved).parts):
+                continue
+            if "__pycache__" in str(filepath):
+                continue
+            try:
+                text = filepath.read_text(errors="strict")
+            except (UnicodeDecodeError, OSError):
+                continue
+            rel = str(filepath.relative_to(cwd_resolved))
+            for i, line in enumerate(text.splitlines(), 1):
+                if regex.search(line):
+                    matches.append(f"{rel}:{i}: {line.rstrip()}")
+                    if len(matches) >= max_results:
+                        break
+            if len(matches) >= max_results:
+                break
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+
+    if not matches:
+        result = f"No matches for pattern '{pattern}'"
+    else:
+        result = f"Found {len(matches)} match(es):\n" + "\n".join(matches)
+
+    console.print(f"  [dim]{P}  grep '{pattern}' \u2192 {len(matches)} match(es)[/dim]")
+    return {"content": [{"type": "text", "text": result}]}
+
+
 @tool(
     "read_file",
-    "Read a file from the working directory. Use to understand codebase before planning. "
-    "Returns file content (max 2000 lines). Specify offset/limit for large files.",
+    "Read a file from the working directory. Returns file content instantly "
+    "(no pane needed, max 2000 lines). Specify offset/limit for large files.",
     {"path": str, "offset": int, "limit": int},
 )
 async def read_file_tool(args: dict[str, Any]) -> dict[str, Any]:
@@ -1210,7 +1281,7 @@ async def read_file_tool(args: dict[str, Any]) -> dict[str, Any]:
     header += ")\n"
     result = header + "\n".join(numbered)
 
-    console.print(f"  [dim]\U0001f4c4 Read {rel_path} ({len(selected)}/{total} lines)[/dim]")
+    console.print(f"  [dim]{P}  read {rel_path} ({len(selected)}/{total} lines)[/dim]")
     return {"content": [{"type": "text", "text": result}]}
 
 
@@ -1219,7 +1290,9 @@ ALL_TOOLS = [
     ask_user,
     check_conflicts,
     dispatch_agent,
+    find_files_tool,
     get_agent_recommendations,
+    grep_files_tool,
     read_file_tool,
     read_pane_output,
     run_command,

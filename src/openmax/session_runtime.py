@@ -152,6 +152,7 @@ class LeadAgentRuntime:
     dashboard: Any | None = None
     pane_output_hashes: dict[int, list[str]] = field(default_factory=dict)
     plan_submitted: bool = False
+    current_phase: str = "research"
 
 
 _lead_agent_runtime: ContextVar[LeadAgentRuntime | None] = ContextVar(

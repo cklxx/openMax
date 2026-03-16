@@ -517,9 +517,9 @@ def test_tool_category_and_style():
     assert tool_category("mcp__openmax__wait") == "system"
     assert tool_category("mcp__openmax__unknown_tool") == "system"
 
-    assert tool_style("dispatch") == "bold green"
-    assert tool_style("monitor") == "cyan"
-    assert tool_style("intervention") == "bold yellow"
+    assert tool_style("dispatch") == "bold"
+    assert tool_style("monitor") == "dim"
+    assert tool_style("intervention") == "bold"
     assert tool_style("system") == "dim"
     assert tool_style("unknown") == "dim"
 
@@ -881,8 +881,7 @@ def test_read_pane_output_returns_exited_false_when_pane_alive(monkeypatch, tmp_
 
 def test_transition_phase_valid(tmp_path):
     runtime, token, store, meta, memory_store = _setup_session(tmp_path)
-    runtime.session_meta.latest_phase = "research"
-    store.save_meta(runtime.session_meta)
+    runtime.current_phase = "research"
 
     try:
         result = anyio.run(
@@ -896,6 +895,7 @@ def test_transition_phase_valid(tmp_path):
         )
         text = result["content"][0]["text"]
         assert "Transitioned" in text
+        assert runtime.current_phase == "implement"
         assert runtime.session_meta.latest_phase == "implement"
     finally:
         _teardown_session(token)
@@ -923,8 +923,7 @@ def test_transition_phase_short_summary_rejected(tmp_path):
 
 def test_transition_phase_mismatched_phase_rejected(tmp_path):
     runtime, token, store, meta, memory_store = _setup_session(tmp_path)
-    runtime.session_meta.latest_phase = "research"
-    store.save_meta(runtime.session_meta)
+    runtime.current_phase = "research"
 
     try:
         result = anyio.run(
@@ -939,6 +938,51 @@ def test_transition_phase_mismatched_phase_rejected(tmp_path):
         text = result["content"][0]["text"]
         assert "Error" in text
         assert "does not match" in text
+    finally:
+        _teardown_session(token)
+
+
+def test_transition_phase_invalid_to_phase_rejected(tmp_path):
+    """Cannot skip phases — research must go to implement, not verify."""
+    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
+    runtime.current_phase = "research"
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.transition_phase.handler,
+            {
+                "from_phase": "research",
+                "to_phase": "verify",
+                "gate_summary": "Trying to skip directly to verify phase",
+                "artifacts": [],
+            },
+        )
+        text = result["content"][0]["text"]
+        assert "Error" in text
+        assert "invalid transition" in text
+        assert runtime.current_phase == "research"  # unchanged
+    finally:
+        _teardown_session(token)
+
+
+def test_transition_phase_verify_to_implement_redispatch(tmp_path):
+    """Allow verify → implement for re-dispatch scenarios."""
+    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
+    runtime.current_phase = "verify"
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.transition_phase.handler,
+            {
+                "from_phase": "verify",
+                "to_phase": "implement",
+                "gate_summary": "Tests failed, need to re-dispatch agent to fix",
+                "artifacts": [],
+            },
+        )
+        text = result["content"][0]["text"]
+        assert "Transitioned" in text
+        assert runtime.current_phase == "implement"
     finally:
         _teardown_session(token)
 
