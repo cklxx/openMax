@@ -18,6 +18,7 @@
 | **P2** | 3.1 | Context Injection | [`p2_3.1_context_injection.md`](tasks/p2_3.1_context_injection.md) | done |
 | **P2** | 4.2 | Dashboard Elapsed Time | [`p2_4.2_dashboard_elapsed_time.md`](tasks/p2_4.2_dashboard_elapsed_time.md) | done |
 | **P2** | 5.1 | Git Conflict Detection | [`p2_5.1_git_conflict_detection.md`](tasks/p2_5.1_git_conflict_detection.md) | done |
+| **P1** | 11.1 | Branch Isolation | [`p1_11.1_branch_isolation.md`](tasks/p1_11.1_branch_isolation.md) | done |
 | **P2** | 2.1 | Recommendation Accuracy | spec pending | pending |
 | **P3** | 1.2 | Dependency Scheduling | spec pending | pending |
 | **P3** | 2.2 | Load Balancing | spec pending | pending |
@@ -112,13 +113,15 @@
 
 ✅ 10.1 Failure Auto-Retry (independent)
 10.2 Resume Enhancement (independent)
+
+✅ 11.1 Branch Isolation (independent)
 ```
 
 ## Dispatch Waves
 
 - **Wave 1** (P0): ~~4.1 first, then 5.2 + 1.1 in parallel~~ **Complete** — all P0 items delivered
 - **Wave 2** (P1): ~~7.1, 10.1, 6.3, 8.1 — all in parallel~~ **Complete** — all P1 items delivered
-- **Wave 3**: 11.1 Branch Isolation, 11.2 Context Compression, 11.3 Cost Convergence, 2.1 Recommendation Accuracy
+- **Wave 3**: ~~11.1 Branch Isolation~~ done, 11.2 Context Compression, 11.3 Cost Convergence, 2.1 Recommendation Accuracy
 
 ## Task Spec Format
 
