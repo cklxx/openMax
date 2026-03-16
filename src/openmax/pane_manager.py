@@ -283,8 +283,15 @@ class PaneManager:
     # ── Cleanup ────────────────────────────────────────────────────
 
     def cleanup_all(self) -> None:
-        """Kill all managed panes. Windows close automatically when empty."""
+        """Kill all managed panes and ensure managed windows close.
+
+        After killing managed panes, any panes still belonging to our
+        managed windows are also killed (e.g. replacement shells spawned
+        by the terminal).  Kaku closes a window once its last pane dies.
+        """
         managed_pane_ids = list(self._panes)
+        managed_window_ids = set(self._windows)
+
         for pane_id in managed_pane_ids:
             self._kill_pane_process(pane_id)
 
@@ -292,12 +299,25 @@ class PaneManager:
         # that trap signals).  Re-check and retry once.
         time.sleep(0.5)
         try:
-            alive_ids = {p.pane_id for p in self._list_all_panes()}
+            alive_panes = self._list_all_panes()
         except RuntimeError:
-            alive_ids = set()
+            alive_panes = []
 
+        alive_ids = {p.pane_id for p in alive_panes}
+
+        # Retry stragglers from our managed set
         stragglers = alive_ids & set(managed_pane_ids)
         for pane_id in stragglers:
+            self._kill_pane_process(pane_id)
+
+        # Kill any panes still sitting in our managed windows (replacement
+        # shells or panes spawned by the terminal after we killed ours).
+        orphans = [
+            p.pane_id
+            for p in alive_panes
+            if p.window_id in managed_window_ids and p.pane_id not in managed_pane_ids
+        ]
+        for pane_id in orphans:
             self._kill_pane_process(pane_id)
 
         self._panes.clear()
