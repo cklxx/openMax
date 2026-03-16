@@ -269,7 +269,7 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
         "parallel_groups": parallel_groups,
     }
 
-    console.print(f"  {P}  plan: {len(subtasks_raw)} subtasks")
+    console.print(f"  [bold cyan]{P}[/bold cyan]  plan: {len(subtasks_raw)} subtasks")
     _append_session_event("tool.submit_plan", plan_data)
 
     return {
@@ -291,12 +291,23 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
 def _try_reuse_done_pane(
     runtime: LeadAgentRuntime, agent_type: str, task_name: str
 ) -> SimpleNamespace | None:
-    """Find a done pane with the same agent type to reuse."""
+    """Find a done pane with the same agent type to reuse.
+
+    Only reuses a pane if no other running/pending task is already occupying it.
+    This prevents multiple parallel tasks from being funneled into the same pane.
+    """
+    # Collect pane IDs that are currently in use by running or pending tasks.
+    busy_panes: set[int] = set()
+    for st in runtime.plan.subtasks:
+        if st.status in (TaskStatus.RUNNING, TaskStatus.PENDING) and st.pane_id is not None:
+            busy_panes.add(st.pane_id)
+
     for st in runtime.plan.subtasks:
         if (
             st.agent_type == agent_type
             and st.status == TaskStatus.DONE
             and st.pane_id is not None
+            and st.pane_id not in busy_panes
             and runtime.pane_mgr.is_pane_alive(st.pane_id)
         ):
             console.print(f"  [dim]{P}  reusing pane {st.pane_id} for {task_name}[/dim]")
@@ -342,6 +353,7 @@ async def _wait_and_send_prompt(
         "agent_type": str,
         "prompt": str,
         "override_reason": str,
+        "retry_count": int,
     },
 )
 async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
@@ -349,10 +361,15 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     task_name = args["task_name"]
     agent_type = args.get("agent_type", "claude-code")
     prompt = args["prompt"]
+    retry_count = args.get("retry_count", 0)
+    if not isinstance(retry_count, int) or retry_count < 0:
+        retry_count = 0
 
-    # Prevent duplicate task names \u2014 auto-suffix if already exists
+    # For retries, allow re-dispatch of the same task (update in place).
+    # Otherwise, prevent duplicate task names with auto-suffix.
     existing_names = {st.name for st in runtime.plan.subtasks}
-    if task_name in existing_names:
+    is_retry = retry_count > 0 and task_name in existing_names
+    if task_name in existing_names and not is_retry:
         suffix = 2
         while f"{task_name}-{suffix}" in existing_names:
             suffix += 1
@@ -469,6 +486,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         prompt=prompt,
         status=TaskStatus.RUNNING,
         pane_id=pane.pane_id,
+        retry_count=retry_count,
         started_at=time.time(),
     )
     _upsert_subtask(subtask)
@@ -485,8 +503,11 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     win = runtime.pane_mgr.windows.get(runtime.agent_window_id)
     pane_count = len(win.pane_ids) if win else 1
     console.print(
-        f"  {P}  [bold]{task_name}[/bold] \u2192 pane {pane.pane_id} [dim]({agent_type})[/dim]"
+        f"  [bold cyan]{P}[/bold cyan]  [bold]{task_name}[/bold]"
+        f" \u2192 pane {pane.pane_id} [dim]({agent_type})[/dim]"
     )
+    if retry_count > 0:
+        console.print(f"  [yellow]↻[/yellow]  Retrying '{task_name}' (attempt {retry_count + 1})")
     event_payload = {
         "task_name": task_name,
         "agent_type": agent_type,
@@ -495,6 +516,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         "window_id": runtime.agent_window_id,
         "panes_in_window": pane_count,
         "recommended_agent": recommended_agent,
+        "retry_count": retry_count,
     }
     override_reason = args.get("override_reason")
     if override_reason:
@@ -513,6 +535,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
                         "agent_type": agent_type,
                         "task_name": task_name,
                         "panes_in_window": pane_count,
+                        "retry_count": retry_count,
                     }
                 ),
             }
@@ -521,13 +544,29 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
 
 
 _STUCK_THRESHOLD = 3  # consecutive identical outputs to trigger stuck
+_MAX_RETRIES = 2
+
+
+def _get_retry_info_for_pane(pane_id: int) -> dict[str, Any]:
+    """Look up retry_count and max_retries for the subtask owning this pane."""
+    runtime = _runtime()
+    for st in runtime.plan.subtasks:
+        if st.pane_id == pane_id:
+            return {
+                "retry_count": st.retry_count,
+                "max_retries": st.max_retries,
+                "task_name": st.name,
+                "can_retry": st.retry_count < st.max_retries,
+            }
+    return {}
 
 
 @tool(
     "read_pane_output",
     "Read the current terminal output of an agent pane (~100 tail lines). "
     "Error lines from earlier output appear at the top with [ERROR] prefix. "
-    "Returns JSON with 'text' and 'stuck' fields. "
+    "Returns JSON with 'text', 'stuck', and 'exited' fields. "
+    "When exited=true, includes retry_count, max_retries, and can_retry. "
     "stuck=true when output is unchanged for 3 consecutive reads (~60-90s).",
     {"pane_id": int},
 )
@@ -545,13 +584,23 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
 
         if not pane_alive:
             text = _extract_smart_output(text, tail_lines=100) if text else ""
-            result = json.dumps(
-                {"text": text or "(pane no longer exists)", "stuck": False, "exited": True}
-            )
-            _append_session_event(
-                "tool.read_pane_output",
-                {"pane_id": pane_id, "preview": text[:500], "stuck": False, "exited": True},
-            )
+            # Look up subtask retry info for the exited pane
+            retry_info = _get_retry_info_for_pane(pane_id)
+            response: dict[str, Any] = {
+                "text": text or "(pane no longer exists)",
+                "stuck": False,
+                "exited": True,
+            }
+            response.update(retry_info)
+            result = json.dumps(response)
+            event_payload: dict[str, Any] = {
+                "pane_id": pane_id,
+                "preview": text[:500],
+                "stuck": False,
+                "exited": True,
+            }
+            event_payload.update(retry_info)
+            _append_session_event("tool.read_pane_output", event_payload)
             return {"content": [{"type": "text", "text": result}]}
 
         text = _extract_smart_output(text, tail_lines=100)
@@ -651,7 +700,7 @@ async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:
             st.finished_at = time.time()
             if notes:
                 st.completion_notes = notes
-            console.print(f"  {P}  [bold]{task_name}[/bold] done")
+            console.print(f"  [bold green]\u2713[/bold green]  [bold]{task_name}[/bold] done")
             if runtime.dashboard is not None:
                 runtime.dashboard.update_subtask(
                     task_name,
@@ -808,8 +857,18 @@ async def remember_learning(args: dict[str, Any]) -> dict[str, Any]:
 async def report_completion(args: dict[str, Any]) -> dict[str, Any]:
     pct = args["completion_pct"]
     notes = args["notes"]
-    console.rule(style="dim")
-    console.print(f"\n  {P}  [bold]{pct}%[/bold] {notes}")
+    from rich.panel import Panel
+
+    pct_color = "green" if pct >= 80 else "yellow" if pct >= 50 else "red"
+    panel = Panel(
+        f"  [{pct_color}]{pct}%[/{pct_color}] complete\n  {notes}",
+        title="[bold]Result[/bold]",
+        title_align="left",
+        border_style="cyan",
+        padding=(0, 2),
+    )
+    console.print()
+    console.print(panel)
     _append_session_event(
         "tool.report_completion",
         {
@@ -840,7 +899,7 @@ async def ask_user(args: dict[str, Any]) -> dict[str, Any]:
     if runtime.dashboard is not None:
         runtime.dashboard.stop()
 
-    console.print(f"\n  {P}  [bold]{question}[/bold]")
+    console.print(f"\n  [bold yellow]?[/bold yellow]  [bold]{question}[/bold]")
     if choices:
         for i, choice in enumerate(choices, 1):
             console.print(f"    [bold]{i}.[/bold] {choice}")
@@ -938,7 +997,9 @@ async def run_command(args: dict[str, Any]) -> dict[str, Any]:
 
     win = runtime.pane_mgr.windows.get(runtime.agent_window_id)
     pane_count = len(win.pane_ids) if win else 1
-    console.print(f"  {P}  [bold]{command_str[:60]}[/bold] \u2192 pane {pane.pane_id}")
+    console.print(
+        f"  [bold cyan]{P}[/bold cyan]  [bold]{command_str[:60]}[/bold] \u2192 pane {pane.pane_id}"
+    )
     _append_session_event(
         "tool.run_command",
         {
@@ -1019,7 +1080,10 @@ async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
             cwd=runtime.cwd,
         )
 
-    console.print(f"  {P}  verify {check_type}: {command_str[:60]} \u2192 pane {pane.pane_id}")
+    console.print(
+        f"  [bold cyan]{P}[/bold cyan]  verify {check_type}:"
+        f" {command_str[:60]} \u2192 pane {pane.pane_id}"
+    )
 
     # Poll for the exit marker
     start_ts = time.monotonic()
@@ -1067,8 +1131,14 @@ async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
         "command": command_str,
     }
 
-    mark = "pass" if status == "pass" else "FAIL"
-    console.print(f"  {P}  {check_type}: {mark} [dim]({duration_s}s)[/dim]")
+    if status == "pass":
+        console.print(
+            f"  [bold green]\u2713[/bold green]  {check_type}: pass [dim]({duration_s}s)[/dim]"
+        )
+    else:
+        console.print(
+            f"  [bold red]\u2717[/bold red]  {check_type}: FAIL [dim]({duration_s}s)[/dim]"
+        )
 
     _append_session_event("tool.run_verification", result)
     return {"content": [{"type": "text", "text": json.dumps(result)}]}
@@ -1145,8 +1215,10 @@ async def check_conflicts(args: dict[str, Any]) -> dict[str, Any]:
         "untracked_files": untracked_files,
     }
 
-    msg = "conflicts found" if has_conflict else "no conflicts"
-    console.print(f"  {P}  {msg}")
+    if has_conflict:
+        console.print("  [bold red]\u2717[/bold red]  conflicts found")
+    else:
+        console.print("  [bold green]\u2713[/bold green]  no conflicts")
     _append_session_event("tool.check_conflicts", result)
     return {"content": [{"type": "text", "text": json.dumps(result)}]}
 

@@ -1284,3 +1284,132 @@ def test_mark_task_done_sets_finished_at(tmp_path):
         assert before <= subtask.finished_at <= after
     finally:
         _teardown_session(token)
+
+
+def test_read_pane_output_includes_retry_info_on_exit(monkeypatch, tmp_path):
+    """When pane has exited, read_pane_output includes retry_count and can_retry."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+
+    class DeadPaneManager:
+        def get_text(self, pane_id):
+            return "Traceback: error occurred"
+
+        def is_pane_alive(self, pane_id):
+            return False
+
+    runtime.pane_mgr = DeadPaneManager()
+    runtime.pane_output_hashes = {}
+
+    # Register a subtask with pane_id=123 and retry_count=0
+    subtask = SubTask(
+        name="failing-task",
+        agent_type="claude-code",
+        prompt="do stuff",
+        status=TaskStatus.RUNNING,
+        pane_id=123,
+        retry_count=0,
+    )
+    runtime.plan.subtasks.append(subtask)
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.read_pane_output.handler,
+            {"pane_id": 123},
+        )
+        import json as _json
+
+        parsed = _json.loads(result["content"][0]["text"])
+        assert parsed["exited"] is True
+        assert parsed["retry_count"] == 0
+        assert parsed["max_retries"] == 2
+        assert parsed["can_retry"] is True
+        assert parsed["task_name"] == "failing-task"
+    finally:
+        _teardown_session(token)
+
+
+def test_read_pane_output_can_retry_false_at_max(monkeypatch, tmp_path):
+    """When retry_count >= max_retries, can_retry is False."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+
+    class DeadPaneManager:
+        def get_text(self, pane_id):
+            return "fatal error"
+
+        def is_pane_alive(self, pane_id):
+            return False
+
+    runtime.pane_mgr = DeadPaneManager()
+    runtime.pane_output_hashes = {}
+
+    subtask = SubTask(
+        name="exhausted-task",
+        agent_type="claude-code",
+        prompt="do stuff",
+        status=TaskStatus.RUNNING,
+        pane_id=456,
+        retry_count=2,
+    )
+    runtime.plan.subtasks.append(subtask)
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.read_pane_output.handler,
+            {"pane_id": 456},
+        )
+        import json as _json
+
+        parsed = _json.loads(result["content"][0]["text"])
+        assert parsed["exited"] is True
+        assert parsed["retry_count"] == 2
+        assert parsed["can_retry"] is False
+    finally:
+        _teardown_session(token)
+
+
+def test_dispatch_agent_carries_retry_count(monkeypatch, tmp_path):
+    """dispatch_agent with retry_count>0 updates the existing subtask."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    # Pre-populate a failed subtask
+    subtask = SubTask(
+        name="retry-task",
+        agent_type="claude-code",
+        prompt="original prompt",
+        status=TaskStatus.ERROR,
+        pane_id=99,
+        retry_count=0,
+    )
+    runtime.plan.subtasks.append(subtask)
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.dispatch_agent.handler,
+            {
+                "task_name": "retry-task",
+                "agent_type": "claude-code",
+                "prompt": "retry with fix",
+                "retry_count": 1,
+            },
+        )
+        import json as _json
+
+        parsed = _json.loads(result["content"][0]["text"])
+        assert parsed["status"] == "dispatched"
+        assert parsed["retry_count"] == 1
+
+        # The subtask should be updated in-place with new retry_count
+        matching = [st for st in runtime.plan.subtasks if st.name == "retry-task"]
+        assert len(matching) == 1
+        assert matching[0].retry_count == 1
+        assert matching[0].status == TaskStatus.RUNNING
+    finally:
+        _teardown_session(token)
+
+
+def test_subtask_max_retries_default():
+    """SubTask.max_retries defaults to 2."""
+    st = SubTask(name="t", agent_type="claude-code", prompt="p")
+    assert st.max_retries == 2
+    assert st.retry_count == 0
