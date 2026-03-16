@@ -127,16 +127,23 @@ class PaneManager:
             pane_id = self._backend.spawn_window(command, cwd=cwd, env=env)
         else:
             pane_id = self._backend.spawn_window(command, cwd=cwd)
+
+        # Resolve window_id with retries (pane may not appear in list
+        # immediately after spawn).
         window_id = self._find_pane_window(pane_id)
 
-        # Track window
+        # Always track the window — use pane_id as synthetic window_id
+        # when the real one cannot be determined (e.g. the pane exited
+        # before we could query it).
+        effective_window_id = window_id if window_id is not None else pane_id
         win = ManagedWindow(
-            window_id=window_id,
+            window_id=effective_window_id,
             title=title,
             pane_ids=[pane_id],
         )
+        self._windows[effective_window_id] = win
+
         if window_id is not None:
-            self._windows[window_id] = win
             self._set_window_title(pane_id, title)
             # Focus the agent pane so its window becomes frontmost,
             # then resize window 1 (which is now the agent window).
@@ -147,7 +154,7 @@ class PaneManager:
         # Track pane
         pane = ManagedPane(
             pane_id=pane_id,
-            window_id=window_id,
+            window_id=effective_window_id,
             purpose=purpose,
             agent_type=agent_type,
             state=PaneState.RUNNING,
@@ -169,19 +176,51 @@ class PaneManager:
         """Add a new pane to an existing managed window with smart layout.
 
         Automatically picks the split target and direction based on
-        how many panes are already in the window.
+        how many panes are already in the window.  If all existing
+        panes in the window have died, falls back to creating a new
+        window instead.
         """
         win = self._windows.get(window_id)
         if win is None:
             raise RuntimeError(f"Window {window_id} is not managed")
 
+        # Prune dead panes so split targets are valid
+        alive_ids = set()
+        try:
+            alive_ids = {p.pane_id for p in self._list_all_panes()}
+        except RuntimeError:
+            pass
+        win.pane_ids = [pid for pid in win.pane_ids if pid in alive_ids]
+
+        if not win.pane_ids:
+            # All panes in window have died — create a fresh window
+            return self.create_window(
+                command=command,
+                purpose=purpose,
+                agent_type=agent_type,
+                title=win.title,
+                cwd=cwd,
+                env=env,
+            )
+
         index = len(win.pane_ids)
         target_pane, direction = _pick_split(win.pane_ids, index)
 
         if env:
-            pane_id = self._backend.split_pane(target_pane, direction, command, cwd=cwd, env=env)
+            pane_id = self._backend.split_pane(
+                target_pane,
+                direction,
+                command,
+                cwd=cwd,
+                env=env,
+            )
         else:
-            pane_id = self._backend.split_pane(target_pane, direction, command, cwd=cwd)
+            pane_id = self._backend.split_pane(
+                target_pane,
+                direction,
+                command,
+                cwd=cwd,
+            )
 
         # Track
         win.pane_ids.append(pane_id)
@@ -336,13 +375,26 @@ class PaneManager:
     def _list_all_panes(self) -> list[KakuPaneInfo]:
         return self._backend.list_panes()
 
-    def _find_pane_window(self, pane_id: int) -> int | None:
-        try:
-            for p in self._list_all_panes():
-                if p.pane_id == pane_id:
-                    return p.window_id
-        except RuntimeError:
-            pass
+    def _find_pane_window(
+        self,
+        pane_id: int,
+        retries: int = 3,
+        delay: float = 0.3,
+    ) -> int | None:
+        """Find the window that contains *pane_id*.
+
+        Retries a few times to handle the race between ``spawn_window``
+        returning and the pane actually appearing in ``list_panes``.
+        """
+        for attempt in range(retries):
+            try:
+                for p in self._list_all_panes():
+                    if p.pane_id == pane_id:
+                        return p.window_id
+            except RuntimeError:
+                pass
+            if attempt < retries - 1:
+                time.sleep(delay)
         return None
 
     def _set_window_title(self, pane_id: int, title: str) -> None:

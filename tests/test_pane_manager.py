@@ -115,6 +115,12 @@ def test_create_window_tracks_window_and_uses_backend(monkeypatch):
 def test_add_pane_uses_split_strategy_via_backend():
     backend = FakeBackend()
     backend.split_pane_id = 14
+    # list_panes must show existing panes as alive so add_pane
+    # doesn't fall back to create_window.
+    backend.list_panes_result = [
+        make_pane_info(pane_id=11, window_id=5),
+        make_pane_info(pane_id=12, window_id=5),
+    ]
     manager = PaneManager(backend=backend)
     manager._windows = {5: ManagedWindow(5, "openMax", [11, 12])}
 
@@ -130,6 +136,7 @@ def test_add_pane_uses_split_strategy_via_backend():
     assert pane.window_id == 5
     assert manager.windows[5].pane_ids == [11, 12, 14]
     assert backend.calls == [
+        ("list_panes",),  # prune dead panes check
         ("split_pane", 12, "bottom", ["claude"], "/repo"),
     ]
 
