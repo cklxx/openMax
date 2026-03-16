@@ -17,11 +17,10 @@ from openmax.auth import has_claude_auth, run_claude_setup_token
 from openmax.doctor import render_results, run_checks
 from openmax.kaku import ensure_kaku, is_kaku_available
 from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
-from openmax.memory_system import MemoryStore
+from openmax.memory import MemoryStore
 from openmax.pane_backend import resolve_pane_backend_name
 from openmax.pane_manager import PaneManager
 from openmax.session_runtime import SessionSnapshot, SessionStore
-from openmax.session_runtime import task_hash as _task_hash
 
 console = Console()
 _ANCHOR_PREVIEW_LIMIT = 5
@@ -136,7 +135,8 @@ def run(
     # Auto-resume: detect unfinished session for same task+cwd (when no explicit session-id)
     if not session_id and not resume:
         try:
-            from openmax.session_runtime import SessionStore as _SS, task_hash as _th
+            from openmax.session_runtime import SessionStore as _SS
+            from openmax.session_runtime import task_hash as _th
             _store = _SS()
             _th_val = _th(task, cwd)
             _existing = _store.find_active_session(_th_val)
@@ -568,8 +568,13 @@ def validate_config(cwd: str | None) -> None:
     cwd = _resolve_cwd(cwd)
     console.print(f"[bold]Validating agent config for {cwd}[/bold]")
 
-    from openmax.agent_registry import _candidate_config_paths, _merge_config_file, built_in_agent_registry
     from pathlib import Path
+
+    from openmax.agent_registry import (
+        _candidate_config_paths,
+        _merge_config_file,
+        built_in_agent_registry,
+    )
 
     registry = built_in_agent_registry()
     console.print("[dim]Built-in agents:[/dim] " + ", ".join(registry.names()))
@@ -582,7 +587,7 @@ def validate_config(cwd: str | None) -> None:
         console.print(f"\n[bold]Config file:[/bold] {p}")
         try:
             _merge_config_file(registry, p)
-            console.print(f"  [green]✅ valid[/green]")
+            console.print("  [green]✅ valid[/green]")
         except AgentConfigError as exc:
             console.print(f"  [red]❌ {exc}[/red]")
             found_errors = True

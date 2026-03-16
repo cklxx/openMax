@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 
-from openmax.memory_system import (
+from openmax.memory import (
     MemoryEntry,
     MemoryStore,
     classify_task,

@@ -9,12 +9,24 @@ openMax is a multi-AI-agent orchestration hub. It dispatches interactive AI agen
 ```
 src/openmax/
 ├── cli.py              # CLI entry (click)
-├── lead_agent.py       # Lead agent orchestration + tool definitions
+├── lead_agent/         # Lead agent orchestration package
+│   ├── __init__.py     # Public API re-exports
+│   ├── types.py        # TaskStatus, SubTask, PlanResult, LeadAgentStartupError
+│   ├── tools.py        # @tool functions + runtime helpers
+│   ├── formatting.py   # Text formatting and tool-use display
+│   ├── core.py         # run_lead_agent, prompt building, SDK client loop
+│   └── prompts/
+│       └── lead_agent.md  # Lead agent system prompt (edit this, not code)
+├── memory/             # Workspace memory system package
+│   ├── __init__.py     # Public API re-exports
+│   ├── models.py       # MemoryEntry, MemoryContext, dataclasses
+│   ├── taxonomy.py     # Task classification and prediction logic
+│   ├── store.py        # MemoryStore core: persistence, context, lessons
+│   ├── rankings.py     # Agent ranking, evaluation, strategy derivation
+│   └── _utils.py       # Constants, serialization, coercion helpers
 ├── pane_manager.py     # Kaku window/pane lifecycle
 ├── kaku.py             # Kaku detection + auto-install
 ├── session_runtime.py  # Session persistence + context recovery
-├── prompts/
-│   └── lead_agent.md   # Lead agent system prompt (edit this, not code)
 └── adapters/           # Agent CLI adapters (claude-code, codex, opencode)
 ```
 
@@ -29,7 +41,7 @@ src/openmax/
 ## Key concepts
 
 - **Lead agent** runs via `claude-agent-sdk`. It has NO file access — it works only through custom MCP tools (`dispatch_agent`, `read_pane_output`, `send_text_to_pane`, etc.).
-- **System prompt** lives in `src/openmax/prompts/lead_agent.md`. Edit the markdown file, not inline strings.
+- **System prompt** lives in `src/openmax/lead_agent/prompts/lead_agent.md`. Edit the markdown file, not inline strings.
 - **PaneManager** tracks window/pane topology. All agents share one Kaku window with auto grid layout.
 - **CLAUDECODE env var** must be unset in spawned panes to avoid nested-session errors. This is handled by `_wrap_command_clean_env`.
 - **send_text** uses paste + delayed `\r` via stdin pipe to submit in interactive CLIs.

@@ -6,11 +6,12 @@ import time
 import anyio
 from click.testing import CliRunner
 
-from openmax import cli, lead_agent
+from openmax import cli
 from openmax.adapters.subprocess_adapter import SubprocessAdapter
 from openmax.agent_registry import AgentDefinition, AgentRegistry
 from openmax.lead_agent import PlanResult
-from openmax.memory_system import MemoryStore
+from openmax.lead_agent import tools as lead_agent_tools
+from openmax.memory import MemoryStore
 from openmax.pane_manager import PaneManager
 from openmax.session_runtime import (
     LeadAgentRuntime,
@@ -86,7 +87,7 @@ def test_ci_smoke_exercises_headless_noninteractive_dispatch_and_session_cli(
 
     try:
         result = anyio.run(
-            lead_agent.dispatch_agent.handler,
+            lead_agent_tools.dispatch_agent.handler,
             {
                 "task_name": "Smoke task",
                 "agent_type": "ci-smoke",
@@ -104,7 +105,7 @@ def test_ci_smoke_exercises_headless_noninteractive_dispatch_and_session_cli(
         )
 
         anyio.run(
-            lead_agent.record_phase_anchor.handler,
+            lead_agent_tools.record_phase_anchor.handler,
             {
                 "phase": "dispatch",
                 "summary": "Headless smoke agent completed",
@@ -112,13 +113,13 @@ def test_ci_smoke_exercises_headless_noninteractive_dispatch_and_session_cli(
             },
         )
         anyio.run(
-            lead_agent.mark_task_done.handler,
+            lead_agent_tools.mark_task_done.handler,
             {
                 "task_name": "Smoke task",
             },
         )
         anyio.run(
-            lead_agent.report_completion.handler,
+            lead_agent_tools.report_completion.handler,
             {
                 "completion_pct": 100,
                 "notes": "CI smoke completed",

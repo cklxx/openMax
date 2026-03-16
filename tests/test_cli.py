@@ -8,7 +8,7 @@ import openmax.session_runtime as session_runtime
 from openmax import cli
 from openmax.agent_registry import AgentDefinition, built_in_agent_registry
 from openmax.lead_agent import LeadAgentStartupError
-from openmax.memory_system import MemoryStore
+from openmax.memory import MemoryStore
 from openmax.pane_backend import HeadlessPaneBackend, KakuPaneBackend
 from openmax.session_runtime import SessionStore, anchor_payload
 

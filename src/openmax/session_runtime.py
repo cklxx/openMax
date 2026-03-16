@@ -329,7 +329,7 @@ class SessionStore:
 
 
 def reconcile_resumed_subtasks(
-    plan: "ReconstructedPlan",
+    plan: ReconstructedPlan,
     pane_mgr: Any,
 ) -> list[str]:
     """Reset running subtasks whose panes are gone. Returns list of reset task names."""

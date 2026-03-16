@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-import time
 from types import SimpleNamespace
 
 import anyio
 
-from openmax import lead_agent
 from openmax.adapters.subprocess_adapter import SubprocessAdapter
 from openmax.agent_registry import AgentDefinition, built_in_agent_registry
 from openmax.lead_agent import LeadAgentStartupError, PlanResult, SubTask, TaskStatus
-from openmax.memory_system import MemoryStore
+from openmax.lead_agent import core as lead_agent_core
+from openmax.lead_agent import formatting as lead_agent_formatting
+from openmax.lead_agent import tools as lead_agent_tools
+from openmax.memory import MemoryStore
 from openmax.session_runtime import (
     LeadAgentRuntime,
     SessionStore,
@@ -109,8 +110,8 @@ def _patch_time(monkeypatch):
     """Patch both anyio.sleep and time.monotonic so _wait_for_pane_ready exits fast."""
     global _fake_time  # noqa: PLW0603
     _fake_time = 0.0
-    monkeypatch.setattr(lead_agent.anyio, "sleep", _no_sleep)
-    monkeypatch.setattr(lead_agent.time, "monotonic", _fake_monotonic)
+    monkeypatch.setattr(lead_agent_tools.anyio, "sleep", _no_sleep)
+    monkeypatch.setattr(lead_agent_tools.time, "monotonic", _fake_monotonic)
 
 
 def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
@@ -118,7 +119,7 @@ def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
     _patch_time(monkeypatch)
 
     anyio.run(
-        lead_agent.dispatch_agent.handler,
+        lead_agent_tools.dispatch_agent.handler,
         {"task_name": "API", "agent_type": "generic", "prompt": "Implement API"},
     )
 
@@ -139,47 +140,45 @@ def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
 
 
 def test_format_tool_use_humanizes_all_openmax_tools():
+    _format_tool_use = lead_agent_formatting._format_tool_use
     assert (
-        lead_agent._format_tool_use(
+        _format_tool_use(
             "mcp__openmax__dispatch_agent",
             {"task_name": "API routes", "agent_type": "codex"},
         )
         == "Starting agent for API routes via codex"
     )
     assert (
-        lead_agent._format_tool_use(
+        _format_tool_use(
             "mcp__openmax__get_agent_recommendations",
             {"task": "Refactor API routes"},
         )
         == "Checking best agent for Refactor API routes"
     )
     assert (
-        lead_agent._format_tool_use(
+        _format_tool_use(
             "mcp__openmax__read_pane_output",
             {"pane_id": 12},
         )
         == "Checking progress in pane 12"
     )
     assert (
-        lead_agent._format_tool_use(
+        _format_tool_use(
             "mcp__openmax__send_text_to_pane",
             {"pane_id": 12, "text": "Please rerun the failing tests with logs"},
         )
         == "Sending follow-up to pane 12: Please rerun the failing tests with logs"
     )
+    assert _format_tool_use("mcp__openmax__list_managed_panes", {}) == "Reviewing active panes"
     assert (
-        lead_agent._format_tool_use("mcp__openmax__list_managed_panes", {})
-        == "Reviewing active panes"
-    )
-    assert (
-        lead_agent._format_tool_use(
+        _format_tool_use(
             "mcp__openmax__mark_task_done",
             {"task_name": "API routes"},
         )
         == "Marking API routes done"
     )
     assert (
-        lead_agent._format_tool_use(
+        _format_tool_use(
             "mcp__openmax__record_phase_anchor",
             {
                 "phase": "plan",
@@ -190,21 +189,21 @@ def test_format_tool_use_humanizes_all_openmax_tools():
         == "Saving planning checkpoint (20%): Defined the delivery plan and split the work."
     )
     assert (
-        lead_agent._format_tool_use(
+        _format_tool_use(
             "mcp__openmax__remember_learning",
             {"lesson": "Prefer codex when editing Python test suites."},
         )
         == "Saving reusable lesson: Prefer codex when editing Python test suites."
     )
     assert (
-        lead_agent._format_tool_use(
+        _format_tool_use(
             "mcp__openmax__report_completion",
             {"completion_pct": 100, "notes": "Everything finished and verified."},
         )
         == "Publishing completion update (100%): Everything finished and verified."
     )
     assert (
-        lead_agent._format_tool_use(
+        _format_tool_use(
             "mcp__openmax__wait",
             {"seconds": 45},
         )
@@ -218,7 +217,7 @@ def test_dispatch_agent_enforces_allowed_agents(monkeypatch, tmp_path):
     runtime.allowed_agents = ["codex"]
 
     result = anyio.run(
-        lead_agent.dispatch_agent.handler,
+        lead_agent_tools.dispatch_agent.handler,
         {"task_name": "API", "agent_type": "claude-code", "prompt": "Implement API"},
     )
 
@@ -247,12 +246,15 @@ def test_report_completion_writes_report_and_anchor(tmp_path):
     )
 
     anyio.run(
-        lead_agent.report_completion.handler,
+        lead_agent_tools.report_completion.handler,
         {"completion_pct": 100, "notes": "Everything finished"},
     )
 
     events = store.load_events("lead-test")
-    assert [event.event_type for event in events][-2:] == ["tool.report_completion", "phase.anchor"]
+    assert [event.event_type for event in events][-2:] == [
+        "tool.report_completion",
+        "phase.anchor",
+    ]
     refreshed_meta = store.load_meta(meta.session_id)
     assert refreshed_meta.latest_phase == "report"
     memories = memory_store.load_entries(str(tmp_path))
@@ -266,7 +268,7 @@ def test_remember_learning_stores_workspace_memory(tmp_path):
     _runtime, token, _store, _meta, memory_store = _setup_session(tmp_path)
 
     anyio.run(
-        lead_agent.remember_learning.handler,
+        lead_agent_tools.remember_learning.handler,
         {
             "lesson": "Prefer codex for API work.",
             "rationale": "It converged fastest in the last run.",
@@ -301,7 +303,7 @@ def test_get_agent_recommendations_returns_ranked_json(tmp_path):
     )
 
     result = anyio.run(
-        lead_agent.get_agent_recommendations.handler,
+        lead_agent_tools.get_agent_recommendations.handler,
         {"task": "Refactor API endpoints"},
     )
 
@@ -322,8 +324,8 @@ def test_dispatch_agent_uses_configured_custom_agent(monkeypatch, tmp_path):
         _fake_time += seconds
         sleep_calls.append(seconds)
 
-    monkeypatch.setattr(lead_agent.anyio, "sleep", fake_sleep)
-    monkeypatch.setattr(lead_agent.time, "monotonic", _fake_monotonic)
+    monkeypatch.setattr(lead_agent_tools.anyio, "sleep", fake_sleep)
+    monkeypatch.setattr(lead_agent_tools.time, "monotonic", _fake_monotonic)
     runtime.agent_registry = built_in_agent_registry().with_definition(
         AgentDefinition(
             name="remote-codex",
@@ -338,7 +340,7 @@ def test_dispatch_agent_uses_configured_custom_agent(monkeypatch, tmp_path):
     )
 
     anyio.run(
-        lead_agent.dispatch_agent.handler,
+        lead_agent_tools.dispatch_agent.handler,
         {"task_name": "Remote API", "agent_type": "remote-codex", "prompt": "Implement API"},
     )
 
@@ -356,7 +358,7 @@ def test_dispatch_agent_falls_back_when_agent_not_configured(monkeypatch, tmp_pa
     runtime.agent_registry = built_in_agent_registry()
 
     anyio.run(
-        lead_agent.dispatch_agent.handler,
+        lead_agent_tools.dispatch_agent.handler,
         {"task_name": "API", "agent_type": "missing-agent", "prompt": "Implement API"},
     )
 
@@ -368,10 +370,10 @@ def test_dispatch_agent_falls_back_when_agent_not_configured(monkeypatch, tmp_pa
 def test_run_lead_agent_records_structured_auth_startup_failure(monkeypatch, tmp_path):
     store = SessionStore(base_dir=tmp_path / "sessions")
     memory_store = MemoryStore(base_dir=tmp_path / "memory")
-    monkeypatch.setattr(lead_agent, "SessionStore", lambda: store)
-    monkeypatch.setattr(lead_agent, "MemoryStore", lambda: memory_store)
+    monkeypatch.setattr(lead_agent_core, "SessionStore", lambda: store)
+    monkeypatch.setattr(lead_agent_core, "MemoryStore", lambda: memory_store)
     monkeypatch.setattr(
-        lead_agent,
+        lead_agent_core,
         "ClaudeSDKClient",
         lambda options: FailingClaudeClient(
             options, RuntimeError("Authentication required. Please login."), "enter"
@@ -379,7 +381,7 @@ def test_run_lead_agent_records_structured_auth_startup_failure(monkeypatch, tmp
     )
 
     try:
-        lead_agent.run_lead_agent(
+        lead_agent_core.run_lead_agent(
             task="Build feature",
             pane_mgr=DummyPaneManager(),
             cwd=str(tmp_path),
@@ -405,10 +407,10 @@ def test_run_lead_agent_records_structured_auth_startup_failure(monkeypatch, tmp
 def test_run_lead_agent_records_structured_bootstrap_failure(monkeypatch, tmp_path):
     store = SessionStore(base_dir=tmp_path / "sessions")
     memory_store = MemoryStore(base_dir=tmp_path / "memory")
-    monkeypatch.setattr(lead_agent, "SessionStore", lambda: store)
-    monkeypatch.setattr(lead_agent, "MemoryStore", lambda: memory_store)
+    monkeypatch.setattr(lead_agent_core, "SessionStore", lambda: store)
+    monkeypatch.setattr(lead_agent_core, "MemoryStore", lambda: memory_store)
     monkeypatch.setattr(
-        lead_agent,
+        lead_agent_core,
         "ClaudeSDKClient",
         lambda options: FailingClaudeClient(
             options,
@@ -418,7 +420,7 @@ def test_run_lead_agent_records_structured_bootstrap_failure(monkeypatch, tmp_pa
     )
 
     try:
-        lead_agent.run_lead_agent(
+        lead_agent_core.run_lead_agent(
             task="Build feature",
             pane_mgr=DummyPaneManager(),
             cwd=str(tmp_path),
