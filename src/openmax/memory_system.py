@@ -1,9 +1,20 @@
-"""Workspace memory store for reusable lessons and run summaries."""
+"""Workspace memory store for reusable lessons and run summaries.
+
+Implements three predictive memory optimisations:
+1. Session-end prediction — on run completion, predict likely next queries and
+   store them alongside the run summary so future context is pre-staged.
+2. Query-distribution-weighted priority — track task-category distribution per
+   workspace and boost memory entries that match high-frequency categories.
+3. Dual-buffer context — ``build_context`` returns an *active* buffer (keyword-
+   matched) plus a *predictive* buffer (from predictions + distribution).
+   Active entries have priority; predictive entries fill the remaining budget.
+"""
 
 from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import uuid
 from collections import defaultdict
@@ -15,6 +26,134 @@ from typing import Any, Literal
 
 MemoryKind = Literal["lesson", "run_summary"]
 _MAX_ENTRIES_PER_WORKSPACE = 50
+
+# ── Task-category taxonomy for query distribution ─────────────────
+_TASK_CATEGORIES: dict[str, list[str]] = {
+    "code": [
+        "implement",
+        "code",
+        "write",
+        "function",
+        "class",
+        "module",
+        "feature",
+        "endpoint",
+        "handler",
+        "route",
+        "scaffold",
+        "create",
+    ],
+    "testing": [
+        "test",
+        "tests",
+        "pytest",
+        "coverage",
+        "assert",
+        "spec",
+        "unittest",
+        "integration",
+        "e2e",
+    ],
+    "debugging": [
+        "fix",
+        "bug",
+        "error",
+        "crash",
+        "debug",
+        "issue",
+        "broken",
+        "fail",
+        "trace",
+        "diagnose",
+    ],
+    "refactor": [
+        "refactor",
+        "rename",
+        "extract",
+        "move",
+        "cleanup",
+        "simplify",
+        "reorganize",
+        "deduplicate",
+        "restructure",
+    ],
+    "architecture": [
+        "architect",
+        "design",
+        "pattern",
+        "structure",
+        "schema",
+        "migration",
+        "database",
+        "infra",
+        "deploy",
+        "ci",
+        "cd",
+        "pipeline",
+    ],
+    "docs": [
+        "doc",
+        "docs",
+        "readme",
+        "changelog",
+        "comment",
+        "docstring",
+        "documentation",
+        "guide",
+        "tutorial",
+    ],
+}
+
+# Reverse index: keyword → category
+_KEYWORD_TO_CATEGORY: dict[str, str] = {}
+for _cat, _words in _TASK_CATEGORIES.items():
+    for _w in _words:
+        _KEYWORD_TO_CATEGORY[_w] = _cat
+
+# ── Prediction templates ──────────────────────────────────────────
+# Maps (completed-category, outcome) to likely follow-up queries.
+_PREDICTION_TEMPLATES: dict[str, list[str]] = {
+    "code:success": [
+        "write tests for the new {scope}",
+        "review and refactor {scope}",
+        "add documentation for {scope}",
+    ],
+    "code:partial": [
+        "continue implementing {scope}",
+        "debug the remaining issues in {scope}",
+    ],
+    "testing:success": [
+        "improve coverage for {scope}",
+        "refactor {scope} based on test feedback",
+    ],
+    "testing:partial": [
+        "fix failing tests in {scope}",
+        "debug test errors in {scope}",
+    ],
+    "debugging:success": [
+        "add regression tests for the fix in {scope}",
+        "refactor {scope} to prevent similar bugs",
+    ],
+    "debugging:partial": [
+        "continue debugging {scope}",
+        "investigate root cause in {scope}",
+    ],
+    "refactor:success": [
+        "write tests for the refactored {scope}",
+        "update docs after refactoring {scope}",
+    ],
+    "refactor:partial": [
+        "continue refactoring {scope}",
+        "fix regressions from refactor in {scope}",
+    ],
+    "architecture:success": [
+        "implement the designed changes in {scope}",
+        "write migration scripts for {scope}",
+    ],
+    "docs:success": [
+        "implement changes described in {scope} docs",
+    ],
+}
 _STOP_WORDS = {
     "the",
     "and",
@@ -85,6 +224,10 @@ class MemoryEntry:
 class MemoryContext:
     text: str
     matched_entries: int
+    # Dual-buffer breakdown
+    active_entries: int = 0
+    predictive_entries: int = 0
+    predictions_used: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -137,8 +280,49 @@ class RecommendationOfflineEvalReport:
     failure_rate_delta: float
 
 
+def classify_task(task: str) -> str:
+    """Classify a task description into one of the known categories."""
+    tokens = _keywords(task)
+    scores: dict[str, int] = defaultdict(int)
+    for token in tokens:
+        cat = _KEYWORD_TO_CATEGORY.get(token)
+        if cat:
+            scores[cat] += 1
+    if not scores:
+        return "code"  # default
+    return max(scores, key=lambda c: scores[c])
+
+
+def predict_next_queries(
+    task: str,
+    completion_pct: int,
+    subtasks: list[dict[str, Any]] | None = None,
+) -> list[str]:
+    """Generate predicted follow-up queries based on what just finished."""
+    category = classify_task(task)
+    outcome = "success" if completion_pct >= 80 else "partial"
+    key = f"{category}:{outcome}"
+
+    # Derive scope string from task + subtasks
+    scope_tokens = infer_code_scope(task, subtasks=subtasks)
+    scope = ", ".join(scope_tokens[:3]) if scope_tokens else "the codebase"
+
+    templates = _PREDICTION_TEMPLATES.get(key, _PREDICTION_TEMPLATES.get(f"{category}:success", []))
+    predictions = [tpl.format(scope=scope) for tpl in templates]
+
+    # Also add generic continuation if partial
+    if completion_pct < 80:
+        predictions.insert(0, f"continue: {task}")
+
+    return predictions[:4]
+
+
 class MemoryStore:
-    """Store and retrieve workspace-scoped memory entries."""
+    """Store and retrieve workspace-scoped memory entries.
+
+    Implements predictive memory: session-end prediction, query-distribution
+    weighting, and dual-buffer context assembly.
+    """
 
     def __init__(self, base_dir: Path | None = None) -> None:
         self.base_dir = (base_dir or default_memory_dir()).expanduser()
@@ -154,6 +338,7 @@ class MemoryStore:
         source: str = "agent",
     ) -> MemoryEntry:
         insights = [rationale.strip()] if rationale.strip() else []
+        category = classify_task(task)
         entry = MemoryEntry(
             memory_id=uuid.uuid4().hex,
             created_at=utc_now_iso(),
@@ -166,9 +351,11 @@ class MemoryStore:
             source=source,
             metadata={
                 "code_scope": infer_code_scope(task, lesson, rationale),
+                "task_category": category,
             },
         )
         self._append_entry(cwd, entry)
+        self._update_query_distribution(cwd, category)
         return entry
 
     def record_run_summary(
@@ -198,6 +385,10 @@ class MemoryStore:
             if str(anchor.get("summary", "")).strip()
         ]
         insights.extend(anchor_summaries[:3])
+
+        # Session-end prediction: predict likely follow-up queries
+        predictions = predict_next_queries(task, completion_pct, subtasks)
+        category = classify_task(task)
 
         entry = MemoryEntry(
             memory_id=uuid.uuid4().hex,
@@ -229,9 +420,15 @@ class MemoryStore:
                     *anchor_summaries,
                     subtasks=subtasks,
                 ),
+                "predictions": predictions,
+                "task_category": category,
             },
         )
         self._append_entry(cwd, entry)
+
+        # Update query distribution for this workspace
+        self._update_query_distribution(cwd, category)
+
         return entry
 
     def load_entries(self, cwd: str) -> list[MemoryEntry]:
@@ -284,16 +481,51 @@ class MemoryStore:
         return lines
 
     def build_context(self, *, cwd: str, task: str, limit: int = 4) -> MemoryContext | None:
+        """Dual-buffer context assembly.
+
+        * **Active buffer** — entries scored by direct keyword overlap with *task*.
+        * **Predictive buffer** — entries whose stored predictions match *task*,
+          plus entries boosted by query-distribution weights.
+
+        Active entries fill first; predictive entries fill the remaining budget.
+        """
         entries = self.load_entries(cwd)
         if not entries:
             return None
 
-        ranked = self._rank_entries(entries, task)
-        ranked_scores = [(entry, self._score_entry(entry, task)) for entry in ranked]
-        selected = [entry for entry, score in ranked_scores if score > 0][:limit]
-        if not selected:
-            selected = ranked[: min(limit, len(ranked))]
+        distribution = self.load_query_distribution(cwd)
 
+        # ── Active buffer: keyword-matched ────────────────────────
+        active_budget = max(limit * 2 // 3, 1)  # ~67 % of budget
+        predictive_budget = limit - active_budget  # ~33 %
+
+        scored = [(entry, self._score_entry(entry, task)) for entry in entries]
+        scored.sort(key=lambda pair: pair[1], reverse=True)
+        active_entries = [e for e, s in scored if s > 0][:active_budget]
+
+        # ── Predictive buffer: predictions + distribution ─────────
+        active_ids = {e.memory_id for e in active_entries}
+        remaining = [e for e in entries if e.memory_id not in active_ids]
+
+        predictive_scored = [
+            (entry, self._predictive_score(entry, task, distribution)) for entry in remaining
+        ]
+        predictive_scored.sort(key=lambda pair: pair[1], reverse=True)
+        predictive_entries = [e for e, s in predictive_scored if s > 0][:predictive_budget]
+
+        # Fall back: if both buffers are empty, pick the most recent entries
+        selected = active_entries + predictive_entries
+        if not selected:
+            selected = list(reversed(entries))[: min(limit, len(entries))]
+
+        # ── Collect matched predictions for transparency ──────────
+        predictions_used: list[str] = []
+        for entry in predictive_entries:
+            preds = entry.metadata.get("predictions", [])
+            if isinstance(preds, list):
+                predictions_used.extend(str(p) for p in preds[:2])
+
+        # ── Format output ─────────────────────────────────────────
         lines = ["Learned memory for this workspace:"]
         task_scope = infer_code_scope(task)
         if task_scope:
@@ -311,18 +543,48 @@ class MemoryStore:
         if advice.risk_lines:
             lines.append("Known risks:")
             lines.extend(advice.risk_lines[:2])
-        for entry in selected:
-            prefix = "lesson" if entry.kind == "lesson" else "run"
-            detail = f"- [{prefix}] {entry.summary}"
-            if entry.confidence is not None:
-                detail += f" (confidence {entry.confidence}/10)"
-            if entry.completion_pct is not None:
-                detail += f" [{entry.completion_pct}%]"
-            lines.append(detail)
+
+        # Active entries first
+        if active_entries:
+            lines.append("Direct matches:")
+        for entry in active_entries:
+            lines.append(self._format_entry_line(entry))
             for insight in entry.insights[:2]:
                 lines.append(f"  {insight}")
 
-        return MemoryContext(text="\n".join(lines), matched_entries=len(selected))
+        # Predictive entries second
+        if predictive_entries:
+            lines.append("Predictive context (likely relevant):")
+        for entry in predictive_entries:
+            lines.append(self._format_entry_line(entry))
+            for insight in entry.insights[:1]:
+                lines.append(f"  {insight}")
+
+        # Append distribution insight
+        if distribution:
+            top_cats = sorted(distribution.items(), key=lambda x: x[1], reverse=True)[:2]
+            dist_line = "Task distribution: " + ", ".join(
+                f"{cat} {pct:.0%}" for cat, pct in top_cats
+            )
+            lines.append(dist_line)
+
+        return MemoryContext(
+            text="\n".join(lines),
+            matched_entries=len(selected),
+            active_entries=len(active_entries),
+            predictive_entries=len(predictive_entries),
+            predictions_used=_dedupe(predictions_used)[:4],
+        )
+
+    @staticmethod
+    def _format_entry_line(entry: MemoryEntry) -> str:
+        prefix = "lesson" if entry.kind == "lesson" else "run"
+        detail = f"- [{prefix}] {entry.summary}"
+        if entry.confidence is not None:
+            detail += f" (confidence {entry.confidence}/10)"
+        if entry.completion_pct is not None:
+            detail += f" [{entry.completion_pct}%]"
+        return detail
 
     def derive_agent_scorecard(
         self,
@@ -737,6 +999,104 @@ class MemoryStore:
         resolved = str(Path(cwd).resolve())
         digest = hashlib.md5(resolved.encode(), usedforsecurity=False).hexdigest()[:16]
         return self.base_dir / f"workspace_{digest}.json"
+
+    # ── Query distribution tracking ───────────────────────────────
+
+    def _distribution_path(self, cwd: str) -> Path:
+        resolved = str(Path(cwd).resolve())
+        digest = hashlib.md5(resolved.encode(), usedforsecurity=False).hexdigest()[:16]
+        return self.base_dir / f"distribution_{digest}.json"
+
+    def _update_query_distribution(self, cwd: str, category: str) -> None:
+        """Increment the count for *category* and recompute the distribution."""
+        path = self._distribution_path(cwd)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data: dict[str, Any] = {}
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                data = {}
+
+        counts: dict[str, int] = data.get("counts", {})
+        if not isinstance(counts, dict):
+            counts = {}
+        counts[category] = counts.get(category, 0) + 1
+        data["counts"] = counts
+        data["updated_at"] = utc_now_iso()
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def load_query_distribution(self, cwd: str) -> dict[str, float]:
+        """Return normalised category → probability distribution for *cwd*."""
+        path = self._distribution_path(cwd)
+        if not path.exists():
+            return {}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+        counts: dict[str, int] = data.get("counts", {})
+        if not isinstance(counts, dict):
+            return {}
+        total = max(sum(counts.values()), 1)
+        return {cat: cnt / total for cat, cnt in counts.items()}
+
+    # ── Predictive scoring ────────────────────────────────────────
+
+    def _predictive_score(
+        self,
+        entry: MemoryEntry,
+        task: str,
+        distribution: dict[str, float],
+    ) -> float:
+        """Score an entry for the predictive buffer.
+
+        Two signals:
+        1. **Prediction match** — does *task* overlap with any stored prediction
+           on this entry?
+        2. **Distribution boost** — does the entry's task category match a
+           high-frequency category for this workspace?
+        """
+        score = 0.0
+        task_terms = _keywords(task)
+
+        # 1. Prediction overlap
+        predictions = entry.metadata.get("predictions", [])
+        if isinstance(predictions, list):
+            for pred in predictions:
+                pred_terms = _keywords(str(pred))
+                overlap = len(task_terms & pred_terms)
+                if overlap >= 2:
+                    score += 3.0 + overlap
+                elif overlap == 1:
+                    score += 1.5
+
+        # 2. Distribution-weighted category boost
+        entry_category = entry.metadata.get("task_category", "")
+        if not entry_category:
+            entry_category = classify_task(entry.task)
+        task_category = classify_task(task)
+
+        if entry_category and distribution:
+            cat_weight = distribution.get(entry_category, 0.0)
+            # Boost entries from the same category as the current task
+            if entry_category == task_category:
+                score += cat_weight * 4.0
+            else:
+                # Still give some weight to high-frequency categories —
+                # they may be causally related even if categories differ
+                score += cat_weight * 1.5
+
+        # 3. Recency tiebreaker via created_at (newer = higher)
+        try:
+            ts = datetime.fromisoformat(entry.created_at)
+            age_hours = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
+            recency = max(0.0, 1.0 - math.log1p(age_hours) / 10)
+            score += recency
+        except (ValueError, TypeError):
+            pass
+
+        return score
 
     def _score_entry(self, entry: MemoryEntry, task: str) -> int:
         task_terms = _keywords(task)
