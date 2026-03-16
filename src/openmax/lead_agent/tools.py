@@ -458,6 +458,49 @@ async def _wait_and_send_prompt(
     runtime.pane_mgr.send_text(pane.pane_id, cmd_spec.initial_input)
 
 
+def _compress_context(context: str, budget: int) -> str:
+    """Compress context text to fit within an approximate token budget.
+
+    Uses len(text)//4 as a rough token estimate. If over budget, keeps the
+    first paragraph and as many subsequent bullet/numbered-list lines as fit.
+    """
+    approx_tokens = len(context) // 4
+    if approx_tokens <= budget:
+        return context
+
+    char_budget = budget * 4
+    lines = context.split("\n")
+
+    # Always keep the first paragraph (up to first blank line)
+    kept: list[str] = []
+    i = 0
+    while i < len(lines):
+        kept.append(lines[i])
+        if lines[i].strip() == "" and i > 0:
+            i += 1
+            break
+        i += 1
+
+    # Then greedily add bullet/heading lines that fit
+    for line in lines[i:]:
+        stripped = line.lstrip()
+        is_key_line = stripped.startswith(("-", "*", "#")) or (
+            len(stripped) > 1 and stripped[0].isdigit() and stripped[1] in ".)"
+        )
+        if not is_key_line:
+            continue
+        candidate = "\n".join(kept + [line])
+        if len(candidate) <= char_budget:
+            kept.append(line)
+        else:
+            break
+
+    result = "\n".join(kept)
+    if len(result) > char_budget:
+        result = result[:char_budget].rsplit("\n", 1)[0]
+    return result
+
+
 @tool(
     "dispatch_agent",
     "Dispatch a sub-task to an AI agent in a terminal pane. "
@@ -470,6 +513,7 @@ async def _wait_and_send_prompt(
         "prompt": str,
         "override_reason": str,
         "retry_count": int,
+        "context_budget_tokens": int,
     },
 )
 async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
@@ -527,7 +571,10 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     if adapter is None:
         raise RuntimeError(f"Agent '{agent_type}' is unavailable")
 
-    # Auto-inject workspace memory context
+    # Auto-inject workspace memory context (with compression)
+    context_budget = args.get("context_budget_tokens", 2000)
+    if not isinstance(context_budget, int) or context_budget < 0:
+        context_budget = 2000
     if runtime.memory_store is not None:
         try:
             memory_context = runtime.memory_store.build_context(
@@ -535,7 +582,8 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
                 task=task_name,
             )
             if memory_context and memory_context.text:
-                prompt = prompt + "\n\n## Workspace Context\n" + memory_context.text
+                compressed = _compress_context(memory_context.text, context_budget)
+                prompt = prompt + "\n\n## Workspace Context\n" + compressed
         except Exception:
             pass  # Don't fail dispatch if memory lookup fails
 

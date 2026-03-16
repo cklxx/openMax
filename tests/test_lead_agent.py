@@ -1021,6 +1021,70 @@ def test_dispatch_agent_injects_memory_context(monkeypatch, tmp_path):
         _teardown_session(token)
 
 
+def test_compress_context_under_budget_passthrough():
+    """_compress_context returns text unchanged when under budget."""
+    short_text = "This is a short context."
+    result = lead_agent_tools._compress_context(short_text, budget=2000)
+    assert result == short_text
+
+
+def test_compress_context_over_budget_truncates():
+    """_compress_context compresses long text to fit within budget."""
+    # Build a long context: first paragraph + many bullet lines
+    lines = ["First paragraph with important info.", ""]
+    for i in range(200):
+        lines.append(f"- Bullet point number {i} with some filler text to pad length")
+    long_text = "\n".join(lines)
+
+    budget = 100  # ~400 chars
+    result = lead_agent_tools._compress_context(long_text, budget)
+
+    # Result should be significantly shorter than original
+    assert len(result) <= budget * 4
+    # First paragraph should be preserved
+    assert "First paragraph" in result
+    # Should contain some bullets but not all
+    assert "- Bullet point" in result
+    assert len(result) < len(long_text)
+
+
+def test_dispatch_agent_context_budget_limits_injection(monkeypatch, tmp_path):
+    """dispatch_agent respects context_budget_tokens to compress memory context."""
+    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    # Record many lessons to create a large memory context
+    for i in range(50):
+        memory_store.record_lesson(
+            cwd=str(tmp_path),
+            task=f"task-{i}",
+            lesson=f"Lesson number {i}: " + "x" * 200,
+            rationale="padding",
+        )
+
+    try:
+        anyio.run(
+            lead_agent_tools.dispatch_agent.handler,
+            {
+                "task_name": "budget-test",
+                "agent_type": "claude-code",
+                "prompt": "Do something",
+                "context_budget_tokens": 50,  # Very small budget ~200 chars
+            },
+        )
+
+        assert len(runtime.pane_mgr.sent) > 0
+        sent_text = runtime.pane_mgr.sent[0][1]
+        # Context should be present but compressed
+        if "Workspace Context" in sent_text:
+            ctx_start = sent_text.index("## Workspace Context")
+            context_part = sent_text[ctx_start:]
+            # With budget=50 (~200 chars), context should be much smaller than raw
+            assert len(context_part) < 5000
+    finally:
+        _teardown_session(token)
+
+
 def test_mark_task_done_stores_completion_notes(tmp_path):
     """mark_task_done stores completion_notes on the subtask."""
     runtime, token, store, meta, memory_store = _setup_session(tmp_path)
