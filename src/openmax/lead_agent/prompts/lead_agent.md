@@ -63,6 +63,9 @@ Actions:
   If still stuck after 2 interventions, consider re-dispatching.
 - Agent drifted → intervene immediately with correction.
 - Agent errored → read error, fix via `send_text_to_pane` or re-dispatch.
+- Agent exited (`read_pane_output` returns `exited: true`) → check retry_count.
+  If retry_count < 2, re-dispatch the subtask with incremented retry_count.
+  If retry_count >= 2, mark as permanent_error and report the failure.
 - All done → run tests/lint if applicable → fix failures → finish.
 
 Adaptive timing: shorter waits (10-15s) for simple tasks, longer (30-45s)

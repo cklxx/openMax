@@ -464,13 +464,18 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
             and len(set(hash_history[-_STUCK_THRESHOLD:])) == 1
         )
 
-        result = json.dumps({"text": text, "stuck": stuck})
+        # Check if pane exited
+        pane_alive = runtime.pane_mgr.is_pane_alive(pane_id)
+        exited = not pane_alive
+
+        result = json.dumps({"text": text, "stuck": stuck, "exited": exited})
         _append_session_event(
             "tool.read_pane_output",
             {
                 "pane_id": pane_id,
                 "preview": text[:500],
                 "stuck": stuck,
+                "exited": exited,
             },
         )
         return {"content": [{"type": "text", "text": result}]}
@@ -554,6 +559,82 @@ async def record_phase_anchor(args: dict[str, Any]) -> dict[str, Any]:
         message += f": {preview}"
     console.print(message)
     return {"content": [{"type": "text", "text": f"Recorded anchor for phase '{phase}'"}]}
+
+
+@tool(
+    "transition_phase",
+    "Transition between workflow phases. Validates from_phase matches current, "
+    "gate_summary is descriptive. Records phase.anchor event and updates session phase.",
+    {
+        "from_phase": str,
+        "to_phase": str,
+        "gate_summary": str,
+        "artifacts": list,
+    },
+)
+async def transition_phase(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
+    from_phase = args.get("from_phase", "").strip().lower()
+    to_phase = args.get("to_phase", "").strip().lower()
+    gate_summary = args.get("gate_summary", "").strip()
+    artifacts = args.get("artifacts", [])
+
+    # Validate gate_summary length
+    if len(gate_summary) < 20:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        f"Error: gate_summary must be at least 20 characters "
+                        f"(got {len(gate_summary)})"
+                    ),
+                }
+            ]
+        }
+
+    # Validate from_phase matches current (if session has a phase)
+    current_phase = None
+    if runtime.session_meta:
+        current_phase = (runtime.session_meta.latest_phase or "").strip().lower()
+    if current_phase and from_phase != current_phase:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        f"Error: from_phase '{from_phase}' does not match "
+                        f"current phase '{current_phase}'"
+                    ),
+                }
+            ]
+        }
+
+    # Record phase anchor and update session
+    _record_phase_anchor(to_phase, gate_summary)
+
+    # Update dashboard if available
+    if runtime.dashboard:
+        runtime.dashboard.update_phase(to_phase)
+
+    _append_session_event(
+        "tool.transition_phase",
+        {
+            "from_phase": from_phase,
+            "to_phase": to_phase,
+            "gate_summary": gate_summary,
+            "artifacts": artifacts,
+        },
+    )
+
+    return {
+        "content": [
+            {
+                "type": "text",
+                "text": f"Transitioned from '{from_phase}' to '{to_phase}'",
+            }
+        ]
+    }
 
 
 @tool(
@@ -919,5 +1000,6 @@ ALL_TOOLS = [
     record_phase_anchor,
     remember_learning,
     report_completion,
+    transition_phase,
     wait_tool,
 ]

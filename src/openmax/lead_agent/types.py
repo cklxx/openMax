@@ -12,6 +12,7 @@ class TaskStatus(str, Enum):
     RUNNING = "running"
     DONE = "done"
     ERROR = "error"
+    PERMANENT_ERROR = "permanent_error"
 
 
 @dataclass
@@ -21,6 +22,7 @@ class SubTask:
     prompt: str
     status: TaskStatus = TaskStatus.PENDING
     pane_id: int | None = None
+    retry_count: int = 0
 
 
 @dataclass

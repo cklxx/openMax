@@ -41,6 +41,9 @@ class DummyPaneManager:
     def get_text(self, pane_id):
         return f"pane {pane_id} output\n$ "
 
+    def is_pane_alive(self, pane_id):
+        return True
+
     def refresh_states(self):
         return None
 
@@ -814,6 +817,63 @@ def test_read_pane_output_resets_stuck_on_new_output(monkeypatch, tmp_path):
     )
     parsed = _json.loads(result["content"][0]["text"])
     assert parsed["stuck"] is False
+
+    _teardown_session(token)
+
+
+def test_read_pane_output_returns_exited_when_pane_dead(monkeypatch, tmp_path):
+    """read_pane_output returns exited=true when the pane is no longer alive."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+
+    class DeadPaneManager:
+        def get_text(self, pane_id):
+            return "output before death"
+
+        def is_pane_alive(self, pane_id):
+            return False
+
+    runtime.pane_mgr = DeadPaneManager()
+    runtime.pane_output_hashes = {}
+
+    monkeypatch.setattr(lead_agent_tools.anyio, "sleep", _no_sleep)
+
+    result = anyio.run(
+        lead_agent_tools.read_pane_output.handler,
+        {"pane_id": 123},
+    )
+
+    import json as _json
+
+    parsed = _json.loads(result["content"][0]["text"])
+    assert parsed["exited"] is True
+    assert "output before death" in parsed["text"]
+
+    _teardown_session(token)
+
+
+def test_read_pane_output_returns_exited_false_when_pane_alive(monkeypatch, tmp_path):
+    """read_pane_output returns exited=false when pane is alive."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+
+    class AlivePaneManager:
+        def get_text(self, pane_id):
+            return "still running"
+
+        def is_pane_alive(self, pane_id):
+            return True
+
+    runtime.pane_mgr = AlivePaneManager()
+    runtime.pane_output_hashes = {}
+
+    result = anyio.run(
+        lead_agent_tools.read_pane_output.handler,
+        {"pane_id": 123},
+    )
+
+    import json as _json
+
+    parsed = _json.loads(result["content"][0]["text"])
+    assert parsed["exited"] is False
 
     _teardown_session(token)
 
