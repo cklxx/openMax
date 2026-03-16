@@ -155,6 +155,7 @@ class LeadAgentRuntime:
     plan_submitted: bool = False
     current_phase: str = "research"
     integration_branch: str | None = None
+    token_usage: dict[str, int] = field(default_factory=dict)
 
 
 _lead_agent_runtime: ContextVar[LeadAgentRuntime | None] = ContextVar(

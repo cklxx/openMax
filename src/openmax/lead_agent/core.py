@@ -266,18 +266,16 @@ async def _run_lead_agent_async(
         )
 
         console.print()
-        console.print(f"  [bold cyan]OPENMAX[/bold cyan] [dim]v{__version__}[/dim]")
-        console.print()
-        console.print(f"  {P}  {task}")
+        header = f"  [bold reverse cyan] OPENMAX [/bold reverse cyan] [dim]v{__version__}[/dim]"
         meta_parts: list[str] = []
         if session_id:
             meta_parts.append(f"session: {session_id}")
         if resume:
-            meta_parts.append("mode: resume")
+            meta_parts.append("resume")
         if meta_parts:
-            joined = " \u2502 ".join(meta_parts)
-            console.print(f"  {P}  [dim]{joined}[/dim]")
-        console.print()
+            header += "  [dim]" + " \u2502 ".join(meta_parts) + "[/dim]"
+        console.print(header)
+        console.print(f"\n  {P}  {task}\n")
 
         async with ClaudeSDKClient(options=options) as client:
             startup_stage = "prompt_submission"
@@ -299,9 +297,9 @@ async def _run_lead_agent_async(
                             # Show dispatch/intervention prominently;
                             # monitor (polling) and system (bookkeeping) are noise.
                             if cat == "dispatch":
-                                console.print(f"  [bold cyan]{P}[/bold cyan]  {formatted}")
+                                console.print(f"  [cyan]{P}[/cyan]  [bold]{formatted}[/bold]")
                             elif cat == "intervention":
-                                console.print(f"  [bold yellow]{P}[/bold yellow]  {formatted}")
+                                console.print(f"  [yellow]{P}[/yellow]  [bold]{formatted}[/bold]")
                             if dashboard is not None:
                                 dashboard.add_tool_event(formatted, cat)
                 elif isinstance(msg, ResultMessage):
@@ -329,7 +327,8 @@ async def _run_lead_agent_async(
                         elapsed_str = f"{elapsed_s:.1f}s"
                     console.print()
                     console.print(
-                        f"  [bold green]\u2713 done[/bold green] in {elapsed_str}"
+                        f"  [bold reverse green] \u2713 done [/bold reverse green]"
+                        f"  {elapsed_str}"
                         f"  [dim]{usage.summary_line()}[/dim]"
                     )
 

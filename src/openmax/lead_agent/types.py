@@ -28,6 +28,8 @@ class SubTask:
     branch_name: str | None = None
     started_at: float | None = None
     finished_at: float | None = None
+    token_budget: int | None = None
+    tokens_used: int = 0
 
 
 @dataclass
@@ -54,6 +56,7 @@ class PlanSubmission:
     subtasks: list[PlannedSubtask] = field(default_factory=list)
     rationale: str = ""
     parallel_groups: list[list[str]] = field(default_factory=list)
+    total_budget: int | None = None
 
 
 @dataclass

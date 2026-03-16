@@ -1816,3 +1816,170 @@ def test_session_runtime_merge_event_reconstruction(tmp_path):
     builder = ContextBuilder()
     plan = builder.reconstruct_plan(meta, events)
     assert any("Merged branch for 'feat-a'" in a for a in plan.recent_activity)
+
+
+# ── Cost Convergence & Budget Control Tests ─────────────────────────────
+
+
+def test_check_budget_warning_soft_limit():
+    """_check_budget_warning returns soft_limit at 80% usage."""
+    from openmax.lead_agent.tools import _check_budget_warning
+
+    assert _check_budget_warning("task-a", 800, 1000) == "soft_limit"
+    assert _check_budget_warning("task-a", 900, 1000) == "soft_limit"
+    assert _check_budget_warning("task-a", 799, 1000) is None
+    assert _check_budget_warning("task-a", 0, 1000) is None
+
+
+def test_check_budget_warning_hard_limit():
+    """_check_budget_warning returns hard_limit at 100% usage."""
+    from openmax.lead_agent.tools import _check_budget_warning
+
+    assert _check_budget_warning("task-a", 1000, 1000) == "hard_limit"
+    assert _check_budget_warning("task-a", 1500, 1000) == "hard_limit"
+
+
+def test_dispatch_agent_accepts_token_budget(monkeypatch, tmp_path):
+    """dispatch_agent accepts token_budget and stores it on the subtask."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.dispatch_agent.handler,
+            {
+                "task_name": "budgeted-task",
+                "agent_type": "claude-code",
+                "prompt": "Do something",
+                "token_budget": 5000,
+            },
+        )
+        parsed = json.loads(result["content"][0]["text"])
+        assert parsed["status"] == "dispatched"
+        assert parsed["token_budget"] == 5000
+
+        st = runtime.plan.subtasks[0]
+        assert st.token_budget == 5000
+        assert st.tokens_used == 0
+    finally:
+        _teardown_session(token)
+
+
+def test_dispatch_agent_no_budget_defaults_none(monkeypatch, tmp_path):
+    """dispatch_agent without token_budget leaves it as None."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.dispatch_agent.handler,
+            {
+                "task_name": "no-budget-task",
+                "agent_type": "claude-code",
+                "prompt": "Do something",
+            },
+        )
+        parsed = json.loads(result["content"][0]["text"])
+        assert parsed["token_budget"] is None
+
+        st = runtime.plan.subtasks[0]
+        assert st.token_budget is None
+    finally:
+        _teardown_session(token)
+
+
+def test_read_pane_output_includes_budget_status(monkeypatch, tmp_path):
+    """read_pane_output includes budget info when subtask has a token_budget."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+
+    subtask = SubTask(
+        name="budgeted",
+        agent_type="claude-code",
+        prompt="test",
+        status=TaskStatus.RUNNING,
+        pane_id=101,
+        token_budget=10000,
+        tokens_used=8500,
+    )
+    runtime.plan.subtasks.append(subtask)
+
+    result = anyio.run(
+        lead_agent_tools.read_pane_output.handler,
+        {"pane_id": 101},
+    )
+
+    parsed = json.loads(result["content"][0]["text"])
+    assert "budget" in parsed
+    assert parsed["budget"]["token_budget"] == 10000
+    assert parsed["budget"]["tokens_used"] == 8500
+    assert parsed["budget"]["warning"] == "soft_limit"
+
+    _teardown_session(token)
+
+
+def test_read_pane_output_budget_hard_limit(monkeypatch, tmp_path):
+    """read_pane_output shows hard_limit when tokens_used >= token_budget."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+
+    subtask = SubTask(
+        name="over-budget",
+        agent_type="claude-code",
+        prompt="test",
+        status=TaskStatus.RUNNING,
+        pane_id=101,
+        token_budget=5000,
+        tokens_used=5000,
+    )
+    runtime.plan.subtasks.append(subtask)
+
+    result = anyio.run(
+        lead_agent_tools.read_pane_output.handler,
+        {"pane_id": 101},
+    )
+
+    parsed = json.loads(result["content"][0]["text"])
+    assert parsed["budget"]["warning"] == "hard_limit"
+
+    _teardown_session(token)
+
+
+def test_read_pane_output_no_budget_no_field(monkeypatch, tmp_path):
+    """read_pane_output omits budget field when no token_budget is set."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+
+    subtask = SubTask(
+        name="unbounded",
+        agent_type="claude-code",
+        prompt="test",
+        status=TaskStatus.RUNNING,
+        pane_id=101,
+    )
+    runtime.plan.subtasks.append(subtask)
+
+    result = anyio.run(
+        lead_agent_tools.read_pane_output.handler,
+        {"pane_id": 101},
+    )
+
+    parsed = json.loads(result["content"][0]["text"])
+    assert "budget" not in parsed
+
+    _teardown_session(token)
+
+
+def test_subtask_token_budget_defaults():
+    """SubTask token_budget defaults to None and tokens_used to 0."""
+    st = SubTask(name="t", agent_type="claude-code", prompt="p")
+    assert st.token_budget is None
+    assert st.tokens_used == 0
+
+
+def test_plan_submission_total_budget():
+    """PlanSubmission supports total_budget field."""
+    from openmax.lead_agent.types import PlanSubmission
+
+    plan = PlanSubmission(rationale="test", total_budget=50000)
+    assert plan.total_budget == 50000
+
+    plan_no_budget = PlanSubmission(rationale="test")
+    assert plan_no_budget.total_budget is None

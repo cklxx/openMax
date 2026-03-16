@@ -533,6 +533,7 @@ def _compress_context(context: str, budget: int) -> str:
         "override_reason": str,
         "retry_count": int,
         "context_budget_tokens": int,
+        "token_budget": int,
     },
 )
 async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
@@ -541,6 +542,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     agent_type = args.get("agent_type", "claude-code")
     prompt = args["prompt"]
     retry_count = args.get("retry_count", 0)
+    token_budget = args.get("token_budget")
     if not isinstance(retry_count, int) or retry_count < 0:
         retry_count = 0
 
@@ -688,6 +690,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         retry_count=retry_count,
         branch_name=branch_name,
         started_at=time.time(),
+        token_budget=token_budget,
     )
     _upsert_subtask(subtask)
     if runtime.dashboard is not None:
@@ -738,11 +741,21 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
                         "panes_in_window": pane_count,
                         "retry_count": retry_count,
                         "branch_name": branch_name,
+                        "token_budget": token_budget,
                     }
                 ),
             }
         ]
     }
+
+
+def _check_budget_warning(task_name: str, used: int, budget: int) -> str | None:
+    """Check token budget and return warning level if threshold exceeded."""
+    if used >= budget:
+        return "hard_limit"
+    if used >= 0.8 * budget:
+        return "soft_limit"
+    return None
 
 
 _STUCK_THRESHOLD = 3  # consecutive identical outputs to trigger stuck
@@ -825,7 +838,24 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
         pane_alive = runtime.pane_mgr.is_pane_alive(pane_id)
         exited = not pane_alive
 
-        result = json.dumps({"text": text, "stuck": stuck, "exited": exited})
+        response_data: dict[str, Any] = {
+            "text": text,
+            "stuck": stuck,
+            "exited": exited,
+        }
+
+        # Add budget status if a budget is set for this pane's subtask
+        for st in runtime.plan.subtasks:
+            if st.pane_id == pane_id and st.token_budget is not None:
+                warning = _check_budget_warning(st.name, st.tokens_used, st.token_budget)
+                response_data["budget"] = {
+                    "token_budget": st.token_budget,
+                    "tokens_used": st.tokens_used,
+                    "warning": warning,
+                }
+                break
+
+        result = json.dumps(response_data)
         _append_session_event(
             "tool.read_pane_output",
             {
