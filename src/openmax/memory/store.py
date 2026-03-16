@@ -17,6 +17,7 @@ from openmax.memory._utils import (
     _derive_agent_stats,
     _derive_performance_signals,
     _derive_workspace_facts,
+    _eviction_score,
     _keywords,
     default_memory_dir,
     infer_code_scope,
@@ -417,7 +418,17 @@ class MemoryStore:
         payload["cwd"] = str(Path(cwd).resolve())
         payload["updated_at"] = utc_now_iso()
         if len(entries) > _MAX_ENTRIES_PER_WORKSPACE:
-            payload["entries"] = entries[-_MAX_ENTRIES_PER_WORKSPACE:]
+            now = datetime.now(timezone.utc)
+            # Protect the 50 most recent run_summary entries
+            run_summaries = [e for e in entries if e.get("kind") == "run_summary"]
+            protected_ids = {
+                e.get("memory_id") for e in run_summaries[-_MAX_ENTRIES_PER_WORKSPACE:]
+            }
+            evictable = [e for e in entries if e.get("memory_id") not in protected_ids]
+            evictable.sort(key=lambda e: _eviction_score(e, now), reverse=True)
+            evict_count = len(entries) - _MAX_ENTRIES_PER_WORKSPACE
+            evict_ids = {e.get("memory_id") for e in evictable[:evict_count]}
+            payload["entries"] = [e for e in entries if e.get("memory_id") not in evict_ids]
 
         path = self._workspace_path(cwd)
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -225,6 +225,22 @@ def _derive_agent_stats(
     )
 
 
+def _eviction_score(entry: dict, now: datetime) -> float:
+    """Lower score = keep. Higher score = evict first."""
+    created = entry.get("created_at", "")
+    try:
+        entry_time = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        age_days = (now - entry_time).days
+    except (ValueError, TypeError):
+        age_days = 365  # Unknown age = old
+
+    # Check if entry has recent matches (metadata.last_matched)
+    last_matched = entry.get("metadata", {}).get("last_matched")
+    no_recent_match = 1 if last_matched is None else 0
+
+    return age_days * 0.3 + no_recent_match * 0.7
+
+
 def _aggregate_agent_stats(
     *,
     performance_signals: list[dict[str, Any]],
