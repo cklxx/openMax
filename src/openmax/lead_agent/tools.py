@@ -335,6 +335,18 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     if adapter is None:
         raise RuntimeError(f"Agent '{agent_type}' is unavailable")
 
+    # Auto-inject workspace memory context
+    if runtime.memory_store is not None:
+        try:
+            memory_context = runtime.memory_store.build_context(
+                cwd=runtime.cwd,
+                task=task_name,
+            )
+            if memory_context and memory_context.text:
+                prompt = prompt + "\n\n## Workspace Context\n" + memory_context.text
+        except Exception:
+            pass  # Don't fail dispatch if memory lookup fails
+
     cmd_spec = adapter.get_command(prompt, cwd=runtime.cwd)
     launch_env = cmd_spec.env or None
 
@@ -388,10 +400,14 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         prompt=prompt,
         status=TaskStatus.RUNNING,
         pane_id=pane.pane_id,
+        started_at=time.time(),
     )
     _upsert_subtask(subtask)
     if runtime.dashboard is not None:
-        runtime.dashboard.update_subtask(task_name, agent_type, pane.pane_id, "running")
+        runtime.dashboard.update_subtask(
+            task_name, agent_type, pane.pane_id, "running",
+            started_at=subtask.started_at,
+        )
 
     # Show layout info
     win = runtime.pane_mgr.windows.get(runtime.agent_window_id)
@@ -523,14 +539,18 @@ async def list_managed_panes(args: dict[str, Any]) -> dict[str, Any]:
     "mark_task_done",
     "Mark a sub-task as completed. Call only after verifying the agent has "
     "committed its changes and output looks correct.",
-    {"task_name": str},
+    {"task_name": str, "notes": str},
 )
 async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime()
     task_name = args["task_name"]
+    notes = args.get("notes", "").strip()
     for st in runtime.plan.subtasks:
         if st.name == task_name:
             st.status = TaskStatus.DONE
+            st.finished_at = time.time()
+            if notes:
+                st.completion_notes = notes
             console.print(f"  [green]\u2713\u2713[/green] [bold]{task_name}[/bold] done")
             if runtime.dashboard is not None:
                 runtime.dashboard.update_subtask(task_name, st.agent_type, st.pane_id, "done")

@@ -23,6 +23,9 @@ class SubTask:
     status: TaskStatus = TaskStatus.PENDING
     pane_id: int | None = None
     retry_count: int = 0
+    completion_notes: str | None = None
+    started_at: float | None = None
+    finished_at: float | None = None
 
 
 @dataclass

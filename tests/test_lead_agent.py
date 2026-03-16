@@ -133,15 +133,13 @@ def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
 
     events = store.load_events("lead-test")
     assert any(event.event_type == "tool.dispatch_agent" for event in events)
-    assert runtime.plan.subtasks == [
-        SubTask(
-            name="API",
-            agent_type="generic",
-            prompt="Implement API",
-            status=TaskStatus.RUNNING,
-            pane_id=101,
-        )
-    ]
+    assert len(runtime.plan.subtasks) == 1
+    st = runtime.plan.subtasks[0]
+    assert st.name == "API"
+    assert st.agent_type == "generic"
+    assert st.prompt == "Implement API"
+    assert st.status == TaskStatus.RUNNING
+    assert st.pane_id == 101
     assert runtime.pane_mgr.sent == [(101, "Implement API")]
 
     _teardown_session(token)
@@ -938,6 +936,91 @@ def test_transition_phase_mismatched_phase_rejected(tmp_path):
         text = result["content"][0]["text"]
         assert "Error" in text
         assert "does not match" in text
+    finally:
+        _teardown_session(token)
+
+
+def test_dispatch_agent_injects_memory_context(monkeypatch, tmp_path):
+    """dispatch_agent appends workspace memory context to the prompt."""
+    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    # Record a lesson so build_context returns something
+    memory_store.record_lesson(
+        cwd=str(tmp_path),
+        task="test task",
+        lesson="Always use pytest for testing",
+        rationale="Standard practice",
+    )
+
+    try:
+        anyio.run(
+            lead_agent_tools.dispatch_agent.handler,
+            {
+                "task_name": "test-task",
+                "agent_type": "claude-code",
+                "prompt": "Do something",
+            },
+        )
+
+        # The prompt sent to the pane should include memory context
+        assert len(runtime.pane_mgr.sent) > 0
+        sent_text = runtime.pane_mgr.sent[0][1]
+        assert "Workspace Context" in sent_text
+        assert "pytest" in sent_text
+    finally:
+        _teardown_session(token)
+
+
+def test_mark_task_done_stores_completion_notes(tmp_path):
+    """mark_task_done stores completion_notes on the subtask."""
+    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
+
+    subtask = SubTask(
+        name="test-task",
+        agent_type="claude-code",
+        prompt="test",
+        status=TaskStatus.RUNNING,
+        pane_id=101,
+    )
+    runtime.plan.subtasks.append(subtask)
+
+    try:
+        anyio.run(
+            lead_agent_tools.mark_task_done.handler,
+            {
+                "task_name": "test-task",
+                "notes": "Completed with 5 tests passing",
+            },
+        )
+
+        assert runtime.plan.subtasks[0].completion_notes == ("Completed with 5 tests passing")
+        assert runtime.plan.subtasks[0].status == TaskStatus.DONE
+    finally:
+        _teardown_session(token)
+
+
+def test_mark_task_done_no_notes(tmp_path):
+    """mark_task_done works without notes (backwards compat)."""
+    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
+
+    subtask = SubTask(
+        name="test-task",
+        agent_type="claude-code",
+        prompt="test",
+        status=TaskStatus.RUNNING,
+        pane_id=101,
+    )
+    runtime.plan.subtasks.append(subtask)
+
+    try:
+        anyio.run(
+            lead_agent_tools.mark_task_done.handler,
+            {"task_name": "test-task"},
+        )
+
+        assert runtime.plan.subtasks[0].completion_notes is None
+        assert runtime.plan.subtasks[0].status == TaskStatus.DONE
     finally:
         _teardown_session(token)
 
