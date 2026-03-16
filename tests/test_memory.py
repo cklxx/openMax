@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta, timezone
 
 from openmax.memory._utils import (
     _MAX_ENTRIES_PER_WORKSPACE,
     _MIN_RECENT_KEEP,
+    MAX_MEMORY_ENTRIES,
     _eviction_score,
 )
 from openmax.memory.store import MemoryStore
@@ -175,3 +177,63 @@ def test_minimum_recent_entries_retained(tmp_path):
     start = _MAX_ENTRIES_PER_WORKSPACE + 1 - _MIN_RECENT_KEEP
     for i in range(start, _MAX_ENTRIES_PER_WORKSPACE + 1):
         assert f"lesson-{i}" in summaries
+
+
+def test_max_memory_entries_constant():
+    """MAX_MEMORY_ENTRIES is 100 and aliases _MAX_ENTRIES_PER_WORKSPACE."""
+    assert MAX_MEMORY_ENTRIES == 100
+    assert _MAX_ENTRIES_PER_WORKSPACE == MAX_MEMORY_ENTRIES
+
+
+def test_last_accessed_set_on_creation(tmp_path):
+    """New entries have last_accessed set to a recent timestamp."""
+    store = MemoryStore(base_dir=tmp_path)
+    cwd = str(tmp_path / "project")
+    before = time.time()
+    store.record_lesson(cwd=cwd, task="task-1", lesson="lesson-1")
+    after = time.time()
+
+    entries = store.load_entries(cwd)
+    assert len(entries) == 1
+    assert before <= entries[0].last_accessed <= after
+
+
+def test_last_accessed_bumped_on_build_context(tmp_path):
+    """build_context bumps last_accessed for matched entries."""
+    store = MemoryStore(base_dir=tmp_path)
+    cwd = str(tmp_path / "project")
+
+    store.record_lesson(cwd=cwd, task="fix auth bug", lesson="auth tokens expire after 1h")
+    entries_before = store.load_entries(cwd)
+    original_accessed = entries_before[0].last_accessed
+
+    # Small sleep to ensure timestamp difference
+    time.sleep(0.05)
+
+    # build_context should bump last_accessed for matched entries
+    store.build_context(cwd=cwd, task="fix auth bug")
+    entries_after = store.load_entries(cwd)
+    assert entries_after[0].last_accessed > original_accessed
+
+
+def test_eviction_score_staleness():
+    """Recently accessed entries get lower eviction scores than stale ones."""
+    now = datetime.now(timezone.utc)
+    now_ts = now.timestamp()
+
+    recently_accessed = _make_entry_dict("recent", age_days=30)
+    recently_accessed["last_accessed"] = now_ts - 3600  # accessed 1 hour ago
+
+    stale = _make_entry_dict("stale", age_days=30)
+    stale["last_accessed"] = now_ts - 86400 * 60  # accessed 60 days ago
+
+    never_accessed = _make_entry_dict("never", age_days=30)
+    never_accessed["last_accessed"] = 0.0  # never accessed
+
+    score_recent = _eviction_score(recently_accessed, now)
+    score_stale = _eviction_score(stale, now)
+    score_never = _eviction_score(never_accessed, now)
+
+    # Recently accessed → lower eviction score (kept)
+    assert score_recent < score_stale
+    assert score_recent < score_never

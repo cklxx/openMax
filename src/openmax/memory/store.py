@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import time
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -87,6 +88,7 @@ class MemoryStore:
             insights=insights,
             lessons=[lesson.strip()],
             confidence=confidence,
+            last_accessed=time.time(),
             source=source,
             metadata={
                 "code_scope": infer_code_scope(task, lesson, rationale),
@@ -150,6 +152,7 @@ class MemoryStore:
                 completion_pct=completion_pct,
             ),
             completion_pct=completion_pct,
+            last_accessed=time.time(),
             source="report_completion",
             metadata={
                 "subtasks": subtasks[:12],
@@ -179,6 +182,14 @@ class MemoryStore:
         if not isinstance(entries, list):
             return []
         return [MemoryEntry.from_payload(item) for item in entries if isinstance(item, dict)]
+
+    def pin_entry(self, cwd: str, memory_id: str) -> bool:
+        """Pin an entry so it is never evicted. Returns True if found."""
+        return self._set_entry_field(cwd, memory_id, "pinned", True)
+
+    def unpin_entry(self, cwd: str, memory_id: str) -> bool:
+        """Unpin an entry. Returns True if found."""
+        return self._set_entry_field(cwd, memory_id, "pinned", False)
 
     def render_workspace_memories(self, cwd: str, limit: int = 10) -> list[str]:
         entries = list(reversed(self.load_entries(cwd)))[0:limit]
@@ -256,6 +267,10 @@ class MemoryStore:
         selected = active_entries + predictive_entries
         if not selected:
             selected = list(reversed(entries))[: min(limit, len(entries))]
+
+        # ── Bump last_accessed for matched entries ────────────────
+        if selected:
+            self._bump_last_accessed(cwd, {e.memory_id for e in selected})
 
         # ── Collect matched predictions for transparency ──────────
         predictions_used: list[str] = []
@@ -405,12 +420,28 @@ class MemoryStore:
     @staticmethod
     def _format_entry_line(entry: MemoryEntry) -> str:
         prefix = "lesson" if entry.kind == "lesson" else "run"
-        detail = f"- [{prefix}] {entry.summary}"
+        pin_marker = " [pinned]" if entry.pinned else ""
+        detail = f"- [{prefix}]{pin_marker} {entry.summary}"
         if entry.confidence is not None:
             detail += f" (confidence {entry.confidence}/10)"
         if entry.completion_pct is not None:
             detail += f" [{entry.completion_pct}%]"
         return detail
+
+    def _set_entry_field(self, cwd: str, memory_id: str, field: str, value: Any) -> bool:
+        """Set a field on a raw entry dict. Returns True if entry was found."""
+        payload = self._load_workspace_payload(cwd)
+        for entry in payload.get("entries", []):
+            if entry.get("memory_id") == memory_id:
+                entry[field] = value
+                payload["updated_at"] = utc_now_iso()
+                path = self._workspace_path(cwd)
+                path.write_text(
+                    json.dumps(payload, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                return True
+        return False
 
     def _append_entry(self, cwd: str, entry: MemoryEntry) -> None:
         payload = self._load_workspace_payload(cwd)
@@ -427,6 +458,9 @@ class MemoryStore:
             protected_ids = recent_ids | {
                 e.get("memory_id") for e in run_summaries[-_MAX_ENTRIES_PER_WORKSPACE:]
             }
+            # Pinned entries are never evicted
+            pinned_ids = {e.get("memory_id") for e in entries if e.get("pinned")}
+            protected_ids |= pinned_ids
             evictable = [e for e in entries if e.get("memory_id") not in protected_ids]
             evictable.sort(key=lambda e: _eviction_score(e, now), reverse=True)
             evict_count = len(entries) - _MAX_ENTRIES_PER_WORKSPACE
@@ -436,6 +470,25 @@ class MemoryStore:
         path = self._workspace_path(cwd)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _bump_last_accessed(self, cwd: str, memory_ids: set[str]) -> None:
+        """Update last_accessed, hit_count, and last_matched for matched entries."""
+        payload = self._load_workspace_payload(cwd)
+        entries = payload.get("entries", [])
+        now = time.time()
+        now_iso = utc_now_iso()
+        changed = False
+        for entry in entries:
+            if entry.get("memory_id") in memory_ids:
+                entry["last_accessed"] = now
+                meta = entry.setdefault("metadata", {})
+                meta["hit_count"] = meta.get("hit_count", 0) + 1
+                meta["last_matched"] = now_iso
+                changed = True
+        if changed:
+            path = self._workspace_path(cwd)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _load_workspace_payload(self, cwd: str) -> dict[str, Any]:
         path = self._workspace_path(cwd)
@@ -551,6 +604,8 @@ class MemoryStore:
         entry_terms = _keywords(entry_text)
         overlap = len(task_terms & entry_terms)
         score = overlap
+        if entry.pinned:
+            score += 10  # Pinned entries always surface
         if entry.kind == "lesson":
             score += 2
         if entry.completion_pct:

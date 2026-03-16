@@ -30,6 +30,8 @@ class MemoryEntry:
     agent_stats: list[dict[str, Any]] = field(default_factory=list)
     confidence: int | None = None
     completion_pct: int | None = None
+    last_accessed: float = 0.0
+    pinned: bool = False
     source: str = "system"
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -39,6 +41,11 @@ class MemoryEntry:
         if kind not in {"lesson", "run_summary"}:
             kind = "lesson"
         metadata = item.get("metadata", {})
+        last_accessed = item.get("last_accessed", 0.0)
+        try:
+            last_accessed = float(last_accessed)
+        except (TypeError, ValueError):
+            last_accessed = 0.0
         return cls(
             memory_id=str(item.get("memory_id", uuid.uuid4().hex)),
             created_at=str(item.get("created_at", utc_now_iso())),
@@ -52,6 +59,8 @@ class MemoryEntry:
             agent_stats=_coerce_stat_list(item.get("agent_stats")),
             confidence=_coerce_int(item.get("confidence")),
             completion_pct=_coerce_int(item.get("completion_pct")),
+            last_accessed=last_accessed,
+            pinned=bool(item.get("pinned", False)),
             source=str(item.get("source", "system")).strip() or "system",
             metadata=metadata if isinstance(metadata, dict) else {},
         )

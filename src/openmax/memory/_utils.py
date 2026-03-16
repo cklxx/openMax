@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 MemoryKind = Literal["lesson", "run_summary"]
-_MAX_ENTRIES_PER_WORKSPACE = 50
+MAX_MEMORY_ENTRIES = 100
+_MAX_ENTRIES_PER_WORKSPACE = MAX_MEMORY_ENTRIES
 
 _STOP_WORDS = {
     "the",
@@ -229,13 +230,20 @@ _MIN_RECENT_KEEP = 10
 
 
 def _eviction_score(entry: dict, now: datetime) -> float:
-    """Higher score = evict first. Considers age, confidence, hit_count, relevance."""
+    """Higher score = evict first. Considers age, staleness, confidence, hit_count, relevance."""
     created = entry.get("created_at", "")
     try:
         entry_time = datetime.fromisoformat(created.replace("Z", "+00:00"))
         age_days = max((now - entry_time).days, 0)
     except (ValueError, TypeError):
         age_days = 365  # Unknown age = old
+
+    # Staleness: time since last_accessed (seconds → days)
+    last_accessed = entry.get("last_accessed", 0.0)
+    if isinstance(last_accessed, (int, float)) and last_accessed > 0:
+        staleness_days = max((now.timestamp() - last_accessed) / 86400.0, 0)
+    else:
+        staleness_days = float(age_days)  # never accessed = as stale as old
 
     metadata = entry.get("metadata", {})
     if not isinstance(metadata, dict):
@@ -265,9 +273,10 @@ def _eviction_score(entry: dict, now: datetime) -> float:
     else:
         completion_bonus = 0.0
 
-    # Weighted score: age pushes up (evict), bonuses push down (keep)
+    # Weighted score: age + staleness push up (evict), bonuses push down (keep)
     score = (
-        age_days * 0.3
+        age_days * 0.2
+        + staleness_days * 0.2
         + no_recent_match * 0.5
         - confidence_bonus * 2.0
         - hit_bonus * 2.0
