@@ -504,6 +504,17 @@ def test_find_active_session_finds_matching_session(tmp_path):
     assert result.session_id == "test-session-123"
 
 
+def test_usage_tokens_counted_in_scorecard(tmp_path):
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("token-test", "Goal", str(tmp_path))
+    store.append_event(meta, "usage.tokens", {"input_tokens": 100, "output_tokens": 50})
+    store.append_event(meta, "usage.tokens", {"input_tokens": 200, "output_tokens": 75})
+
+    snapshot = store.load_snapshot("token-test")
+    assert snapshot.plan.scorecard.total_input_tokens == 300
+    assert snapshot.plan.scorecard.total_output_tokens == 125
+
+
 def test_find_active_session_ignores_completed(tmp_path):
     store = SessionStore(base_dir=tmp_path)
     meta = store.create_session("done-session", "Some task", "/tmp/x")

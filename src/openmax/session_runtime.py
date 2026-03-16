@@ -83,6 +83,8 @@ class RunScorecard:
     subtask_count: int
     done_subtask_count: int
     manual_intervention_count: int
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
     completion_pct: int | None = None
     startup_failure_category: str | None = None
 
@@ -494,6 +496,12 @@ class ContextBuilder:
                 )
                 continue
 
+            if event_type == "usage.tokens":
+                inp = _coerce_int(payload.get("input_tokens")) or 0
+                out = _coerce_int(payload.get("output_tokens")) or 0
+                recent_activity.append(f"Tokens: +{inp} in, +{out} out")
+                continue
+
             if event_type == "lead.message":
                 text = str(payload.get("text", "")).strip()
                 if text:
@@ -765,6 +773,13 @@ def _build_run_scorecard(
     if terminal_time is not None:
         duration_seconds = max(int((terminal_time - created_at).total_seconds()), 0)
 
+    total_input_tokens = 0
+    total_output_tokens = 0
+    for ev in events:
+        if ev.event_type == "usage.tokens":
+            total_input_tokens += _coerce_int(ev.payload.get("input_tokens")) or 0
+            total_output_tokens += _coerce_int(ev.payload.get("output_tokens")) or 0
+
     done_subtask_count = sum(1 for task in tasks if task.status == "done")
     return RunScorecard(
         status=meta.status,
@@ -774,6 +789,8 @@ def _build_run_scorecard(
         subtask_count=len(tasks),
         done_subtask_count=done_subtask_count,
         manual_intervention_count=manual_intervention_count,
+        total_input_tokens=total_input_tokens,
+        total_output_tokens=total_output_tokens,
         completion_pct=completion_pct,
         startup_failure_category=startup_failure_category,
     )

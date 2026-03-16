@@ -306,6 +306,18 @@ async def _run_lead_agent_async(
                     usage = usage_from_result(sid, msg)
                     if session_id:
                         UsageStore().save(usage)
+                    if hasattr(msg, "usage") and msg.usage:
+                        _append_session_event(
+                            "usage.tokens",
+                            {
+                                "input_tokens": getattr(msg.usage, "input_tokens", 0),
+                                "output_tokens": getattr(msg.usage, "output_tokens", 0),
+                                "cache_read_tokens": getattr(msg.usage, "cache_read_tokens", 0),
+                                "cache_creation_tokens": getattr(
+                                    msg.usage, "cache_creation_tokens", 0
+                                ),
+                            },
+                        )
                     console.print(
                         Panel(
                             usage.summary_line(),
