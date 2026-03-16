@@ -13,6 +13,7 @@ import time
 
 from rich.console import Console, ConsoleRenderable, Group
 from rich.live import Live
+from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
@@ -53,7 +54,7 @@ def _elapsed_since(start: float | None, end: float | None = None) -> str:
 def print_phase_divider(phase: str) -> None:
     """Print a styled phase divider to the console."""
     console.print()
-    console.print(Rule(f" {phase} ", style="cyan", align="left"))
+    console.print(Rule(f" {phase} ", style="dim cyan", align="left"))
     console.print()
 
 
@@ -92,10 +93,20 @@ class RunDashboard:
         """Mark dashboard as ready and show connecting spinner."""
         self._active = True
         if self._is_tty:
+            from rich.columns import Columns
+            from rich.spinner import Spinner
+
+            spinner_display = Columns(
+                [
+                    Spinner("dots", style="dim cyan"),
+                    Text("connecting...", style="dim"),
+                ],
+                padding=(0, 1),
+            )
             self._spinner_live = Live(
-                Text("  [dim]connecting...[/dim]"),
+                spinner_display,
                 console=console,
-                refresh_per_second=2,
+                refresh_per_second=4,
                 transient=True,
             )
             self._spinner_live.start()
@@ -161,12 +172,22 @@ class RunDashboard:
         finished_at: float | None = None,
     ) -> None:
         existing = self.subtasks.get(name, {})
+        # Convert wall-clock timestamps (time.time) to monotonic for display.
+        # The dashboard timer uses time.monotonic() throughout.
+        mono_started = existing.get("started_at")
+        mono_finished = existing.get("finished_at")
+        now_mono = time.monotonic()
+        if started_at is not None and mono_started is None:
+            # First time setting started_at — record current monotonic time
+            mono_started = now_mono
+        if finished_at is not None and mono_finished is None:
+            mono_finished = now_mono
         self.subtasks[name] = {
             "agent": agent,
             "pane_id": pane_id,
             "status": status,
-            "started_at": started_at or existing.get("started_at"),
-            "finished_at": finished_at or existing.get("finished_at"),
+            "started_at": mono_started,
+            "finished_at": mono_finished,
         }
         self._ensure_live()
         self._refresh()
@@ -205,10 +226,8 @@ class RunDashboard:
         return line
 
     def _render_full(self) -> ConsoleRenderable:
-        """Rich status bar with subtask table + progress bar."""
-        parts: list[ConsoleRenderable] = []
-
-        # Subtask table
+        """Rich status bar with subtask table inside a panel + progress bar."""
+        # Subtask table — compact, no header (badges are self-explanatory)
         tbl = Table(
             show_header=False,
             show_edge=False,
@@ -216,11 +235,11 @@ class RunDashboard:
             padding=(0, 1),
             expand=False,
         )
-        tbl.add_column("indicator", width=2, no_wrap=True)
-        tbl.add_column("name", style="bold", no_wrap=True, max_width=28)
-        tbl.add_column("agent", style="dim", no_wrap=True, max_width=14)
-        tbl.add_column("pane", style="dim", justify="right", no_wrap=True, width=7)
-        tbl.add_column("elapsed", style="dim", justify="right", no_wrap=True, width=6)
+        tbl.add_column(width=2, no_wrap=True)
+        tbl.add_column(style="bold", no_wrap=True, max_width=28)
+        tbl.add_column(style="dim", no_wrap=True, max_width=14)
+        tbl.add_column(style="dim", justify="right", no_wrap=True, width=5)
+        tbl.add_column(style="dim", justify="right", no_wrap=True, width=6)
 
         for name, info in self.subtasks.items():
             status = info.get("status", "pending")
@@ -231,9 +250,7 @@ class RunDashboard:
             elapsed = _elapsed_since(info.get("started_at"), info.get("finished_at"))
             tbl.add_row(badge, name, agent, pane_str, elapsed)
 
-        parts.append(tbl)
-
-        # Progress bar line
+        # Progress counts
         elapsed = _elapsed(self.start_time)
         total = len(self.subtasks)
         counts: dict[str, int] = {}
@@ -242,16 +259,21 @@ class RunDashboard:
             counts[st] = counts.get(st, 0) + 1
         done = counts.get("done", 0)
 
-        bar_width = 24
-        filled = int(done / total * bar_width) if total else 0
-        bar_filled = "\u2501" * filled  # ━
-        bar_empty = "\u2504" * (bar_width - filled)  # ┄
-        bar_color = "green" if done == total else "cyan"
+        # Build progress bar with eighth-blocks for smooth rendering
+        bar_width = 20
+        ratio = done / total if total else 0
+        filled_full = int(ratio * bar_width)
+        remainder = (ratio * bar_width) - filled_full
+        partial_chars = " \u258f\u258e\u258d\u258c\u258b\u258a\u2589\u2588"
+        partial_idx = int(remainder * 8)
 
-        progress = Text()
-        progress.append(f"  {bar_filled}", style=bar_color)
-        progress.append(bar_empty, style="dim")
-        progress.append(f"  {done}/{total}", style="bold")
+        bar_color = "green" if done == total else "cyan"
+        progress = Text("  ")
+        progress.append("\u2588" * filled_full, style=bar_color)
+        if filled_full < bar_width:
+            progress.append(partial_chars[partial_idx], style=bar_color)
+            progress.append("\u2591" * (bar_width - filled_full - 1), style="dim")
+        progress.append(f" {done}/{total}", style="bold")
         progress.append(f"  {elapsed}", style="dim")
 
         status_parts = []
@@ -262,14 +284,22 @@ class RunDashboard:
         if counts.get("pending"):
             status_parts.append(f"{counts['pending']} queued")
         if status_parts:
-            progress.append(f"  ({', '.join(status_parts)})", style="dim")
+            joined = " \u2022 ".join(status_parts)
+            progress.append(f"  {joined}", style="dim")
 
         if self._monitor_count > 0:
             progress.append(f"  [{self._monitor_count} checks]", style="dim")
 
-        parts.append(progress)
+        # Wrap table in a panel with dim border
+        panel = Panel(
+            Group(tbl, progress),
+            title="[bold]agents[/bold]",
+            title_align="left",
+            border_style="dim",
+            padding=(0, 1),
+        )
 
-        return Group(*parts)
+        return panel
 
     def _refresh(self) -> None:
         if self._live is not None and self._active:

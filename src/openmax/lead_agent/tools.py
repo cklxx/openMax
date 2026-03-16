@@ -102,17 +102,36 @@ async def _wait_for_pane_ready(
     timeout: float = 30.0,
     poll_interval: float = 0.5,
 ) -> bool:
-    """Poll pane output until a ready pattern appears or timeout."""
+    """Poll pane output until a ready pattern appears or timeout.
+
+    Uses two strategies:
+    1. Pattern match — look for known ready strings in pane output.
+    2. Output stability — if the pane has substantial output (≥3 lines)
+       and output hasn't changed for 2 consecutive checks, treat as ready.
+       This handles CLI version changes where patterns shift.
+    """
     if not ready_patterns:
         return False
     deadline = time.monotonic() + timeout
+    prev_text = ""
+    stable_count = 0
     while time.monotonic() < deadline:
         try:
             text = pane_mgr.get_text(pane_id)
         except Exception:
             text = ""
+        # Strategy 1: explicit pattern match
         if any(pat in text for pat in ready_patterns):
             return True
+        # Strategy 2: output stabilized with substantial content
+        lines = [ln for ln in text.strip().splitlines() if ln.strip()]
+        if len(lines) >= 3 and text == prev_text:
+            stable_count += 1
+            if stable_count >= 2:
+                return True
+        else:
+            stable_count = 0
+        prev_text = text
         await anyio.sleep(poll_interval)
     return False
 
