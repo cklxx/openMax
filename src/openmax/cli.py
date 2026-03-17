@@ -1033,6 +1033,36 @@ def setup(status: bool) -> None:
 
 
 @main.command()
+@click.argument("name", required=False)
+def skills(name: str | None) -> None:
+    """List available skills, or show a skill's content.
+
+    With no arguments, lists all skills and their descriptions.
+    With NAME, prints the skill body (suitable for injecting into agent prompts).
+    """
+    from openmax.skills import list_skills, load_skill
+
+    if not name:
+        available = list_skills()
+        if not available:
+            console.print("[yellow]No skills found.[/yellow]")
+            return
+        console.print("[bold]Available skills[/bold]  [dim](Claude Code: /skill-name)[/dim]")
+        for s in available:
+            console.print(f"  /[bold]{s}[/bold]")
+        console.print(
+            "\n[dim]Other agents: `openmax skills <name>` or `cat skills/<name>.md`[/dim]"
+        )
+        return
+
+    try:
+        body = load_skill(name)
+        console.print(body)
+    except FileNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@main.command()
 def models() -> None:
     """Select the lead agent model and save it to config."""
     current = get_model()
