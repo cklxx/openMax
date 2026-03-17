@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.3
+
+- Save full pane output to .openmax/logs/ (no line limit) as permanent audit trail
+- Always persist briefs and reports to main cwd so they survive worktree cleanup
+- Two-layer .gitignore (nested + root append) to avoid merge conflicts
+
 ## 0.4.2
 
 - Fix `PaneManager.add_pane()` missing `title` parameter — unblocks all dispatch_agent and run_command calls
