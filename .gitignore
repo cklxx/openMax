@@ -43,3 +43,4 @@ htmlcov/
 .ruff_cache/
 .openmax-worktrees/
 .openmax/
+.claude/worktrees/
