@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.11
+
+- **`openmax loop` tape context**: each iteration now injects a structured "Loop Context" block into the lead agent's prompt — lists all prior iterations with timestamps, subtask names, and completion %; lead agent explicitly told not to repeat completed work; inspired by bub's tape-based context design
+- **`loop_context` param**: `run_lead_agent` / `_build_lead_prompt` accept an optional `loop_context` string injected before memory context
+- **`LoopSessionStore`**: new `src/openmax/loop_session.py` — JSONL tape at `~/.openmax/sessions/loops/<id>.jsonl` records every iteration; survives restarts
+
 ## 0.5.10
 
 - **Refactor**: split `lead_agent/tools.py` (2168-line God Object) into `tools/` package — `_dispatch`, `_planning`, `_shared`, `_verify`, `_report`, `_misc`, `_helpers` modules; no behavior change

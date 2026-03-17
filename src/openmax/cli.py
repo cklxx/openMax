@@ -14,11 +14,14 @@ from typing import Any
 import click
 from rich.table import Table
 
+from openmax._paths import utc_now_iso
 from openmax.agent_registry import AgentConfigError, load_agent_registry
 from openmax.auth import has_claude_auth, run_claude_setup_token
 from openmax.config import fetch_anthropic_models, get_model, set_model
 from openmax.doctor import render_results, run_checks
 from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
+from openmax.lead_agent.types import TaskStatus
+from openmax.loop_session import LoopIteration, LoopSessionStore, build_loop_context
 from openmax.memory import MemoryStore
 from openmax.output import console
 from openmax.pane_backend import resolve_pane_backend_name
@@ -336,12 +339,17 @@ def loop(
 
     _print_loop_header(goal, max_iterations)
 
+    loop_store = LoopSessionStore()
+    loop_session = loop_store.create(goal=goal, cwd=cwd)
+    console.print(f"[dim]Loop ID: {loop_session.loop_id}[/dim]\n")
+
     iteration = 0
     try:
         while max_iterations == 0 or iteration < max_iterations:
             iteration += 1
             console.print(f"[bold]─── Iteration {iteration} {'─' * 40}[/bold]")
-            _run_loop_iteration(
+            loop_context = build_loop_context(loop_session, iteration)
+            result = _run_loop_iteration(
                 goal=goal,
                 cwd=cwd,
                 effective_model=effective_model,
@@ -350,7 +358,10 @@ def loop(
                 agent_registry=agent_registry,
                 pane_backend_name=pane_backend_name,
                 iteration=iteration,
+                loop_context=loop_context,
             )
+            loop_store.append_iteration(loop_session.loop_id, result)
+            loop_session.iterations.append(result)
             if delay > 0 and (max_iterations == 0 or iteration < max_iterations):
                 console.print(f"[dim]Pausing {delay}s before next iteration...[/dim]")
                 time.sleep(delay)
@@ -377,7 +388,9 @@ def _run_loop_iteration(
     agent_registry,
     pane_backend_name: str | None,
     iteration: int,
-) -> None:
+    loop_context: str | None,
+) -> LoopIteration:
+    started_at = utc_now_iso()
     pane_mgr = PaneManager(backend_name=pane_backend_name)
     cleaned_up = False
 
@@ -393,7 +406,7 @@ def _run_loop_iteration(
 
     atexit.register(_do_cleanup)
     try:
-        run_lead_agent(
+        plan = run_lead_agent(
             task=goal,
             pane_mgr=pane_mgr,
             cwd=cwd,
@@ -401,11 +414,45 @@ def _run_loop_iteration(
             max_turns=max_turns,
             allowed_agents=allowed_agents,
             agent_registry=agent_registry,
+            loop_context=loop_context,
         )
+        return _make_loop_iteration(iteration, started_at, plan)
     except LeadAgentStartupError as exc:
         console.print(f"[red]Iteration {iteration} failed to start: {exc}[/red]")
+        return _make_loop_iteration(iteration, started_at, None)
     finally:
         _do_cleanup()
+
+
+def _make_loop_iteration(iteration: int, started_at: str, plan: Any) -> LoopIteration:
+    from openmax.lead_agent.types import PlanResult
+
+    if plan is None or not isinstance(plan, PlanResult):
+        return LoopIteration(
+            iteration=iteration,
+            session_id=None,
+            started_at=started_at,
+            completed_at=utc_now_iso(),
+            outcome_summary="Failed to start",
+            completion_pct=0,
+            tasks_done=[],
+            tasks_failed=[],
+        )
+    done = [st.name for st in plan.subtasks if st.status == TaskStatus.DONE]
+    failed = [st.name for st in plan.subtasks if st.status == TaskStatus.ERROR]
+    total = len(plan.subtasks)
+    pct = int(len(done) / total * 100) if total else 100
+    summary = f"{len(done)}/{total} subtasks done" if total else "Completed (no subtasks)"
+    return LoopIteration(
+        iteration=iteration,
+        session_id=None,
+        started_at=started_at,
+        completed_at=utc_now_iso(),
+        outcome_summary=summary,
+        completion_pct=pct,
+        tasks_done=done,
+        tasks_failed=failed,
+    )
 
 
 @main.command()

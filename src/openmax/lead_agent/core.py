@@ -175,6 +175,7 @@ def _build_lead_prompt(
     resume_context: str | None,
     memory_context: str | None,
     allowed_agents: list[str] | None = None,
+    loop_context: str | None = None,
 ) -> str:
     parts = [f"## Goal\n{task}", f"Working directory: {cwd}"]
 
@@ -191,6 +192,8 @@ def _build_lead_prompt(
         )
     if session_id:
         parts.append(f"Session ID: {session_id}")
+    if loop_context:
+        parts.append(loop_context)
     if resume_context:
         parts.append("## Prior Session State (resume)\n" + resume_context)
     if memory_context:
@@ -209,6 +212,7 @@ def run_lead_agent(
     resume: bool = False,
     allowed_agents: list[str] | None = None,
     agent_registry: AgentRegistry | None = None,
+    loop_context: str | None = None,
 ) -> PlanResult:
     """Run the lead agent synchronously (wraps async), with retry on transient API errors."""
     for attempt in range(_MAX_TRANSIENT_RETRIES + 1):
@@ -224,6 +228,7 @@ def run_lead_agent(
                 resume,
                 allowed_agents,
                 agent_registry,
+                loop_context,
             )
         except _TransientAPIError:
             if attempt >= _MAX_TRANSIENT_RETRIES:
@@ -245,6 +250,7 @@ async def _run_lead_agent_async(
     resume: bool,
     allowed_agents: list[str] | None = None,
     agent_registry: AgentRegistry | None = None,
+    loop_context: str | None = None,
 ) -> PlanResult:
     normalized_cwd = str(Path(cwd).resolve())
     dashboard = RunDashboard(task)
@@ -364,6 +370,7 @@ async def _run_lead_agent_async(
             resume_context,
             memory_context.text if memory_context else None,
             allowed_agents=allowed_agents,
+            loop_context=loop_context,
         )
 
         console.print()
