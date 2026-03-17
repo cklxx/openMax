@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.7
+
+- Systematic code quality cleanup: -248 lines, zero behavior changes
+- Remove unused interactive mode (inspect/send/summary/quit loop)
+- Extract shared helpers in tools.py: `_tool_response`, `_launch_pane`, `_merge_and_handle_conflicts`
+- Refactor `reconstruct_plan()` from 225-line if-chain to event dispatch dict
+- Merge duplicate coercion functions, extract eviction score helpers
+- Simplify pane_manager env-passing and extract helpers
+- Extract status style constants and table factory in CLI
+
 ## 0.3.5
 
 - CLAUDE.md: add code style section (15-line max, composition, transform pipelines)
