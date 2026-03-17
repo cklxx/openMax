@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.5
+
+- Simple tasks (single-file, clear scope) now skip research + plan and dispatch directly to claude-code — no unnecessary overhead
+
 ## 0.5.4
 
 - Fix: lead agent now always runs `run_verification` (lint + test) after merging all branches — was transitioning to verify phase but silently skipping the actual checks
