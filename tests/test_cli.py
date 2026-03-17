@@ -751,3 +751,163 @@ def test_inspect_command_prints_event_log_warnings(monkeypatch, tmp_path):
     assert result.exit_code == 0
     assert "Diagnostics" in result.output
     assert "Skipped 1 malformed event line while loading session history." in result.output
+
+
+# ── loop command ──────────────────────────────────────────────────────────────
+
+
+def test_loop_help():
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["loop", "--help"])
+    assert result.exit_code == 0
+    assert "--max-iterations" in result.output
+    assert "--delay" in result.output
+
+
+def test_loop_first_iteration_gets_no_loop_context(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+    monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
+
+    captured: list[dict] = []
+
+    def fake_run(**kwargs):
+        captured.append(kwargs)
+        return SimpleNamespace(subtasks=[])
+
+    monkeypatch.setattr(cli, "run_lead_agent", fake_run)
+
+    import openmax.loop_session as lsmod
+
+    def patched_dir():
+        d = tmp_path / "loops"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    monkeypatch.setattr(lsmod, "_loops_dir", patched_dir)
+
+    runner = CliRunner()
+    runner.invoke(cli.main, ["loop", "improve openmax", "--max-iterations", "1", "--delay", "0"])
+
+    assert len(captured) == 1
+    assert captured[0]["loop_context"] is None or captured[0]["loop_context"] == ""
+
+
+def test_loop_second_iteration_receives_loop_context(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+    monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
+
+    captured: list[dict] = []
+
+    def fake_run(**kwargs):
+        captured.append(kwargs)
+        return SimpleNamespace(subtasks=[])
+
+    monkeypatch.setattr(cli, "run_lead_agent", fake_run)
+
+    import openmax.loop_session as lsmod
+
+    def patched_dir():
+        d = tmp_path / "loops"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    monkeypatch.setattr(lsmod, "_loops_dir", patched_dir)
+
+    runner = CliRunner()
+    runner.invoke(cli.main, ["loop", "improve openmax", "--max-iterations", "2", "--delay", "0"])
+
+    assert len(captured) == 2
+    # Second iteration must carry prior-iteration context
+    ctx2 = captured[1]["loop_context"]
+    assert ctx2 is not None and ctx2 != ""
+    assert "Iteration 2" in ctx2
+    assert "DO NOT repeat" in ctx2
+
+
+def test_loop_writes_tape_entry_per_iteration(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+    monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
+    monkeypatch.setattr(cli, "run_lead_agent", lambda **kw: SimpleNamespace(subtasks=[]))
+
+    import openmax.loop_session as lsmod
+
+    written: list[str] = []
+    orig_append = lsmod.LoopSessionStore.append_iteration
+
+    def spy_append(self, loop_id, iteration):
+        written.append(loop_id)
+        orig_append(self, loop_id, iteration)
+
+    monkeypatch.setattr(lsmod.LoopSessionStore, "append_iteration", spy_append)
+
+    def patched_dir():
+        d = tmp_path / "loops"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    monkeypatch.setattr(lsmod, "_loops_dir", patched_dir)
+
+    runner = CliRunner()
+    runner.invoke(cli.main, ["loop", "goal", "--max-iterations", "3", "--delay", "0"])
+
+    assert len(written) == 3  # one tape entry per iteration
+
+
+def test_loop_stops_at_max_iterations(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+    monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
+
+    call_count = 0
+
+    def fake_run(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        return SimpleNamespace(subtasks=[])
+
+    monkeypatch.setattr(cli, "run_lead_agent", fake_run)
+
+    import openmax.loop_session as lsmod
+
+    def patched_dir():
+        d = tmp_path / "loops"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    monkeypatch.setattr(lsmod, "_loops_dir", patched_dir)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["loop", "goal", "--max-iterations", "4", "--delay", "0"])
+
+    assert result.exit_code == 0
+    assert call_count == 4
+
+
+def test_loop_handles_startup_error_gracefully(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+    monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
+
+    from openmax.lead_agent import LeadAgentStartupError
+
+    def fake_run(**kwargs):
+        raise LeadAgentStartupError(
+            category="bootstrap",
+            stage="sdk_client_startup",
+            detail="mock failure",
+            remediation="retry",
+        )
+
+    monkeypatch.setattr(cli, "run_lead_agent", fake_run)
+
+    import openmax.loop_session as lsmod
+
+    def patched_dir():
+        d = tmp_path / "loops"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    monkeypatch.setattr(lsmod, "_loops_dir", patched_dir)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["loop", "goal", "--max-iterations", "1", "--delay", "0"])
+
+    assert result.exit_code == 0  # graceful, not a crash

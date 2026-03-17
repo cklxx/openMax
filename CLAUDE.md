@@ -49,6 +49,34 @@ No wrapper classes. No builders. No config objects. Transform pipelines.
 
 ---
 
+## Testing discipline (MANDATORY for every feature)
+
+Every new feature or fix requires tests at three levels before the PR is considered done:
+
+| Level | What | File pattern |
+|---|---|---|
+| **Unit** | Core logic in isolation — pure functions, data structures, edge cases | `tests/test_<module>.py` |
+| **CLI** | Command wiring — CliRunner + monkeypatch boundary, correct args forwarded | `tests/test_cli.py` |
+| **Integration** | End-to-end data flow — real filesystem (tmp_path), mocked external calls only | `tests/test_<module>.py` or `tests/test_ci_smoke.py` |
+
+### Rules
+- Mock **only at the boundary**: `run_lead_agent`, `PaneManager`, external processes, `_run_kaku`. Never mock internal logic.
+- Each test has **one assertion focus**. Split scenarios into separate test functions.
+- Cover: happy path + at least one failure/edge case (error handling, empty input, pruning threshold).
+- Use `pytest` fixtures (`tmp_path`, `monkeypatch`) — no global mutable state.
+- Test file for `src/openmax/foo.py` lives at `tests/test_foo.py`.
+
+### Checklist before committing a feature
+```
+[ ] Unit tests for the new module / function
+[ ] CLI test if a new command or flag was added
+[ ] Integration test verifying the full data flow (tape written? context injected? pruning triggered?)
+[ ] ruff check + ruff format pass
+[ ] pytest tests/ passes (all, not just new tests)
+```
+
+---
+
 ## Memory loading
 
 **Always-load** (every conversation start):

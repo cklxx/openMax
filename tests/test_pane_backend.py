@@ -165,3 +165,71 @@ def test_kaku_backend_passes_agent_env_out_of_band(monkeypatch):
     assert kwargs["env"]["OPENAI_API_KEY"] == secret
     assert kwargs["env"]["OPENAI_BASE_URL"] == "https://api.moonshot.cn/v1"
     assert secret not in " ".join(args)
+
+
+# ── KakuPaneBackend retry ─────────────────────────────────────────────────────
+
+
+def test_kaku_spawn_window_retries_on_transient_failure(monkeypatch):
+    backend = KakuPaneBackend()
+    attempt = 0
+
+    def flaky_run_kaku(args, **kwargs):
+        nonlocal attempt
+        attempt += 1
+        if attempt < 3:
+            raise PaneBackendError("transient kaku timeout")
+        return type("R", (), {"stdout": "42\n"})()
+
+    monkeypatch.setattr(backend, "_run_kaku", flaky_run_kaku)
+    monkeypatch.setattr("openmax.pane_backend.time.sleep", lambda _: None)
+
+    pane_id = backend.spawn_window(["echo", "hi"])
+
+    assert pane_id == 42
+    assert attempt == 3  # failed twice, succeeded on third
+
+
+def test_kaku_spawn_window_raises_after_max_retries(monkeypatch):
+    backend = KakuPaneBackend()
+
+    def always_fail(args, **kwargs):
+        raise PaneBackendError("kaku not responding")
+
+    monkeypatch.setattr(backend, "_run_kaku", always_fail)
+    monkeypatch.setattr("openmax.pane_backend.time.sleep", lambda _: None)
+
+    with pytest.raises(PaneBackendError, match="kaku not responding"):
+        backend.spawn_window(["echo", "hi"])
+
+
+def test_kaku_split_pane_retries_on_transient_failure(monkeypatch):
+    backend = KakuPaneBackend()
+    attempt = 0
+
+    def flaky_run_kaku(args, **kwargs):
+        nonlocal attempt
+        attempt += 1
+        if attempt < 2:
+            raise PaneBackendError("transient split failure")
+        return type("R", (), {"stdout": "99\n"})()
+
+    monkeypatch.setattr(backend, "_run_kaku", flaky_run_kaku)
+    monkeypatch.setattr("openmax.pane_backend.time.sleep", lambda _: None)
+
+    pane_id = backend.split_pane(10, "right", ["echo", "hi"])
+
+    assert pane_id == 99
+    assert attempt == 2
+
+
+def test_kaku_retry_does_not_sleep_on_first_success(monkeypatch):
+    backend = KakuPaneBackend()
+    sleep_calls: list[float] = []
+
+    monkeypatch.setattr(backend, "_run_kaku", lambda args, **kw: type("R", (), {"stdout": "7\n"})())
+    monkeypatch.setattr("openmax.pane_backend.time.sleep", lambda s: sleep_calls.append(s))
+
+    backend.spawn_window(["echo"])
+
+    assert sleep_calls == []  # no sleep when first attempt succeeds

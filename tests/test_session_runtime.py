@@ -525,3 +525,67 @@ def test_find_active_session_ignores_completed(tmp_path):
     th = task_hash("Some task", str(Path("/tmp/x").resolve()))
     result = store.find_active_session(th)
     assert result is None
+
+
+# ── lead.message pruning ──────────────────────────────────────────────────────
+
+
+def test_lead_message_events_are_pruned_when_over_100(tmp_path):
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("prune-test", "Goal", str(tmp_path))
+
+    for i in range(101):
+        store.append_event(meta, "lead.message", {"text": f"msg {i}"})
+
+    events = store.load_events(meta.session_id)
+    lead_msgs = [e for e in events if e.event_type == "lead.message"]
+    assert len(lead_msgs) == 50
+
+
+def test_phase_anchor_events_are_never_pruned(tmp_path):
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("anchor-prune-test", "Goal", str(tmp_path))
+
+    for i in range(110):
+        store.append_event(meta, "lead.message", {"text": f"msg {i}"})
+    for i in range(5):
+        store.append_event(
+            meta, "phase.anchor", anchor_payload(phase="implement", summary=f"anchor {i}", tasks=[])
+        )
+
+    events = store.load_events(meta.session_id)
+    anchors = [e for e in events if e.event_type == "phase.anchor"]
+    assert len(anchors) == 5  # none dropped
+
+
+def test_non_message_events_are_never_pruned(tmp_path):
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("non-msg-prune-test", "Goal", str(tmp_path))
+
+    for i in range(110):
+        store.append_event(meta, "lead.message", {"text": f"msg {i}"})
+
+    store.append_event(
+        meta,
+        "tool.dispatch_agent",
+        {"task_name": "task-x", "agent_type": "claude-code", "prompt": "do it", "pane_id": 1},
+    )
+    store.append_event(meta, "tool.mark_task_done", {"task_name": "task-x"})
+
+    events = store.load_events(meta.session_id)
+    dispatch = [e for e in events if e.event_type == "tool.dispatch_agent"]
+    done = [e for e in events if e.event_type == "tool.mark_task_done"]
+    assert len(dispatch) == 1
+    assert len(done) == 1
+
+
+def test_pruning_does_not_trigger_below_100(tmp_path):
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("no-prune-test", "Goal", str(tmp_path))
+
+    for i in range(99):
+        store.append_event(meta, "lead.message", {"text": f"msg {i}"})
+
+    events = store.load_events(meta.session_id)
+    lead_msgs = [e for e in events if e.event_type == "lead.message"]
+    assert len(lead_msgs) == 99  # untouched
