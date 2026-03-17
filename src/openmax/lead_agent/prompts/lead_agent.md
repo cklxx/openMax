@@ -126,11 +126,6 @@ Each transition requires a `gate_summary` (≥20 chars) describing what was comp
 - `opencode` — OpenCode CLI.
 - `generic` — Fallback interactive Claude.
 
-Pass `model` in `dispatch_agent` to choose a specific model for that sub-agent.
-Available models and the session default are listed in the task context.
-Use heavier models (e.g. opus) for complex reasoning or multi-file refactors;
-use lighter models (e.g. haiku) for simple, high-volume, or parallel tasks.
-
 ## 5. Hard rules
 
 - **You have NO file exploration tools.** Dispatch agents for all code access.

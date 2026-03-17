@@ -24,11 +24,9 @@ class ClaudeCodeAdapter(AgentAdapter):
     def get_command(
         self, prompt: str, cwd: str | None = None, model: str | None = None
     ) -> AgentCommand:
-        cmd = ["claude"]
-        if model:
-            cmd += ["--model", model]
+        # model is intentionally ignored — use claude's configured default
         return AgentCommand(
-            launch_cmd=cmd,
+            launch_cmd=["claude"],
             initial_input=prompt,
             interactive=True,
             ready_patterns=["? for shortcuts", "Human:", "╭─"],
@@ -52,7 +50,5 @@ class ClaudeCodePrintAdapter(AgentAdapter):
     def get_command(
         self, prompt: str, cwd: str | None = None, model: str | None = None
     ) -> AgentCommand:
-        cmd = ["claude", "-p", prompt]
-        if model:
-            cmd += ["--model", model]
-        return AgentCommand(launch_cmd=cmd, interactive=False)
+        # model is intentionally ignored — use claude's configured default
+        return AgentCommand(launch_cmd=["claude", "-p", prompt], interactive=False)
