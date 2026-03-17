@@ -7,14 +7,16 @@ from pathlib import Path
 import pytest
 
 import openmax.session_runtime as session_runtime
-from openmax.session_runtime import (
-    ContextBuilder,
+from openmax.lead_agent.runtime import (
     LeadAgentRuntime,
-    SessionStore,
-    anchor_payload,
     bind_lead_agent_runtime,
     get_lead_agent_runtime,
     reset_lead_agent_runtime,
+)
+from openmax.session_runtime import (
+    ContextBuilder,
+    SessionStore,
+    anchor_payload,
     task_hash,
 )
 

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
+
+from openmax._paths import utc_now_iso  # noqa: F401  (re-exported for models.py)
 
 MemoryKind = Literal["lesson", "run_summary"]
 MAX_MEMORY_ENTRIES = 100
@@ -76,10 +78,6 @@ _STOP_WORDS = {
 }
 
 
-def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 def default_memory_dir() -> Path:
     return Path.home() / ".openmax" / "memory"
 
@@ -88,15 +86,19 @@ def serialize_subtasks(tasks: list[Any]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for task in tasks:
         status = getattr(task, "status", "")
-        result.append(
-            {
-                "name": getattr(task, "name", ""),
-                "agent_type": getattr(task, "agent_type", ""),
-                "prompt": getattr(task, "prompt", ""),
-                "status": getattr(status, "value", str(status)),
-                "pane_id": getattr(task, "pane_id", None),
-            }
-        )
+        pane_id = getattr(task, "pane_id", None)
+        entry: dict[str, Any] = {
+            "name": getattr(task, "name", ""),
+            "agent_type": getattr(task, "agent_type", ""),
+            "prompt": getattr(task, "prompt", ""),
+            "status": getattr(status, "value", str(status)),
+            "pane_id": pane_id,
+            "pane_history": [pane_id] if pane_id is not None else [],
+        }
+        branch_name = getattr(task, "branch_name", None)
+        if branch_name:
+            entry["branch_name"] = branch_name
+        result.append(entry)
     return result
 
 

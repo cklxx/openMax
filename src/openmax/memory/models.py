@@ -6,12 +6,12 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from openmax._paths import utc_now_iso
 from openmax.memory._utils import (
     MemoryKind,
     _coerce_dict_list,
     _coerce_int,
     _coerce_string_list,
-    utc_now_iso,
 )
 
 

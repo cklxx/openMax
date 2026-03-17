@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 import click
-from rich.console import Console
 from rich.table import Table
 
 from openmax.agent_registry import AgentConfigError, load_agent_registry
@@ -19,6 +18,7 @@ from openmax.auth import has_claude_auth, run_claude_setup_token
 from openmax.doctor import render_results, run_checks
 from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
 from openmax.memory import MemoryStore
+from openmax.output import console
 from openmax.pane_backend import resolve_pane_backend_name
 from openmax.pane_manager import PaneManager
 from openmax.provider_usage import ProviderStatus, probe_all
@@ -26,7 +26,6 @@ from openmax.session_runtime import SessionSnapshot, SessionStore
 from openmax.terminal import ensure_kaku, ensure_tmux, is_kaku_available, is_tmux_available
 from openmax.usage import UsageStore
 
-console = Console()
 _ANCHOR_PREVIEW_LIMIT = 5
 
 _STATUS_STYLES: dict[str, str] = {

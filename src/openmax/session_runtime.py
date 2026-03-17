@@ -6,11 +6,12 @@ import hashlib
 import json
 import uuid
 from collections.abc import Callable
-from contextvars import ContextVar, Token
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
+
+from openmax._paths import default_sessions_dir, utc_now_iso
 
 SCHEMA_VERSION = 1
 DEFAULT_CONTEXT_CHAR_BUDGET = 12_000
@@ -18,17 +19,9 @@ DEFAULT_CONTEXT_CHAR_BUDGET = 12_000
 TaskStatusLiteral = Literal["pending", "running", "done", "error"]
 
 
-def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 def task_hash(task: str, cwd: str) -> str:
     digest = hashlib.md5(f"{cwd}\n{task}".encode(), usedforsecurity=False)
     return digest.hexdigest()
-
-
-def default_sessions_dir() -> Path:
-    return Path.home() / ".openmax" / "sessions"
 
 
 @dataclass
@@ -136,50 +129,6 @@ class SessionSnapshot:
 class ContextBuildResult:
     text: str
     compaction_summary: str | None = None
-
-
-@dataclass
-class LeadAgentRuntime:
-    """Mutable runtime state for a single lead-agent session."""
-
-    cwd: str
-    plan: Any
-    pane_mgr: Any
-    agent_window_id: int | None = None
-    session_store: SessionStore | None = None
-    session_meta: SessionMeta | None = None
-    memory_store: Any | None = None
-    allowed_agents: list[str] | None = None
-    agent_registry: Any | None = None
-    dashboard: Any | None = None
-    pane_output_hashes: dict[int, list[str]] = field(default_factory=dict)
-    plan_submitted: bool = False
-    current_phase: str = "research"
-    integration_branch: str | None = None
-    token_usage: dict[str, int] = field(default_factory=dict)
-
-
-_lead_agent_runtime: ContextVar[LeadAgentRuntime | None] = ContextVar(
-    "openmax_lead_agent_runtime",
-    default=None,
-)
-
-
-def bind_lead_agent_runtime(
-    runtime: LeadAgentRuntime,
-) -> Token[LeadAgentRuntime | None]:
-    return _lead_agent_runtime.set(runtime)
-
-
-def reset_lead_agent_runtime(token: Token[LeadAgentRuntime | None]) -> None:
-    _lead_agent_runtime.reset(token)
-
-
-def get_lead_agent_runtime() -> LeadAgentRuntime:
-    runtime = _lead_agent_runtime.get()
-    if runtime is None:
-        raise RuntimeError("Lead agent runtime is not initialized")
-    return runtime
 
 
 class SessionStore:
@@ -741,27 +690,6 @@ def anchor_payload(
     if completion_pct is not None:
         payload["completion_pct"] = completion_pct
     return payload
-
-
-def serialize_tasks(tasks: list[Any]) -> list[dict[str, Any]]:
-    serialized: list[dict[str, Any]] = []
-    for task in tasks:
-        pane_id = getattr(task, "pane_id", None)
-        status = getattr(task, "status")
-        status_value = getattr(status, "value", status)
-        entry: dict[str, Any] = {
-            "name": getattr(task, "name"),
-            "agent_type": getattr(task, "agent_type"),
-            "prompt": getattr(task, "prompt"),
-            "status": str(status_value),
-            "pane_id": pane_id,
-            "pane_history": [pane_id] if pane_id is not None else [],
-        }
-        branch_name = getattr(task, "branch_name", None)
-        if branch_name:
-            entry["branch_name"] = branch_name
-        serialized.append(entry)
-    return serialized
 
 
 def _task_states_from_payload(value: Any) -> list[SubtaskState]:

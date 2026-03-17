@@ -6,7 +6,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from openmax.session_runtime import SessionStore, default_sessions_dir, utc_now_iso
+from openmax._paths import default_sessions_dir, utc_now_iso
+from openmax.session_runtime import SessionStore
 
 
 @dataclass

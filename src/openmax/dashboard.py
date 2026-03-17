@@ -11,20 +11,16 @@ from __future__ import annotations
 import sys
 import time
 
-from rich.console import Console, ConsoleRenderable, Group
+from rich.console import ConsoleRenderable, Group
 from rich.live import Live
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-# Shared console instance — import this in other modules to avoid Live/print overlap.
-console = Console()
+from openmax.output import console
 
 _MAX_TOOL_EVENTS = 8
-
-# Consistent prefix for log lines (vite-style).
-P = "\u279c"  # ➜
 
 # Status indicators for subtask states.
 _STATUS_BADGES: dict[str, tuple[str, str]] = {

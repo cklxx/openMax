@@ -13,16 +13,12 @@ from typing import Any
 import anyio
 from claude_agent_sdk import tool
 
-from openmax.dashboard import P, console
+from openmax.lead_agent.runtime import LeadAgentRuntime, get_lead_agent_runtime
 from openmax.lead_agent.types import SubTask, TaskStatus
 from openmax.memory import serialize_subtasks
+from openmax.output import P, console
 from openmax.pane_manager import PaneManager
-from openmax.session_runtime import (
-    LeadAgentRuntime,
-    anchor_payload,
-    get_lead_agent_runtime,
-    serialize_tasks,
-)
+from openmax.session_runtime import anchor_payload
 
 _VALID_PHASE_TRANSITIONS: dict[str, set[str]] = {
     "research": {"implement"},
@@ -69,7 +65,7 @@ def _record_phase_anchor(phase: str, summary: str, completion_pct: int | None = 
     payload = anchor_payload(
         phase=normalized_phase,
         summary=summary.strip(),
-        tasks=serialize_tasks(runtime.plan.subtasks),
+        tasks=serialize_subtasks(runtime.plan.subtasks),
         completion_pct=completion_pct,
     )
     _append_session_event("phase.anchor", payload)

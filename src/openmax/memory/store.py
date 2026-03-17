@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from openmax._paths import utc_now_iso
 from openmax.memory._utils import (
     _MAX_ENTRIES_PER_WORKSPACE,
     _MIN_RECENT_KEEP,
@@ -23,7 +24,6 @@ from openmax.memory._utils import (
     _keywords,
     default_memory_dir,
     infer_code_scope,
-    utc_now_iso,
 )
 from openmax.memory.models import (
     AgentRecommendation,

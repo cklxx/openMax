@@ -13,13 +13,13 @@ from openmax.lead_agent import LeadAgentStartupError, PlanResult, SubTask, TaskS
 from openmax.lead_agent import core as lead_agent_core
 from openmax.lead_agent import formatting as lead_agent_formatting
 from openmax.lead_agent import tools as lead_agent_tools
-from openmax.memory import MemoryStore
-from openmax.session_runtime import (
+from openmax.lead_agent.runtime import (
     LeadAgentRuntime,
-    SessionStore,
     bind_lead_agent_runtime,
     reset_lead_agent_runtime,
 )
+from openmax.memory import MemoryStore
+from openmax.session_runtime import SessionStore
 
 
 class DummyPaneManager:

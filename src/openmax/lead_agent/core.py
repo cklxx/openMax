@@ -20,8 +20,13 @@ from claude_agent_sdk import (
 
 from openmax import __version__
 from openmax.agent_registry import AgentRegistry, built_in_agent_registry
-from openmax.dashboard import P, RunDashboard, console, print_agent_text
+from openmax.dashboard import RunDashboard, print_agent_text
 from openmax.lead_agent.formatting import _format_tool_use, tool_category
+from openmax.lead_agent.runtime import (
+    LeadAgentRuntime,
+    bind_lead_agent_runtime,
+    reset_lead_agent_runtime,
+)
 from openmax.lead_agent.tools import (
     ALL_TOOLS,
     _append_session_event,
@@ -33,14 +38,12 @@ from openmax.lead_agent.types import (
     _classify_startup_failure,
 )
 from openmax.memory import MemoryStore
+from openmax.output import P, console
 from openmax.pane_manager import PaneManager
 from openmax.session_runtime import (
     ContextBuilder,
-    LeadAgentRuntime,
     SessionSnapshot,
     SessionStore,
-    bind_lead_agent_runtime,
-    reset_lead_agent_runtime,
 )
 from openmax.usage import UsageStore, usage_from_result
 
