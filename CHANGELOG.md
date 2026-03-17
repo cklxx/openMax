@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.8
+
+- **Shared Blackboard**: `update_shared_context` / `read_shared_context` tools let Lead write architectural decisions to `.openmax/shared/blackboard.md`; every dispatched sub-agent automatically receives relevant blackboard content in its brief
+- **Checkpoint Pattern**: sub-agents can pause at decision forks by writing `.openmax/checkpoints/{task}.md`; Lead detects these via `check_checkpoints`, decides (or escalates to human), and sends the decision back via `resolve_checkpoint` → `send_text_to_pane`
+- **Active monitoring loop**: Lead's prompt now includes `check_checkpoints` in every monitoring round; `ask_user` reserved for product/policy decisions only — technical choices are Lead's to make
+- 4 new MCP tools: `update_shared_context`, `read_shared_context`, `check_checkpoints`, `resolve_checkpoint`
+
 ## 0.5.7
 
 - openMax is now an installable skill for AI coding agents (Claude Code, Codex, OpenCode)
