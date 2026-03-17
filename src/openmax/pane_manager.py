@@ -161,6 +161,7 @@ class PaneManager:
         command: list[str],
         purpose: str,
         agent_type: str,
+        title: str | None = None,
         cwd: str | None = None,
         env: dict[str, str] | None = None,
     ) -> ManagedPane:

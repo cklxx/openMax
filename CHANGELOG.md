@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2
+
+- Fix `PaneManager.add_pane()` missing `title` parameter — unblocks all dispatch_agent and run_command calls
+
 ## 0.4.1
 
 - Vite-style clear screen on CLI startup for a clean, distraction-free experience
