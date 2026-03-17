@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.9
+
+- Fix dispatch/run/verify tools crashing on pane backend errors — now returns structured error to lead agent with remediation hint
+- Record `tool.dispatch_agent.failed` events so failures are visible in session history
+- Fix branch isolation failing on retry when branch already exists — reuse existing branch+worktree instead
+- Preserve reused branches on worktree creation failure (don't delete prior agent commits)
+
 ## 0.3.8
 
 - Fix module layering: move LeadAgentRuntime from persistence to orchestration layer
