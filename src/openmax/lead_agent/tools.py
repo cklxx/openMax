@@ -17,6 +17,7 @@ from openmax.lead_agent.runtime import LeadAgentRuntime, get_lead_agent_runtime
 from openmax.lead_agent.types import SubTask, TaskStatus
 from openmax.memory import serialize_subtasks
 from openmax.output import P, console
+from openmax.pane_backend import PaneBackendError
 from openmax.pane_manager import PaneManager
 from openmax.session_runtime import anchor_payload
 
@@ -512,6 +513,36 @@ def _launch_pane(
     return pane
 
 
+def _safe_launch_pane(
+    runtime: LeadAgentRuntime,
+    *,
+    command: list[str] | str,
+    purpose: str,
+    agent_type: str,
+    title: str | None = None,
+    cwd: str | None = None,
+    env: dict[str, str] | None = None,
+) -> tuple[SimpleNamespace | None, str | None]:
+    """Launch a pane with error handling. Returns (pane, error_message)."""
+    try:
+        pane = _launch_pane(
+            runtime,
+            command=command,
+            purpose=purpose,
+            agent_type=agent_type,
+            title=title,
+            cwd=cwd,
+            env=env,
+        )
+        return pane, None
+    except PaneBackendError as e:
+        return None, f"Pane backend error: {e}"
+    except RuntimeError as e:
+        return None, f"Pane launch failed: {e}"
+    except OSError as e:
+        return None, f"OS error during pane launch: {e}"
+
+
 def _try_reuse_done_pane(
     runtime: LeadAgentRuntime, agent_type: str, task_name: str
 ) -> SimpleNamespace | None:
@@ -760,7 +791,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         if cmd_spec.interactive and cmd_spec.initial_input:
             runtime.pane_mgr.send_text(pane.pane_id, cmd_spec.initial_input)
     else:
-        pane = _launch_pane(
+        pane, launch_err = _safe_launch_pane(
             runtime,
             command=cmd_spec.launch_cmd,
             purpose=task_name,
@@ -769,6 +800,29 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
             cwd=agent_cwd,
             env=launch_env,
         )
+        if pane is None:
+            console.print(f"  [bold red]\u2717[/bold red]  dispatch failed: {launch_err}")
+            _append_session_event(
+                "tool.dispatch_agent.failed",
+                {
+                    "task_name": task_name,
+                    "agent_type": agent_type,
+                    "error": launch_err,
+                    "branch_name": branch_name,
+                },
+            )
+            return _tool_response(
+                {
+                    "status": "error",
+                    "error": launch_err,
+                    "task_name": task_name,
+                    "agent_type": agent_type,
+                    "remediation": (
+                        "Check that the terminal backend (kaku/tmux) is running. "
+                        "Run 'openmax doctor' for diagnostics."
+                    ),
+                }
+            )
         if cmd_spec.interactive and cmd_spec.initial_input:
             await _wait_and_send_prompt(
                 runtime,
@@ -1361,13 +1415,16 @@ async def run_command(args: dict[str, Any]) -> dict[str, Any]:
     if not cmd_list:
         return _tool_response("Error: empty command")
 
-    pane = _launch_pane(
+    pane, launch_err = _safe_launch_pane(
         runtime,
         command=cmd_list,
         purpose=task_name,
         agent_type="command",
         title=f"openMax: {runtime.plan.goal[:40]}",
     )
+    if pane is None:
+        console.print(f"  [bold red]\u2717[/bold red]  run_command failed: {launch_err}")
+        return _tool_response({"status": "error", "error": launch_err})
 
     subtask = SubTask(
         name=task_name,
@@ -1441,13 +1498,16 @@ async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
     shell_cmd = ["bash", "-c", wrapped_cmd]
 
     task_name = f"verify-{check_type}"
-    pane = _launch_pane(
+    pane, launch_err = _safe_launch_pane(
         runtime,
         command=shell_cmd,
         purpose=task_name,
         agent_type="command",
         title=f"openMax: verify {check_type}",
     )
+    if pane is None:
+        console.print(f"  [bold red]\u2717[/bold red]  verification launch failed: {launch_err}")
+        return _tool_response({"status": "error", "error": launch_err, "check_type": check_type})
 
     console.print(
         f"  [bold cyan]{P}[/bold cyan]  verify {check_type}:"

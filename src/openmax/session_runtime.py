@@ -510,6 +510,14 @@ def _on_resume_mismatch(state: _ReconstructionState, payload: dict[str, Any], ts
     )
 
 
+def _on_dispatch_failed(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
+    name = str(payload.get("task_name", "")).strip()
+    error = str(payload.get("error", "")).strip()
+    agent = str(payload.get("agent_type", "")).strip()
+    label = f"'{name}'" if name else "unknown task"
+    state.recent_activity.append(f"Dispatch FAILED for {label} ({agent}): {error}")
+
+
 def _on_context_compacted(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
     summary = str(payload.get("summary", "")).strip()
     if summary:
@@ -536,6 +544,7 @@ _EVENT_HANDLERS: dict[str, _HandlerFn] = {
     "session.aborted": _on_session_aborted,
     "session.startup_failed": _on_startup_failed,
     "session.resume_mismatch": _on_resume_mismatch,
+    "tool.dispatch_agent.failed": _on_dispatch_failed,
     "context.compacted": _on_context_compacted,
 }
 
