@@ -117,9 +117,14 @@ def test_resolve_pane_backend_name_rejects_unknown_value(monkeypatch):
         resolve_pane_backend_name()
 
 
-def test_create_pane_backend_builds_requested_backend():
+def test_create_pane_backend_builds_requested_backend(monkeypatch):
     assert isinstance(create_pane_backend("headless"), HeadlessPaneBackend)
     assert isinstance(create_pane_backend("kaku"), KakuPaneBackend)
+    # Tmux backend calls `tmux` at init time; skip when tmux is not installed.
+    import shutil
+
+    if shutil.which("tmux") is None:
+        pytest.skip("tmux not available")
     assert isinstance(create_pane_backend("tmux"), TmuxPaneBackend)
 
 
