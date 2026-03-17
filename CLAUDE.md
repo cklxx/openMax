@@ -112,5 +112,13 @@ Key packages: `lead_agent/` (orchestration), `memory/` (workspace memory), `adap
 ```bash
 # Bump version in pyproject.toml and src/openmax/__init__.py
 python -m build
-TWINE_USERNAME=__token__ TWINE_PASSWORD=<token> python -m twine upload dist/openmax-<version>*
+python -m twine upload dist/openmax-<version>*
 ```
+
+**Dependency version rule**: Before bumping openmax version, verify that all dependency
+minimum versions in `pyproject.toml` actually exist on PyPI:
+```bash
+pip index versions <package>  # confirm the version is listed
+```
+Do NOT set a minimum version higher than what is currently published. CI installs from
+PyPI — if the required version isn't there yet, ci-smoke fails.
