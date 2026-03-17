@@ -19,7 +19,7 @@ from openmax.config import fetch_anthropic_models, get_model, set_model
 from openmax.doctor import render_results, run_checks
 from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
 from openmax.memory import MemoryStore
-from openmax.output import clear_screen, console
+from openmax.output import console
 from openmax.pane_backend import resolve_pane_backend_name
 from openmax.pane_manager import PaneManager
 from openmax.provider_usage import ProviderStatus, probe_all
@@ -215,7 +215,6 @@ def run(
     if pane_backend_name == "tmux" and not ensure_tmux():
         raise SystemExit(1)
 
-    clear_screen()
     pane_mgr = PaneManager(backend_name=pane_backend_name)
 
     # Safety net: atexit ensures cleanup even on unhandled exceptions
