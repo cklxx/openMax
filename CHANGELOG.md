@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0
+
+- `openmax models`: interactive model selector — fetches available models from Anthropic API, user picks by number or pastes ID, saves to `~/.openmax/config.json`
+- `openmax run` reads saved model from config as default; `--model` still overrides per-run
+
 ## 0.4.9
 
 - Remove sub-agent model selection: dispatch_agent no longer has a `model` param, adapters no longer accept `--model` CLI flags; each CLI tool manages its own model config
