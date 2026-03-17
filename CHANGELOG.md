@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.6
+
+- Add cross-agent skills system: 6 built-in skills (commit, release, test, lint, debug, research) in `skills/`
+- Claude Code: skills auto-available as `/commit`, `/release`, `/test`, `/lint`, `/debug`, `/research` via `.claude/commands/` symlinks
+- Codex / OpenCode: `skills.inject_skill(prompt, name)` API injects skill content into dispatch prompts
+- `install_skills.sh`: one-command install to project or global `~/.claude/commands/`
+- `openmax skills [name]` CLI command: list available skills or print a skill's body
+
 ## 0.5.5
 
 - Simple tasks (single-file, clear scope) now skip research + plan and dispatch directly to claude-code — no unnecessary overhead
