@@ -1,1 +1,0 @@
-../../skills/lint.md

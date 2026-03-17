@@ -1032,34 +1032,22 @@ def setup(status: bool) -> None:
         raise SystemExit(1)
 
 
-@main.command()
-@click.argument("name", required=False)
-def skills(name: str | None) -> None:
-    """List available skills, or show a skill's content.
+@main.command("install-skill")
+@click.option("--global", "global_", is_flag=True, default=False, help="Install globally")
+@click.option("--cwd", default=None, help="Project root for project-level install")
+def install_skill(global_: bool, cwd: str | None) -> None:
+    """Install openMax as a /openmax skill for Claude Code.
 
-    With no arguments, lists all skills and their descriptions.
-    With NAME, prints the skill body (suitable for injecting into agent prompts).
+    Default: installs to .claude/commands/ in the current project.
+    With --global: installs to ~/.claude/commands/ (available in all projects).
     """
-    from openmax.skills import list_skills, load_skill
+    from openmax.skills import global_commands_dir, install, project_commands_dir
 
-    if not name:
-        available = list_skills()
-        if not available:
-            console.print("[yellow]No skills found.[/yellow]")
-            return
-        console.print("[bold]Available skills[/bold]  [dim](Claude Code: /skill-name)[/dim]")
-        for s in available:
-            console.print(f"  /[bold]{s}[/bold]")
-        console.print(
-            "\n[dim]Other agents: `openmax skills <name>` or `cat skills/<name>.md`[/dim]"
-        )
-        return
-
-    try:
-        body = load_skill(name)
-        console.print(body)
-    except FileNotFoundError as exc:
-        raise click.ClickException(str(exc)) from exc
+    target = global_commands_dir() if global_ else project_commands_dir(cwd)
+    link = install(target)
+    scope = "global" if global_ else "project"
+    console.print(f"[green]Installed ({scope}):[/green] {link}")
+    console.print('[dim]Invoke in Claude Code:[/dim] [bold]/openmax[/bold] "your task"')
 
 
 @main.command()
