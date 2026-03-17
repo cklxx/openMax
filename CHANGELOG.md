@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.7
+
+- openMax is now an installable skill for AI coding agents (Claude Code, Codex, OpenCode)
+- `skills/openmax.md`: skill file that wraps `openmax run` as a `/openmax` slash command
+- `openmax install-skill [--global]`: deploy the skill to current project or `~/.claude/commands/`
+- `install_skills.sh`: shell script alternative for installation
+
 ## 0.5.6
 
 - Add cross-agent skills system: 6 built-in skills (commit, release, test, lint, debug, research) in `skills/`
