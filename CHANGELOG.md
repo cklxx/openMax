@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+- Vite-style clear screen on CLI startup for a clean, distraction-free experience
+- Remove redundant task text echo (user already typed it)
+- Inject report instructions into worktree CLAUDE.md for more reliable sub-agent reporting
+- Fallback: synthesize report from pane output when agent doesn't write one
+
 ## 0.4.0
 
 - Add file-based context exchange protocol between lead agent and sub-agents
