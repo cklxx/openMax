@@ -45,6 +45,19 @@ from openmax.session_runtime import (
 from openmax.usage import UsageStore, usage_from_result
 
 _PROMPT_DIR = Path(__file__).parent / "prompts"
+_MAX_TRANSIENT_RETRIES = 2
+
+# API error patterns that are transient and safe to retry
+_TRANSIENT_ERROR_PATTERNS = (
+    "tool_use` ids must be unique",
+    "overloaded",
+    "rate_limit",
+    "internal_server_error",
+)
+
+
+class _TransientAPIError(RuntimeError):
+    """Raised when the lead agent run fails due to a transient API error."""
 
 
 def _load_system_prompt() -> str:
@@ -194,19 +207,29 @@ def run_lead_agent(
     allowed_agents: list[str] | None = None,
     agent_registry: AgentRegistry | None = None,
 ) -> PlanResult:
-    """Run the lead agent synchronously (wraps async)."""
-    return anyio.run(
-        _run_lead_agent_async,
-        task,
-        pane_mgr,
-        cwd,
-        model,
-        max_turns,
-        session_id,
-        resume,
-        allowed_agents,
-        agent_registry,
-    )
+    """Run the lead agent synchronously (wraps async), with retry on transient API errors."""
+    for attempt in range(_MAX_TRANSIENT_RETRIES + 1):
+        try:
+            return anyio.run(
+                _run_lead_agent_async,
+                task,
+                pane_mgr,
+                cwd,
+                model,
+                max_turns,
+                session_id,
+                resume,
+                allowed_agents,
+                agent_registry,
+            )
+        except _TransientAPIError:
+            if attempt >= _MAX_TRANSIENT_RETRIES:
+                raise
+            console.print(
+                f"\n  [yellow]Transient API error — retrying"
+                f" ({attempt + 1}/{_MAX_TRANSIENT_RETRIES})...[/yellow]\n"
+            )
+    raise RuntimeError("unreachable")
 
 
 async def _run_lead_agent_async(
@@ -401,11 +424,24 @@ async def _run_lead_agent_async(
                     else:
                         elapsed_str = f"{elapsed_s:.1f}s"
                     console.print()
-                    console.print(
-                        f"  [bold reverse green] \u2713 done [/bold reverse green]"
-                        f"  {elapsed_str}"
-                        f"  [dim]{usage.summary_line()}[/dim]"
-                    )
+                    if msg.is_error:
+                        error_detail = msg.result or "unknown error"
+                        console.print(
+                            f"  [bold reverse red] \u2717 error [/bold reverse red]"
+                            f"  {elapsed_str}"
+                            f"  [dim]{usage.summary_line()}[/dim]"
+                        )
+                        console.print(f"  [red]{error_detail}[/red]")
+                        # Raise retriable error for transient API failures
+                        error_lower = error_detail.lower()
+                        if any(p in error_lower for p in _TRANSIENT_ERROR_PATTERNS):
+                            raise _TransientAPIError(error_detail)
+                    else:
+                        console.print(
+                            f"  [bold reverse green] \u2713 done [/bold reverse green]"
+                            f"  {elapsed_str}"
+                            f"  [dim]{usage.summary_line()}[/dim]"
+                        )
 
         if runtime.session_meta is not None and runtime.session_store is not None:
             runtime.session_meta.status = "completed"
