@@ -884,16 +884,20 @@ def _get_retry_info_for_pane(pane_id: int) -> dict[str, Any]:
 
 @tool(
     "read_pane_output",
-    "Read the current terminal output of an agent pane (~100 tail lines). "
-    "Error lines from earlier output appear at the top with [ERROR] prefix. "
-    "Returns JSON with 'text', 'stuck', and 'exited' fields. "
-    "When exited=true, includes retry_count, max_retries, and can_retry. "
-    "stuck=true when output is unchanged for 3 consecutive reads (~60-90s).",
+    "Read agent pane output. If pane_id is given, returns ~100 tail lines with "
+    "stuck/exited detection. If pane_id is omitted or -1, lists all managed panes "
+    "and their states (replaces list_managed_panes).",
     {"pane_id": int},
 )
 async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime()
-    pane_id = args["pane_id"]
+    pane_id = args.get("pane_id", -1)
+
+    # List all panes mode
+    if pane_id == -1:
+        runtime.pane_mgr.refresh_states()
+        summary = runtime.pane_mgr.summary()
+        return {"content": [{"type": "text", "text": json.dumps(summary, ensure_ascii=False)}]}
     try:
         pane_alive = runtime.pane_mgr.is_pane_alive(pane_id)
 
@@ -1419,8 +1423,8 @@ async def wait_tool(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "run_command",
-    "Run a CLI command in a terminal pane. For build/test/git/servers/databases \u2014 "
-    "NOT for file search or exploration (use find_files/grep_files/read_file instead). "
+    "Run a CLI command in a terminal pane. For build/test/git/servers — "
+    "NOT for code exploration (dispatch agents for that). "
     "Set interactive=true for long-running programs, false (default) for one-shot.",
     {
         "command": str,
@@ -1836,23 +1840,25 @@ async def read_file_tool(args: dict[str, Any]) -> dict[str, Any]:
 
 
 # All tool objects for easy collection
+#
+# Excluded by design:
+# - find_files_tool, grep_files_tool, read_file_tool: the lead agent is a team
+#   manager — it delegates exploration to sub-agents, not doing it itself.
+#   This also avoids the CLI duplicate tool_use ID bug from parallel MCP calls.
+# - get_agent_recommendations: auto-called inside dispatch_agent.
+# - list_managed_panes: merged into read_pane_output(pane_id=-1).
+# - record_phase_anchor: already called inside transition_phase.
 ALL_TOOLS = [
     ask_user,
     check_conflicts,
     dispatch_agent,
-    find_files_tool,
-    get_agent_recommendations,
-    grep_files_tool,
+    mark_task_done,
     merge_agent_branch,
-    read_file_tool,
     read_pane_output,
     run_command,
     run_verification,
     send_text_to_pane,
     submit_plan,
-    list_managed_panes,
-    mark_task_done,
-    record_phase_anchor,
     remember_learning,
     report_completion,
     transition_phase,
