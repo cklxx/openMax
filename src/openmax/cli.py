@@ -8,9 +8,11 @@ import signal
 import sys
 from collections import Counter
 from datetime import datetime, timezone
+from typing import Any
 
 import click
 from rich.console import Console
+from rich.table import Table
 
 from openmax.agent_registry import AgentConfigError, load_agent_registry
 from openmax.auth import has_claude_auth, run_claude_setup_token
@@ -27,55 +29,31 @@ from openmax.usage import UsageStore
 console = Console()
 _ANCHOR_PREVIEW_LIMIT = 5
 
+_STATUS_STYLES: dict[str, str] = {
+    "completed": "green",
+    "active": "yellow",
+    "failed": "red",
+    "aborted": "dim",
+}
 
-def _interactive_loop(pane_mgr: PaneManager, plan: object) -> None:
-    """Post-run interactive mode for inspecting/sending to panes."""
-    console.print(
-        "\n[bold cyan]Interactive mode[/bold cyan] — "
-        "commands: inspect <pane_id>, send <pane_id> <text>, summary, quit"
+_SUBTASK_STATUS_STYLES: dict[str, str] = {
+    "done": "green",
+    "running": "yellow",
+    "error": "red",
+    "pending": "dim",
+}
+
+
+def _make_table(**overrides: Any) -> Table:
+    defaults = dict(
+        show_header=True,
+        header_style="bold dim",
+        show_edge=False,
+        pad_edge=False,
+        padding=(0, 1),
     )
-    while True:
-        try:
-            line = input("openmax> ").strip()
-        except (KeyboardInterrupt, EOFError):
-            console.print()
-            break
-        if not line:
-            continue
-        parts = line.split(None, 2)
-        cmd = parts[0].lower()
-
-        if cmd in ("quit", "q"):
-            break
-        elif cmd == "summary":
-            s = pane_mgr.summary()
-            console.print(f"Windows: {s['total_windows']} | Done: {s['done']}")
-            if hasattr(plan, "subtasks"):
-                for st in plan.subtasks:
-                    p_id = getattr(st, "pane_id", None)
-                    console.print(f"  {st.name} | {st.status.value} | pane={p_id}")
-        elif cmd == "inspect":
-            if len(parts) < 2:
-                console.print("[red]Usage: inspect <pane_id>[/red]")
-                continue
-            try:
-                pane_id = int(parts[1])
-                text = pane_mgr.get_text(pane_id)
-                console.print(text[-2000:] if len(text) > 2000 else text)
-            except (ValueError, RuntimeError) as exc:
-                console.print(f"[red]{exc}[/red]")
-        elif cmd == "send":
-            if len(parts) < 3:
-                console.print("[red]Usage: send <pane_id> <text>[/red]")
-                continue
-            try:
-                pane_id = int(parts[1])
-                pane_mgr.send_text(pane_id, parts[2])
-                console.print(f"[green]Sent to pane {pane_id}[/green]")
-            except (ValueError, RuntimeError) as exc:
-                console.print(f"[red]{exc}[/red]")
-        else:
-            console.print("[yellow]Unknown command.[/yellow] Try: inspect, send, summary, quit")
+    defaults.update(overrides)
+    return Table(**defaults)
 
 
 def _resolve_cwd(cwd: str | None) -> str:
@@ -113,6 +91,38 @@ def _format_timestamp(value: str, short: bool = False) -> str:
 
 def _format_completion(value: int | None) -> str:
     return f"{value}%" if value is not None else "n/a"
+
+
+def _detect_resumable_session(task: str, cwd: str) -> tuple[str | None, bool]:
+    """Return (session_id, should_resume) if an unfinished session is found."""
+    try:
+        from openmax.session_runtime import SessionStore as _SS
+        from openmax.session_runtime import task_hash as _th
+
+        existing = _SS().find_active_session(_th(task, cwd))
+        if not existing or existing.status in ("completed", "aborted", "failed"):
+            return None, False
+        ago_str = _format_session_age(existing.updated_at)
+        pct = getattr(existing, "completion_pct", None)
+        pct_str = f" ({pct}% complete)" if pct is not None else ""
+        console.print(
+            f"[yellow]Found unfinished session:[/yellow] {existing.session_id}{pct_str}, {ago_str}"
+        )
+        if click.confirm("Resume it?", default=True):
+            return existing.session_id, True
+        return None, False
+    except Exception:
+        return None, False
+
+
+def _format_session_age(updated_at: str) -> str:
+    try:
+        ago_dt = datetime.fromisoformat(updated_at)
+        delta = datetime.now(timezone.utc) - ago_dt
+        mins = int(delta.total_seconds() / 60)
+        return f"{mins}m ago" if mins < 120 else f"{mins // 60}h ago"
+    except Exception:
+        return "recently"
 
 
 def _render_subtask_counts(snapshot: SessionSnapshot) -> str:
@@ -186,36 +196,11 @@ def run(
     if resume and not session_id:
         raise click.UsageError("--resume requires --session-id")
 
-    # Auto-resume: detect unfinished session for same task+cwd (when no explicit session-id)
     if not session_id and not resume:
-        try:
-            from openmax.session_runtime import SessionStore as _SS
-            from openmax.session_runtime import task_hash as _th
-
-            _store = _SS()
-            _th_val = _th(task, cwd)
-            _existing = _store.find_active_session(_th_val)
-            if _existing and _existing.status not in ("completed", "aborted", "failed"):
-                import datetime as _dt
-
-                try:
-                    _ago_dt = _dt.datetime.fromisoformat(_existing.updated_at)
-                    _delta = _dt.datetime.now(_dt.timezone.utc) - _ago_dt
-                    _mins = int(_delta.total_seconds() / 60)
-                    _ago_str = f"{_mins}m ago" if _mins < 120 else f"{_mins // 60}h ago"
-                except Exception:
-                    _ago_str = "recently"
-                _pct = getattr(_existing, "completion_pct", None)
-                _pct_str = f" ({_pct}% complete)" if _pct is not None else ""
-                console.print(
-                    f"[yellow]Found unfinished session:[/yellow] {_existing.session_id}"
-                    f"{_pct_str}, {_ago_str}"
-                )
-                if click.confirm("Resume it?", default=True):
-                    session_id = _existing.session_id
-                    resume = True
-        except Exception:
-            pass  # best-effort — don't block normal run
+        found_id, should_resume = _detect_resumable_session(task, cwd)
+        if should_resume and found_id:
+            session_id = found_id
+            resume = True
 
     try:
         agent_registry = load_agent_registry(cwd)
@@ -279,11 +264,6 @@ def run(
             console.print(
                 f"\n[bold]Done.[/bold] {len(plan.subtasks)} sub-tasks, {summary['done']} done"
             )
-            has_incomplete = any(
-                st.status.value not in ("done", "permanent_error") for st in plan.subtasks
-            )
-            if has_incomplete and not keep_panes and sys.stdout.isatty():
-                _interactive_loop(pane_mgr, plan)
     finally:
         signal.signal(signal.SIGINT, previous_sigint)
         signal.signal(signal.SIGTERM, previous_sigterm)
@@ -383,17 +363,9 @@ def recommendation_eval(cwd: str | None) -> None:
         console.print("[yellow]No structured run summaries available yet.[/yellow]")
         return
 
-    from rich.table import Table
-
     console.print(f"[bold]Recommendation eval[/bold]  [dim]{cwd}[/dim]")
 
-    tbl = Table(
-        show_header=True,
-        header_style="bold dim",
-        show_edge=False,
-        pad_edge=False,
-        padding=(0, 1),
-    )
+    tbl = _make_table()
     tbl.add_column("", style="bold")
     tbl.add_column("Runs", justify="right")
     tbl.add_column("Evaluated", justify="right")
@@ -483,22 +455,13 @@ def list_agents(cwd: str | None, verbose: bool) -> None:
 )
 def runs(status: str | None, limit: int) -> None:
     """List recent persisted sessions."""
-    from rich.table import Table
-
     store = SessionStore()
     sessions = store.list_sessions(status=status.lower() if status else None, limit=limit)
     if not sessions:
         console.print("[yellow]No sessions found.[/yellow]")
         return
 
-    tbl = Table(
-        show_header=True,
-        header_style="bold dim",
-        show_edge=False,
-        pad_edge=False,
-        padding=(0, 1),
-        expand=True,
-    )
+    tbl = _make_table(expand=True)
     tbl.add_column("Session", style="bold", no_wrap=True)
     tbl.add_column("Status", no_wrap=True)
     tbl.add_column("Phase", style="dim", no_wrap=True)
@@ -516,12 +479,7 @@ def runs(status: str | None, limit: int) -> None:
         except RuntimeError:
             pass
 
-        status_style = {
-            "completed": "green",
-            "active": "yellow",
-            "failed": "red",
-            "aborted": "dim",
-        }.get(meta.status, "white")
+        status_style = _STATUS_STYLES.get(meta.status, "white")
 
         tbl.add_row(
             meta.session_id[:16],
@@ -539,8 +497,6 @@ def runs(status: str | None, limit: int) -> None:
 @click.argument("session_id")
 def inspect(session_id: str) -> None:
     """Inspect a persisted session."""
-    from rich.table import Table
-
     store = SessionStore()
     try:
         snapshot = store.load_snapshot(session_id)
@@ -550,12 +506,7 @@ def inspect(session_id: str) -> None:
     meta = snapshot.meta
     plan = snapshot.plan
 
-    status_style = {
-        "completed": "green",
-        "active": "yellow",
-        "failed": "red",
-        "aborted": "dim",
-    }.get(meta.status, "white")
+    status_style = _STATUS_STYLES.get(meta.status, "white")
 
     # Header
     console.print(f"[bold]{meta.session_id}[/bold]  [{status_style}]{meta.status}[/{status_style}]")
@@ -612,28 +563,14 @@ def inspect(session_id: str) -> None:
     # Subtasks table
     if plan.subtasks:
         console.print()
-        tbl = Table(
-            show_header=True,
-            header_style="bold dim",
-            show_edge=False,
-            pad_edge=False,
-            padding=(0, 1),
-            title="Subtasks",
-            title_style="bold",
-            expand=True,
-        )
+        tbl = _make_table(title="Subtasks", title_style="bold", expand=True)
         tbl.add_column("Name", style="bold")
         tbl.add_column("Status")
         tbl.add_column("Agent", style="dim")
         tbl.add_column("Pane", justify="right", style="dim")
 
         for task in plan.subtasks:
-            st_style = {
-                "done": "green",
-                "running": "yellow",
-                "error": "red",
-                "pending": "dim",
-            }.get(task.status, "white")
+            st_style = _SUBTASK_STATUS_STYLES.get(task.status, "white")
             pane_str = str(task.pane_id) if task.pane_id is not None else "-"
             tbl.add_row(
                 task.name,
@@ -675,23 +612,12 @@ def usage(session_id: str | None, limit: int, total: bool) -> None:
         console.print(f"[bold]Recorded:[/bold] {_format_timestamp(rec.recorded_at)}")
         return
 
-    from rich.table import Table
-
     records = store.list_all(limit=limit)
     if not records:
         console.print("[yellow]No usage data recorded yet.[/yellow]")
         return
 
-    tbl = Table(
-        title="Session usage",
-        title_style="bold",
-        show_header=True,
-        header_style="bold dim",
-        show_edge=False,
-        pad_edge=False,
-        padding=(0, 1),
-        expand=True,
-    )
+    tbl = _make_table(title="Session usage", title_style="bold", expand=True)
     tbl.add_column("Session", style="bold")
     tbl.add_column("Cost", justify="right")
     tbl.add_column("Tokens", justify="right")

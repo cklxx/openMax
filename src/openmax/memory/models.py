@@ -8,9 +8,8 @@ from typing import Any
 
 from openmax.memory._utils import (
     MemoryKind,
+    _coerce_dict_list,
     _coerce_int,
-    _coerce_signal_list,
-    _coerce_stat_list,
     _coerce_string_list,
     utc_now_iso,
 )
@@ -55,8 +54,8 @@ class MemoryEntry:
             insights=_coerce_string_list(item.get("insights")),
             workspace_facts=_coerce_string_list(item.get("workspace_facts")),
             lessons=_coerce_string_list(item.get("lessons")),
-            performance_signals=_coerce_signal_list(item.get("performance_signals")),
-            agent_stats=_coerce_stat_list(item.get("agent_stats")),
+            performance_signals=_coerce_dict_list(item.get("performance_signals")),
+            agent_stats=_coerce_dict_list(item.get("agent_stats")),
             confidence=_coerce_int(item.get("confidence")),
             completion_pct=_coerce_int(item.get("completion_pct")),
             last_accessed=last_accessed,

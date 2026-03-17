@@ -180,13 +180,7 @@ def _coerce_string_list(value: Any) -> list[str]:
     return result
 
 
-def _coerce_signal_list(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, dict)]
-
-
-def _coerce_stat_list(value: Any) -> list[dict[str, Any]]:
+def _coerce_dict_list(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, dict)]
@@ -277,60 +271,57 @@ def _derive_agent_stats(
 _MIN_RECENT_KEEP = 10
 
 
-def _eviction_score(entry: dict, now: datetime) -> float:
-    """Higher score = evict first. Considers age, staleness, confidence, hit_count, relevance."""
+def _entry_age_and_staleness(entry: dict, now: datetime) -> tuple[float, float]:
     created = entry.get("created_at", "")
     try:
         entry_time = datetime.fromisoformat(created.replace("Z", "+00:00"))
         age_days = max((now - entry_time).days, 0)
     except (ValueError, TypeError):
-        age_days = 365  # Unknown age = old
-
-    # Staleness: time since last_accessed (seconds → days)
+        age_days = 365
     last_accessed = entry.get("last_accessed", 0.0)
     if isinstance(last_accessed, (int, float)) and last_accessed > 0:
         staleness_days = max((now.timestamp() - last_accessed) / 86400.0, 0)
     else:
-        staleness_days = float(age_days)  # never accessed = as stale as old
+        staleness_days = float(age_days)
+    return float(age_days), staleness_days
 
+
+def _confidence_bonus(entry: dict) -> float:
+    confidence = entry.get("confidence")
+    if isinstance(confidence, (int, float)) and confidence > 0:
+        return min(confidence, 10) / 10.0
+    return 0.0
+
+
+def _hit_count_bonus(metadata: dict) -> float:
+    hit_count = metadata.get("hit_count", 0)
+    if not isinstance(hit_count, (int, float)):
+        return 0.0
+    return min(int(hit_count), 20) / 20.0
+
+
+def _completion_bonus(entry: dict) -> float:
+    completion_pct = entry.get("completion_pct")
+    if isinstance(completion_pct, (int, float)) and completion_pct > 0:
+        return min(completion_pct, 100) / 100.0
+    return 0.0
+
+
+def _eviction_score(entry: dict, now: datetime) -> float:
+    age_days, staleness_days = _entry_age_and_staleness(entry, now)
     metadata = entry.get("metadata", {})
     if not isinstance(metadata, dict):
         metadata = {}
-
-    # Confidence: higher confidence → lower eviction score (keep)
-    confidence = entry.get("confidence")
-    if isinstance(confidence, (int, float)) and confidence > 0:
-        confidence_bonus = min(confidence, 10) / 10.0  # 0.0–1.0
-    else:
-        confidence_bonus = 0.0
-
-    # Hit count: more hits → lower eviction score (keep)
-    hit_count = metadata.get("hit_count", 0)
-    if not isinstance(hit_count, (int, float)):
-        hit_count = 0
-    hit_bonus = min(int(hit_count), 20) / 20.0  # 0.0–1.0
-
-    # Recent match: entries that were recently matched are more valuable
     last_matched = metadata.get("last_matched")
     no_recent_match = 1.0 if last_matched is None else 0.0
-
-    # Completion: higher completion_pct → more valuable
-    completion_pct = entry.get("completion_pct")
-    if isinstance(completion_pct, (int, float)) and completion_pct > 0:
-        completion_bonus = min(completion_pct, 100) / 100.0
-    else:
-        completion_bonus = 0.0
-
-    # Weighted score: age + staleness push up (evict), bonuses push down (keep)
-    score = (
+    return (
         age_days * 0.2
         + staleness_days * 0.2
         + no_recent_match * 0.5
-        - confidence_bonus * 2.0
-        - hit_bonus * 2.0
-        - completion_bonus * 1.0
+        - _confidence_bonus(entry) * 2.0
+        - _hit_count_bonus(metadata) * 2.0
+        - _completion_bonus(entry) * 1.0
     )
-    return score
 
 
 def _aggregate_agent_stats(

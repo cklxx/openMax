@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from collections.abc import Callable
 from contextvars import ContextVar, Token
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -164,7 +165,9 @@ _lead_agent_runtime: ContextVar[LeadAgentRuntime | None] = ContextVar(
 )
 
 
-def bind_lead_agent_runtime(runtime: LeadAgentRuntime) -> Token[LeadAgentRuntime | None]:
+def bind_lead_agent_runtime(
+    runtime: LeadAgentRuntime,
+) -> Token[LeadAgentRuntime | None]:
     return _lead_agent_runtime.set(runtime)
 
 
@@ -259,8 +262,8 @@ class SessionStore:
         if malformed_line_count:
             noun = "line" if malformed_line_count == 1 else "lines"
             warnings.append(
-                f"Skipped {malformed_line_count} malformed event {noun} while loading "
-                "session history."
+                f"Skipped {malformed_line_count} malformed event {noun}"
+                " while loading session history."
             )
         return events, warnings
 
@@ -354,257 +357,286 @@ def reconcile_resumed_subtasks(
     return reset_names
 
 
+# ---------------------------------------------------------------------------
+# Event-dispatch reconstruction
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _ReconstructionState:
+    tasks: dict[str, SubtaskState] = field(default_factory=dict)
+    anchors: list[PhaseAnchor] = field(default_factory=list)
+    recent_activity: list[str] = field(default_factory=list)
+    latest_phase: str | None = None
+    completion_pct: int | None = None
+    report_notes: str | None = None
+    outcome_summary: str | None = None
+    manual_intervention_count: int = 0
+    startup_failure_category: str | None = None
+
+
+def _on_phase_anchor(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
+    anchor_tasks = _task_states_from_payload(payload.get("tasks"))
+    state.latest_phase = str(payload.get("phase") or state.latest_phase or "")
+    summary = str(payload.get("summary", "")).strip()
+    completion = _coerce_int(payload.get("completion_pct"))
+    for task in anchor_tasks:
+        state.tasks[task.name] = task
+    state.anchors.append(
+        PhaseAnchor(
+            phase=str(payload.get("phase", "unknown")),
+            summary=summary,
+            timestamp=ts,
+            completion_pct=completion,
+            tasks=anchor_tasks,
+        )
+    )
+    if completion is not None:
+        state.completion_pct = completion
+    phase_label = payload.get("phase", "unknown")
+    state.recent_activity.append(f"Phase {phase_label}: {summary or 'no summary'}")
+    if len(state.anchors) > 12:
+        state.anchors = state.anchors[-12:]
+
+
+def _on_dispatch_agent(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
+    name = str(payload.get("task_name", "")).strip()
+    if not name:
+        return
+    pane_id = _coerce_int(payload.get("pane_id"))
+    existing = state.tasks.get(name)
+    pane_history = list(existing.pane_history) if existing else []
+    if pane_id is not None and pane_id not in pane_history:
+        pane_history.append(pane_id)
+    agent_type = str(
+        payload.get(
+            "agent_type",
+            existing.agent_type if existing else "generic",
+        )
+    )
+    prompt = str(payload.get("prompt", existing.prompt if existing else ""))
+    resolved_pane_id = pane_id if pane_id is not None else (existing.pane_id if existing else None)
+    state.tasks[name] = SubtaskState(
+        name=name,
+        agent_type=agent_type,
+        prompt=prompt,
+        status="running",
+        pane_id=resolved_pane_id,
+        pane_history=pane_history,
+    )
+    pane_suffix = _pane_suffix(state.tasks[name].pane_id)
+    state.recent_activity.append(
+        f"Dispatched '{name}' to {state.tasks[name].agent_type}{pane_suffix}"
+    )
+
+
+def _pane_suffix(pane_id: int | None) -> str:
+    return f" in pane {pane_id}" if pane_id is not None else ""
+
+
+def _on_submit_plan(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
+    subtask_count = len(payload.get("subtasks", []))
+    rationale = str(payload.get("rationale", "")).strip()
+    preview = rationale[:100] if rationale else "no rationale"
+    state.recent_activity.append(f"Plan submitted: {subtask_count} subtasks \u2014 {preview}")
+
+
+def _on_mark_task_done(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
+    name = str(payload.get("task_name", "")).strip()
+    if not name:
+        return
+    task = state.tasks.get(name)
+    if task is None:
+        task = SubtaskState(name=name, agent_type="unknown", prompt="", status="done")
+    task.status = "done"
+    state.tasks[name] = task
+    state.recent_activity.append(f"Marked '{name}' done")
+
+
+def _on_send_text(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
+    state.manual_intervention_count += 1
+    text = str(payload.get("text", "")).strip()
+    pane_id = _coerce_int(payload.get("pane_id"))
+    if not text:
+        return
+    preview = text if len(text) <= 120 else text[:117] + "..."
+    activity = f"Intervened in pane {pane_id}: {preview}"
+    if pane_id is None:
+        activity = f"Intervention: {preview}"
+    state.recent_activity.append(activity)
+
+
+def _on_read_pane_output(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
+    pane_id = _coerce_int(payload.get("pane_id"))
+    if pane_id is None:
+        return
+    stuck = payload.get("stuck", False)
+    suffix = " [STUCK \u2014 no change detected]" if stuck else ""
+    state.recent_activity.append(f"Read pane {pane_id} output{suffix}")
+
+
+def _on_check_conflicts(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
+    details = str(payload.get("details", "")).strip()
+    preview = details[:80] if details else "no details"
+    state.recent_activity.append(f"Checked for conflicts: {preview}")
+
+
+def _on_merge_agent_branch(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
+    name = str(payload.get("task_name", "")).strip()
+    status = str(payload.get("status", "")).strip()
+    commit = str(payload.get("commit", "")).strip()
+    if status == "merged":
+        state.recent_activity.append(f"Merged branch for '{name}' (commit {commit[:8]})")
+    elif status == "conflict":
+        conflict_files = payload.get("files", [])
+        state.recent_activity.append(f"Merge conflict for '{name}': {len(conflict_files)} file(s)")
+    else:
+        state.recent_activity.append(f"Merge attempt for '{name}': {status}")
+
+
+def _on_run_verification(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
+    check_type = str(payload.get("check_type", "")).strip()
+    status = str(payload.get("status", "")).strip()
+    exit_code = _coerce_int(payload.get("exit_code"))
+    duration = _coerce_int(payload.get("duration_s"))
+    suffix = f" (exit={exit_code})" if exit_code is not None else ""
+    time_suffix = f" in {duration}s" if duration is not None else ""
+    state.recent_activity.append(f"Verification [{check_type}]: {status}{suffix}{time_suffix}")
+
+
+def _on_transition_phase(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
+    from_p = str(payload.get("from_phase", "")).strip()
+    to_p = str(payload.get("to_phase", "")).strip()
+    summary = str(payload.get("gate_summary", "")).strip()
+    preview = summary[:60] + "..." if len(summary) > 60 else summary
+    state.recent_activity.append(f"Phase: {from_p} \u2192 {to_p}: {preview}")
+
+
+def _on_report_completion(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
+    state.completion_pct = _coerce_int(payload.get("completion_pct"))
+    notes = str(payload.get("notes", "")).strip()
+    state.report_notes = notes or state.report_notes
+    state.recent_activity.append(
+        f"Reported completion at {state.completion_pct}%"
+        if state.completion_pct is not None
+        else "Reported completion"
+    )
+
+
+def _on_usage_tokens(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
+    inp = _coerce_int(payload.get("input_tokens")) or 0
+    out = _coerce_int(payload.get("output_tokens")) or 0
+    state.recent_activity.append(f"Tokens: +{inp} in, +{out} out")
+
+
+def _on_lead_message(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
+    text = str(payload.get("text", "")).strip()
+    if text:
+        preview = " ".join(text.split())
+        state.recent_activity.append(f"Lead: {preview[:140]}")
+
+
+def _on_session_completed(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
+    state.outcome_summary = "Session completed"
+    state.recent_activity.append(state.outcome_summary)
+
+
+def _on_session_aborted(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
+    reason = str(payload.get("reason", "")).strip()
+    state.outcome_summary = f"Session aborted: {reason}" if reason else "Session aborted"
+    state.recent_activity.append(state.outcome_summary)
+
+
+def _on_startup_failed(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
+    raw = str(payload.get("category", "")).strip()
+    state.startup_failure_category = raw or None
+    state.outcome_summary = _describe_startup_failure(payload)
+    state.recent_activity.append(state.outcome_summary)
+
+
+def _on_resume_mismatch(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
+    details = str(payload.get("details", "")).strip()
+    state.recent_activity.append(
+        f"Resume mismatch: {details}" if details else "Resume mismatch recorded"
+    )
+
+
+def _on_context_compacted(state: _ReconstructionState, payload: dict[str, Any], ts: str) -> None:
+    summary = str(payload.get("summary", "")).strip()
+    if summary:
+        state.recent_activity.append(f"Compacted context: {summary}")
+
+
+_HandlerFn = Callable[[_ReconstructionState, dict[str, Any], str], None]
+
+_EVENT_HANDLERS: dict[str, _HandlerFn] = {
+    "phase.anchor": _on_phase_anchor,
+    "tool.dispatch_agent": _on_dispatch_agent,
+    "tool.submit_plan": _on_submit_plan,
+    "tool.mark_task_done": _on_mark_task_done,
+    "tool.send_text_to_pane": _on_send_text,
+    "tool.read_pane_output": _on_read_pane_output,
+    "tool.check_conflicts": _on_check_conflicts,
+    "tool.merge_agent_branch": _on_merge_agent_branch,
+    "tool.run_verification": _on_run_verification,
+    "tool.transition_phase": _on_transition_phase,
+    "tool.report_completion": _on_report_completion,
+    "usage.tokens": _on_usage_tokens,
+    "lead.message": _on_lead_message,
+    "session.completed": _on_session_completed,
+    "session.aborted": _on_session_aborted,
+    "session.startup_failed": _on_startup_failed,
+    "session.resume_mismatch": _on_resume_mismatch,
+    "context.compacted": _on_context_compacted,
+}
+
+
+def _infer_completion_pct(state: _ReconstructionState, meta: SessionMeta) -> None:
+    if state.completion_pct is not None or meta.status != "completed":
+        return
+    total = len(state.tasks)
+    done = sum(1 for t in state.tasks.values() if t.status == "done")
+    if total > 0:
+        state.completion_pct = int(done / total * 100)
+
+
+def _finalize_plan(
+    meta: SessionMeta,
+    events: list[LeadEvent],
+    state: _ReconstructionState,
+) -> ReconstructedPlan:
+    _infer_completion_pct(state, meta)
+    scorecard = _build_run_scorecard(
+        meta=meta,
+        events=events,
+        tasks=list(state.tasks.values()),
+        completion_pct=state.completion_pct,
+        manual_intervention_count=state.manual_intervention_count,
+        startup_failure_category=state.startup_failure_category,
+    )
+    return ReconstructedPlan(
+        goal=meta.task,
+        latest_phase=state.latest_phase,
+        subtasks=list(state.tasks.values()),
+        anchors=state.anchors,
+        recent_activity=state.recent_activity[-20:],
+        scorecard=scorecard,
+        completion_pct=state.completion_pct,
+        report_notes=state.report_notes,
+        outcome_summary=state.outcome_summary,
+    )
+
+
 class ContextBuilder:
     """Reconstruct workflow state and derive compact prompt context."""
 
     def reconstruct_plan(self, meta: SessionMeta, events: list[LeadEvent]) -> ReconstructedPlan:
-        tasks: dict[str, SubtaskState] = {}
-        anchors: list[PhaseAnchor] = []
-        recent_activity: list[str] = []
-        latest_phase = meta.latest_phase
-        completion_pct: int | None = None
-        report_notes: str | None = None
-        outcome_summary: str | None = None
-        manual_intervention_count = 0
-        startup_failure_category: str | None = None
-
+        state = _ReconstructionState(latest_phase=meta.latest_phase)
         for event in events:
-            event_type = event.event_type
-            payload = event.payload
-
-            if event_type == "phase.anchor":
-                anchor_tasks = _task_states_from_payload(payload.get("tasks"))
-                latest_phase = str(payload.get("phase") or latest_phase or "")
-                anchor_summary = str(payload.get("summary", "")).strip()
-                anchor_completion = _coerce_int(payload.get("completion_pct"))
-                for task in anchor_tasks:
-                    tasks[task.name] = task
-                anchors.append(
-                    PhaseAnchor(
-                        phase=str(payload.get("phase", "unknown")),
-                        summary=anchor_summary,
-                        timestamp=event.timestamp,
-                        completion_pct=anchor_completion,
-                        tasks=anchor_tasks,
-                    )
-                )
-                if anchor_completion is not None:
-                    completion_pct = anchor_completion
-                recent_activity.append(
-                    f"Phase {payload.get('phase', 'unknown')}: {anchor_summary or 'no summary'}"
-                )
-                if len(anchors) > 12:
-                    anchors = anchors[-12:]
-                continue
-
-            if event_type == "tool.dispatch_agent":
-                name = str(payload.get("task_name", "")).strip()
-                if name:
-                    pane_id = _coerce_int(payload.get("pane_id"))
-                    existing = tasks.get(name)
-                    pane_history = list(existing.pane_history) if existing else []
-                    if pane_id is not None and pane_id not in pane_history:
-                        pane_history.append(pane_id)
-                    agent_type = str(
-                        payload.get(
-                            "agent_type",
-                            existing.agent_type if existing else "generic",
-                        )
-                    )
-                    prompt = str(payload.get("prompt", existing.prompt if existing else ""))
-                    resolved_pane_id = (
-                        pane_id if pane_id is not None else (existing.pane_id if existing else None)
-                    )
-                    tasks[name] = SubtaskState(
-                        name=name,
-                        agent_type=agent_type,
-                        prompt=prompt,
-                        status="running",
-                        pane_id=resolved_pane_id,
-                        pane_history=pane_history,
-                    )
-                    pane_suffix = (
-                        f" in pane {tasks[name].pane_id}" if tasks[name].pane_id is not None else ""
-                    )
-                    recent_activity.append(
-                        f"Dispatched '{name}' to {tasks[name].agent_type}{pane_suffix}"
-                    )
-                continue
-
-            if event_type == "tool.submit_plan":
-                subtask_count = len(payload.get("subtasks", []))
-                rationale = str(payload.get("rationale", "")).strip()
-                preview = rationale[:100] if rationale else "no rationale"
-                recent_activity.append(f"Plan submitted: {subtask_count} subtasks — {preview}")
-                continue
-
-            if event_type == "tool.mark_task_done":
-                name = str(payload.get("task_name", "")).strip()
-                if name:
-                    task = tasks.get(name)
-                    if task is None:
-                        task = SubtaskState(
-                            name=name,
-                            agent_type="unknown",
-                            prompt="",
-                            status="done",
-                        )
-                    task.status = "done"
-                    tasks[name] = task
-                    recent_activity.append(f"Marked '{name}' done")
-                continue
-
-            if event_type == "tool.send_text_to_pane":
-                manual_intervention_count += 1
-                text = str(payload.get("text", "")).strip()
-                pane_id = _coerce_int(payload.get("pane_id"))
-                if text:
-                    preview = text if len(text) <= 120 else text[:117] + "..."
-                    activity = f"Intervened in pane {pane_id}: {preview}"
-                    if pane_id is None:
-                        activity = f"Intervention: {preview}"
-                    recent_activity.append(activity)
-                continue
-
-            if event_type == "tool.read_pane_output":
-                pane_id = _coerce_int(payload.get("pane_id"))
-                if pane_id is not None:
-                    stuck = payload.get("stuck", False)
-                    if stuck:
-                        recent_activity.append(
-                            f"Read pane {pane_id} output [STUCK — no change detected]"
-                        )
-                    else:
-                        recent_activity.append(f"Read pane {pane_id} output")
-                continue
-
-            if event_type == "tool.check_conflicts":
-                details = str(payload.get("details", "")).strip()
-                preview = details[:80] if details else "no details"
-                recent_activity.append(f"Checked for conflicts: {preview}")
-                continue
-
-            if event_type == "tool.merge_agent_branch":
-                name = str(payload.get("task_name", "")).strip()
-                status = str(payload.get("status", "")).strip()
-                commit = str(payload.get("commit", "")).strip()
-                if status == "merged":
-                    recent_activity.append(f"Merged branch for '{name}' (commit {commit[:8]})")
-                elif status == "conflict":
-                    conflict_files = payload.get("files", [])
-                    recent_activity.append(
-                        f"Merge conflict for '{name}': {len(conflict_files)} file(s)"
-                    )
-                else:
-                    recent_activity.append(f"Merge attempt for '{name}': {status}")
-                continue
-
-            if event_type == "tool.run_verification":
-                check_type = str(payload.get("check_type", "")).strip()
-                status = str(payload.get("status", "")).strip()
-                exit_code = _coerce_int(payload.get("exit_code"))
-                duration = _coerce_int(payload.get("duration_s"))
-                suffix = f" (exit={exit_code})" if exit_code is not None else ""
-                time_suffix = f" in {duration}s" if duration is not None else ""
-                recent_activity.append(
-                    f"Verification [{check_type}]: {status}{suffix}{time_suffix}"
-                )
-                continue
-
-            if event_type == "tool.transition_phase":
-                from_p = str(payload.get("from_phase", "")).strip()
-                to_p = str(payload.get("to_phase", "")).strip()
-                summary = str(payload.get("gate_summary", "")).strip()
-                preview = summary[:60] + "..." if len(summary) > 60 else summary
-                recent_activity.append(f"Phase: {from_p} \u2192 {to_p}: {preview}")
-                continue
-
-            if event_type == "tool.report_completion":
-                completion_pct = _coerce_int(payload.get("completion_pct"))
-                report_notes = str(payload.get("notes", "")).strip() or report_notes
-                recent_activity.append(
-                    f"Reported completion at {completion_pct}%"
-                    if completion_pct is not None
-                    else "Reported completion"
-                )
-                continue
-
-            if event_type == "usage.tokens":
-                inp = _coerce_int(payload.get("input_tokens")) or 0
-                out = _coerce_int(payload.get("output_tokens")) or 0
-                recent_activity.append(f"Tokens: +{inp} in, +{out} out")
-                continue
-
-            if event_type == "lead.message":
-                text = str(payload.get("text", "")).strip()
-                if text:
-                    preview = " ".join(text.split())
-                    recent_activity.append(f"Lead: {preview[:140]}")
-                continue
-
-            if event_type == "session.completed":
-                # Only keep an explicit completion_pct; never fabricate 100%.
-                # If no report_completion was called, we infer from subtask
-                # ratios later — assuming 100% hides false-complete runs.
-                outcome_summary = "Session completed"
-                recent_activity.append(outcome_summary)
-                continue
-
-            if event_type == "session.aborted":
-                reason = str(payload.get("reason", "")).strip()
-                outcome_summary = f"Session aborted: {reason}" if reason else "Session aborted"
-                recent_activity.append(outcome_summary)
-                continue
-
-            if event_type == "session.startup_failed":
-                startup_failure_category = str(payload.get("category", "")).strip() or None
-                outcome_summary = _describe_startup_failure(payload)
-                recent_activity.append(outcome_summary)
-                continue
-
-            if event_type == "session.resume_mismatch":
-                details = str(payload.get("details", "")).strip()
-                recent_activity.append(
-                    f"Resume mismatch: {details}" if details else "Resume mismatch recorded"
-                )
-                continue
-
-            if event_type == "context.compacted":
-                summary = str(payload.get("summary", "")).strip()
-                if summary:
-                    recent_activity.append(f"Compacted context: {summary}")
-
-        if completion_pct is None and meta.status == "completed":
-            # Infer from subtask ratios instead of blindly claiming 100%.
-            # This prevents false-complete reporting when the lead agent
-            # finishes without calling report_completion (crash, timeout,
-            # or skipped verification).
-            total = len(tasks)
-            done = sum(1 for t in tasks.values() if t.status == "done")
-            if total > 0:
-                completion_pct = int(done / total * 100)
-            # If no subtasks exist either, leave as None → shows "n/a".
-
-        scorecard = _build_run_scorecard(
-            meta=meta,
-            events=events,
-            tasks=list(tasks.values()),
-            completion_pct=completion_pct,
-            manual_intervention_count=manual_intervention_count,
-            startup_failure_category=startup_failure_category,
-        )
-
-        return ReconstructedPlan(
-            goal=meta.task,
-            latest_phase=latest_phase,
-            subtasks=list(tasks.values()),
-            anchors=anchors,
-            recent_activity=recent_activity[-20:],
-            scorecard=scorecard,
-            completion_pct=completion_pct,
-            report_notes=report_notes,
-            outcome_summary=outcome_summary,
-        )
+            handler = _EVENT_HANDLERS.get(event.event_type)
+            if handler:
+                handler(state, event.payload, event.timestamp)
+        return _finalize_plan(meta, events, state)
 
     def build_prompt_context(
         self,

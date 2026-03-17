@@ -76,6 +76,11 @@ def _record_phase_anchor(phase: str, summary: str, completion_pct: int | None = 
     _update_session_phase(normalized_phase)
 
 
+def _tool_response(data: Any) -> dict[str, Any]:
+    text = json.dumps(data, ensure_ascii=False) if isinstance(data, (dict, list)) else str(data)
+    return {"content": [{"type": "text", "text": text}]}
+
+
 def _remember_run_summary(notes: str, completion_pct: int) -> None:
     runtime = _runtime()
     if runtime.memory_store is None or runtime.plan is None:
@@ -160,7 +165,7 @@ async def get_agent_recommendations(args: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime()
     task = args["task"]
     if runtime.memory_store is None:
-        return {"content": [{"type": "text", "text": "[]"}]}
+        return _tool_response("[]")
     rankings = runtime.memory_store.derive_agent_rankings(cwd=runtime.cwd, task=task)
     payload = [
         {
@@ -170,7 +175,7 @@ async def get_agent_recommendations(args: dict[str, Any]) -> dict[str, Any]:
         }
         for item in rankings
     ]
-    return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]}
+    return _tool_response(payload)
 
 
 def _topological_sort_check(subtasks: list[dict[str, Any]]) -> str | None:
@@ -226,35 +231,19 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
     parallel_groups = args.get("parallel_groups", [])
 
     if not subtasks_raw:
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": json.dumps({"error": "No subtasks provided"}),
-                }
-            ]
-        }
+        return _tool_response({"error": "No subtasks provided"})
 
     # Validate: no circular dependencies
     cycle_err = _topological_sort_check(subtasks_raw)
     if cycle_err:
-        return {"content": [{"type": "text", "text": json.dumps({"error": cycle_err})}]}
+        return _tool_response({"error": cycle_err})
 
     # Validate: parallel group members exist
     all_names = {st["name"] for st in subtasks_raw}
     for group in parallel_groups:
         for name in group:
             if name not in all_names:
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": json.dumps(
-                                {"error": (f"Parallel group member '{name}' not in subtasks")}
-                            ),
-                        }
-                    ]
-                }
+                return _tool_response({"error": f"Parallel group member '{name}' not in subtasks"})
 
     # Validate: no dependency conflicts within parallel groups
     dep_map = {st["name"]: set(st.get("dependencies", [])) for st in subtasks_raw}
@@ -262,22 +251,15 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
         for i, a in enumerate(group):
             for b in group[i + 1 :]:
                 if a in dep_map.get(b, set()) or b in dep_map.get(a, set()):
-                    return {
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": json.dumps(
-                                    {
-                                        "error": (
-                                            f"Parallel group conflict: "
-                                            f"'{a}' and '{b}' have a "
-                                            "dependency relationship"
-                                        )
-                                    }
-                                ),
-                            }
-                        ]
-                    }
+                    return _tool_response(
+                        {
+                            "error": (
+                                f"Parallel group conflict: "
+                                f"'{a}' and '{b}' have a "
+                                "dependency relationship"
+                            )
+                        }
+                    )
 
     # Warn about file ownership overlaps within parallel groups
     file_map: dict[str, set[str]] = {}
@@ -317,14 +299,7 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
         for warning in file_warnings:
             console.print(f"  [yellow]![/yellow]  File overlap: {warning}")
 
-    return {
-        "content": [
-            {
-                "type": "text",
-                "text": json.dumps(result_data),
-            }
-        ]
-    }
+    return _tool_response(result_data)
 
 
 def _sanitize_branch_name(task_name: str) -> str:
@@ -423,76 +398,122 @@ def _cleanup_agent_branch(cwd: str, branch_name: str) -> str | None:
     return None
 
 
+def _git_run(
+    args: list[str],
+    cwd: str,
+    timeout: int = 30,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        args,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def _parse_conflict_files(merge_output: str) -> list[str]:
+    return [
+        line.split("Merge conflict in ")[-1].strip()
+        for line in merge_output.splitlines()
+        if "Merge conflict in " in line
+    ]
+
+
+def _merge_and_handle_conflicts(
+    cwd: str,
+    branch: str,
+    target: str,
+) -> tuple[str, str | None, list[str]]:
+    """Merge branch into target. Returns (status, commit_hash, conflict_files)."""
+    _git_run(["git", "checkout", target], cwd)
+    merge = _git_run(["git", "merge", "--no-edit", branch], cwd, timeout=60)
+    if merge.returncode == 0:
+        head = _git_run(["git", "rev-parse", "HEAD"], cwd, timeout=10)
+        return ("merged", head.stdout.strip(), [])
+    _git_run(["git", "merge", "--abort"], cwd)
+    return ("conflict", None, _parse_conflict_files(merge.stdout))
+
+
+def _report_merge_success(branch: str, integration: str, short_hash: str) -> str:
+    console.print(
+        f"  [bold green]\u2713[/bold green]  Merged {branch} \u2192 {integration} ({short_hash})"
+    )
+    _append_session_event(
+        "tool.auto_merge",
+        {"branch": branch, "status": "merged", "commit": short_hash},
+    )
+    return f"Merged {branch} \u2192 {integration} ({short_hash})"
+
+
+def _report_merge_conflict(branch: str, conflict_files: list[str]) -> str:
+    console.print(
+        f"  [bold red]\u2717[/bold red]  Merge conflict for {branch}: {len(conflict_files)} file(s)"
+    )
+    _append_session_event(
+        "tool.auto_merge",
+        {"branch": branch, "status": "conflict", "files": conflict_files},
+    )
+    return (
+        f"Merge conflict for {branch}: {', '.join(conflict_files)}. "
+        "Use merge_agent_branch tool to resolve."
+    )
+
+
 def _auto_merge_branch(runtime: LeadAgentRuntime, subtask: SubTask) -> str:
-    """Merge a subtask's branch into the integration branch. Returns status message."""
     branch = subtask.branch_name
     if not branch:
         return ""
     integration = runtime.integration_branch or "main"
-    cwd = runtime.cwd
     try:
-        subprocess.run(
-            ["git", "checkout", integration],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        merge_result = subprocess.run(
-            ["git", "merge", "--no-edit", branch],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        if merge_result.returncode == 0:
-            hash_result = subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            commit_hash = hash_result.stdout.strip()[:8]
-            _cleanup_agent_branch(cwd, branch)
-            console.print(
-                f"  [bold green]\u2713[/bold green]  Merged {branch} \u2192 {integration}"
-                f" ({commit_hash})"
-            )
-            _append_session_event(
-                "tool.auto_merge",
-                {"branch": branch, "status": "merged", "commit": commit_hash},
-            )
-            return f"Merged {branch} \u2192 {integration} ({commit_hash})"
-
-        # Conflict — abort and report
-        subprocess.run(
-            ["git", "merge", "--abort"],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        conflict_files = [
-            line.split("Merge conflict in ")[-1].strip()
-            for line in merge_result.stdout.splitlines()
-            if "Merge conflict in " in line
-        ]
-        console.print(
-            f"  [bold red]\u2717[/bold red]  Merge conflict for {branch}:"
-            f" {len(conflict_files)} file(s)"
-        )
-        _append_session_event(
-            "tool.auto_merge",
-            {"branch": branch, "status": "conflict", "files": conflict_files},
-        )
-        return (
-            f"Merge conflict for {branch}: {', '.join(conflict_files)}. "
-            "Use merge_agent_branch tool to resolve."
+        status, commit_hash, files = _merge_and_handle_conflicts(
+            runtime.cwd,
+            branch,
+            integration,
         )
     except (OSError, subprocess.TimeoutExpired) as e:
         console.print(f"  [bold red]\u2717[/bold red]  Auto-merge error: {e}")
         return f"Auto-merge error: {e}"
+    if status == "merged":
+        _cleanup_agent_branch(runtime.cwd, branch)
+        return _report_merge_success(
+            branch,
+            integration,
+            (commit_hash or "")[:8],
+        )
+    return _report_merge_conflict(branch, files)
+
+
+def _launch_pane(
+    runtime: LeadAgentRuntime,
+    command: list[str] | str,
+    purpose: str,
+    agent_type: str = "tool",
+    title: str | None = None,
+    cwd: str | None = None,
+    env: dict[str, str] | None = None,
+) -> SimpleNamespace:
+    if runtime.agent_window_id is None:
+        pane = runtime.pane_mgr.create_window(
+            command=command,
+            purpose=purpose,
+            agent_type=agent_type,
+            title=title,
+            cwd=cwd or runtime.cwd,
+            env=env,
+        )
+        runtime.agent_window_id = pane.window_id
+    else:
+        pane = runtime.pane_mgr.add_pane(
+            window_id=runtime.agent_window_id,
+            command=command,
+            purpose=purpose,
+            agent_type=agent_type,
+            title=title,
+            cwd=cwd or runtime.cwd,
+            env=env,
+        )
+    return pane
 
 
 def _try_reuse_done_pane(
@@ -738,47 +759,20 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
 
     if reused_pane is not None:
         pane = reused_pane
-        # Reset context: send /clear, wait briefly, then send new prompt
         runtime.pane_mgr.send_text(pane.pane_id, "/clear")
         await anyio.sleep(1.0)
         if cmd_spec.interactive and cmd_spec.initial_input:
             runtime.pane_mgr.send_text(pane.pane_id, cmd_spec.initial_input)
-    elif runtime.agent_window_id is None:
-        # First agent -> create a new window
-        pane_kwargs = {
-            "command": cmd_spec.launch_cmd,
-            "purpose": task_name,
-            "agent_type": agent_type,
-            "title": f"openMax: {runtime.plan.goal[:40]}",
-            "cwd": agent_cwd,
-        }
-        if launch_env:
-            pane_kwargs["env"] = launch_env
-        pane = runtime.pane_mgr.create_window(**pane_kwargs)
-        runtime.agent_window_id = pane.window_id
-
-        # Wait for CLI ready then send initial prompt
-        if cmd_spec.interactive and cmd_spec.initial_input:
-            await _wait_and_send_prompt(
-                runtime,
-                pane,
-                cmd_spec,
-                agent_type,
-            )
     else:
-        # Subsequent agents -> add pane to the same window (auto layout)
-        pane_kwargs = {
-            "window_id": runtime.agent_window_id,
-            "command": cmd_spec.launch_cmd,
-            "purpose": task_name,
-            "agent_type": agent_type,
-            "cwd": agent_cwd,
-        }
-        if launch_env:
-            pane_kwargs["env"] = launch_env
-        pane = runtime.pane_mgr.add_pane(**pane_kwargs)
-
-        # Wait for CLI ready then send initial prompt
+        pane = _launch_pane(
+            runtime,
+            command=cmd_spec.launch_cmd,
+            purpose=task_name,
+            agent_type=agent_type,
+            title=f"openMax: {runtime.plan.goal[:40]}",
+            cwd=agent_cwd,
+            env=launch_env,
+        )
         if cmd_spec.interactive and cmd_spec.initial_input:
             await _wait_and_send_prompt(
                 runtime,
@@ -833,26 +827,19 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         event_payload["override_reason"] = override_reason
     _append_session_event("tool.dispatch_agent", event_payload)
 
-    return {
-        "content": [
-            {
-                "type": "text",
-                "text": json.dumps(
-                    {
-                        "status": "dispatched",
-                        "pane_id": pane.pane_id,
-                        "window_id": runtime.agent_window_id,
-                        "agent_type": agent_type,
-                        "task_name": task_name,
-                        "panes_in_window": pane_count,
-                        "retry_count": retry_count,
-                        "branch_name": branch_name,
-                        "token_budget": token_budget,
-                    }
-                ),
-            }
-        ]
-    }
+    return _tool_response(
+        {
+            "status": "dispatched",
+            "pane_id": pane.pane_id,
+            "window_id": runtime.agent_window_id,
+            "agent_type": agent_type,
+            "task_name": task_name,
+            "panes_in_window": pane_count,
+            "retry_count": retry_count,
+            "branch_name": branch_name,
+            "token_budget": token_budget,
+        }
+    )
 
 
 def _check_budget_warning(task_name: str, used: int, budget: int) -> str | None:
@@ -897,7 +884,7 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
     if pane_id == -1:
         runtime.pane_mgr.refresh_states()
         summary = runtime.pane_mgr.summary()
-        return {"content": [{"type": "text", "text": json.dumps(summary, ensure_ascii=False)}]}
+        return _tool_response(summary)
     try:
         pane_alive = runtime.pane_mgr.is_pane_alive(pane_id)
 
@@ -917,7 +904,6 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
                 "exited": True,
             }
             response.update(retry_info)
-            result = json.dumps(response)
             event_payload: dict[str, Any] = {
                 "pane_id": pane_id,
                 "preview": text[:500],
@@ -926,7 +912,7 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
             }
             event_payload.update(retry_info)
             _append_session_event("tool.read_pane_output", event_payload)
-            return {"content": [{"type": "text", "text": result}]}
+            return _tool_response(response)
 
         text = _extract_smart_output(text, tail_lines=100)
 
@@ -965,7 +951,6 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
                 }
                 break
 
-        result = json.dumps(response_data)
         _append_session_event(
             "tool.read_pane_output",
             {
@@ -975,9 +960,9 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
                 "exited": exited,
             },
         )
-        return {"content": [{"type": "text", "text": result}]}
+        return _tool_response(response_data)
     except RuntimeError as e:
-        return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+        return _tool_response(f"Error: {e}")
 
 
 @tool(
@@ -991,15 +976,9 @@ async def send_text_to_pane(args: dict[str, Any]) -> dict[str, Any]:
     pane_id = args["pane_id"]
     text = args["text"]
     if not runtime.pane_mgr.is_pane_alive(pane_id):
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"Error: pane {pane_id} no longer exists. "
-                    "Re-dispatch the task to a new pane.",
-                }
-            ]
-        }
+        return _tool_response(
+            f"Error: pane {pane_id} no longer exists. Re-dispatch the task to a new pane."
+        )
     runtime.pane_mgr.send_text(pane_id, text)
     # core.py already prints the intervention line.
     if runtime.dashboard is not None:
@@ -1011,7 +990,7 @@ async def send_text_to_pane(args: dict[str, Any]) -> dict[str, Any]:
             "text": text,
         },
     )
-    return {"content": [{"type": "text", "text": f"Sent to pane {pane_id}"}]}
+    return _tool_response(f"Sent to pane {pane_id}")
 
 
 @tool(
@@ -1023,7 +1002,7 @@ async def list_managed_panes(args: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime()
     runtime.pane_mgr.refresh_states()
     summary = runtime.pane_mgr.summary()
-    return {"content": [{"type": "text", "text": json.dumps(summary, ensure_ascii=False)}]}
+    return _tool_response(summary)
 
 
 @tool(
@@ -1062,8 +1041,60 @@ async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:
             msg = f"Marked '{task_name}' as done"
             if merge_note:
                 msg += f". {merge_note}"
-            return {"content": [{"type": "text", "text": msg}]}
-    return {"content": [{"type": "text", "text": f"Task '{task_name}' not found"}]}
+            return _tool_response(msg)
+    return _tool_response(f"Task '{task_name}' not found")
+
+
+def _find_subtask_by_name(task_name: str) -> SubTask | None:
+    runtime = _runtime()
+    for st in runtime.plan.subtasks:
+        if st.name == task_name:
+            return st
+    return None
+
+
+def _merge_branch_result(
+    task_name: str,
+    status: str,
+    commit_hash: str | None,
+    conflict_files: list[str],
+    branch: str,
+    integration: str,
+) -> dict[str, Any]:
+    if status == "merged":
+        short = commit_hash[:8] if commit_hash else ""
+        console.print(
+            f"  [bold green]\u2713[/bold green]  Merged {branch} \u2192 {integration} ({short})"
+        )
+        data: dict[str, Any] = {
+            "status": "merged",
+            "commit": commit_hash,
+            "task_name": task_name,
+        }
+    else:
+        console.print(
+            f"  [bold red]\u2717[/bold red]  Merge conflict for"
+            f" {branch}: {len(conflict_files)} file(s)"
+        )
+        data = {
+            "status": "conflict",
+            "task_name": task_name,
+            "files": conflict_files,
+        }
+    _append_session_event("tool.merge_agent_branch", data)
+    return data
+
+
+def _merge_error_response(task_name: str, error: Exception) -> dict[str, Any]:
+    msg = f"Git merge error: {error}"
+    console.print(f"  [bold red]\u2717[/bold red]  {msg}")
+    data: dict[str, Any] = {
+        "status": "error",
+        "task_name": task_name,
+        "error": msg,
+    }
+    _append_session_event("tool.merge_agent_branch", data)
+    return _tool_response(data)
 
 
 @tool(
@@ -1076,119 +1107,34 @@ async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:
 async def merge_agent_branch(args: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime()
     task_name = args["task_name"]
-
-    # Find the subtask
-    target: SubTask | None = None
-    for st in runtime.plan.subtasks:
-        if st.name == task_name:
-            target = st
-            break
-
+    target = _find_subtask_by_name(task_name)
     if target is None:
-        return {
-            "content": [
-                {"type": "text", "text": json.dumps({"error": f"Task '{task_name}' not found"})}
-            ]
-        }
-
+        return _tool_response({"error": f"Task '{task_name}' not found"})
     if not target.branch_name:
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": json.dumps({"status": "skipped", "reason": "No branch for this task"}),
-                }
-            ]
-        }
-
+        return _tool_response(
+            {"status": "skipped", "reason": "No branch for this task"},
+        )
     integration = runtime.integration_branch or "main"
-    cwd = runtime.cwd
-    branch = target.branch_name
-
     try:
-        # Ensure we're on the integration branch
-        subprocess.run(
-            ["git", "checkout", integration],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=30,
+        status, hash_, files = _merge_and_handle_conflicts(
+            runtime.cwd,
+            target.branch_name,
+            integration,
         )
-
-        # Attempt merge
-        merge_result = subprocess.run(
-            ["git", "merge", "--no-edit", branch],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-
-        if merge_result.returncode == 0:
-            # Get merge commit hash
-            hash_result = subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            commit_hash = hash_result.stdout.strip()
-
-            # Clean up worktree and branch
-            _cleanup_agent_branch(cwd, branch)
-
-            console.print(
-                f"  [bold green]\u2713[/bold green]  Merged {branch} \u2192 {integration}"
-                f" ({commit_hash[:8]})"
-            )
-
-            result_data = {
-                "status": "merged",
-                "commit": commit_hash,
-                "task_name": task_name,
-            }
-            _append_session_event("tool.merge_agent_branch", result_data)
-            return {"content": [{"type": "text", "text": json.dumps(result_data)}]}
-
-        # Merge conflict — abort and report
-        subprocess.run(
-            ["git", "merge", "--abort"],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-
-        # Parse conflict files from merge output
-        conflict_files: list[str] = []
-        for line in merge_result.stdout.splitlines():
-            if line.startswith("CONFLICT"):
-                parts = line.split("Merge conflict in ")
-                if len(parts) > 1:
-                    conflict_files.append(parts[1].strip())
-
-        diff_text = merge_result.stdout[:2000]
-        console.print(
-            f"  [bold red]\u2717[/bold red]  Merge conflict for {branch}:"
-            f" {len(conflict_files)} file(s)"
-        )
-
-        result_data = {
-            "status": "conflict",
-            "task_name": task_name,
-            "files": conflict_files,
-            "diff": diff_text,
-        }
-        _append_session_event("tool.merge_agent_branch", result_data)
-        return {"content": [{"type": "text", "text": json.dumps(result_data)}]}
-
     except (OSError, subprocess.TimeoutExpired) as e:
-        error_msg = f"Git merge error: {e}"
-        console.print(f"  [bold red]\u2717[/bold red]  {error_msg}")
-        result_data = {"status": "error", "task_name": task_name, "error": error_msg}
-        _append_session_event("tool.merge_agent_branch", result_data)
-        return {"content": [{"type": "text", "text": json.dumps(result_data)}]}
+        return _merge_error_response(task_name, e)
+    if status == "merged":
+        _cleanup_agent_branch(runtime.cwd, target.branch_name)
+    return _tool_response(
+        _merge_branch_result(
+            task_name,
+            status,
+            hash_,
+            files,
+            target.branch_name,
+            integration,
+        )
+    )
 
 
 @tool(
@@ -1205,7 +1151,7 @@ async def record_phase_anchor(args: dict[str, Any]) -> dict[str, Any]:
     if runtime.dashboard is not None:
         runtime.dashboard.update_phase(phase, completion_pct)
     # No console output \u2014 internal bookkeeping, not user-facing.
-    return {"content": [{"type": "text", "text": f"Recorded anchor for phase '{phase}'"}]}
+    return _tool_response(f"Recorded anchor for phase '{phase}'")
 
 
 @tool(
@@ -1228,47 +1174,25 @@ async def transition_phase(args: dict[str, Any]) -> dict[str, Any]:
 
     # Validate gate_summary length
     if len(gate_summary) < 20:
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": (
-                        f"Error: gate_summary must be at least 20 characters "
-                        f"(got {len(gate_summary)})"
-                    ),
-                }
-            ]
-        }
+        return _tool_response(
+            f"Error: gate_summary must be at least 20 characters (got {len(gate_summary)})"
+        )
 
     # Validate from_phase matches current phase on the runtime
     current = runtime.current_phase
     if from_phase != current:
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": (
-                        f"Error: from_phase '{from_phase}' does not match current phase '{current}'"
-                    ),
-                }
-            ]
-        }
+        return _tool_response(
+            f"Error: from_phase '{from_phase}' does not match current phase '{current}'"
+        )
 
     # Validate to_phase is a valid next phase
     allowed = _VALID_PHASE_TRANSITIONS.get(from_phase)
     if allowed is None or to_phase not in allowed:
         valid_str = ", ".join(sorted(allowed)) if allowed else "none"
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": (
-                        f"Error: invalid transition '{from_phase}' → '{to_phase}'. "
-                        f"Valid next phases: {valid_str}"
-                    ),
-                }
-            ]
-        }
+        return _tool_response(
+            f"Error: invalid transition '{from_phase}' \u2192 '{to_phase}'. "
+            f"Valid next phases: {valid_str}"
+        )
 
     # Update current phase on the runtime
     runtime.current_phase = to_phase
@@ -1290,14 +1214,7 @@ async def transition_phase(args: dict[str, Any]) -> dict[str, Any]:
         },
     )
 
-    return {
-        "content": [
-            {
-                "type": "text",
-                "text": f"Transitioned from '{from_phase}' to '{to_phase}'",
-            }
-        ]
-    }
+    return _tool_response(f"Transitioned from '{from_phase}' to '{to_phase}'")
 
 
 @tool(
@@ -1311,7 +1228,7 @@ async def remember_learning(args: dict[str, Any]) -> dict[str, Any]:
     rationale = args.get("rationale", "")
     confidence = args.get("confidence")
     if runtime.memory_store is None:
-        return {"content": [{"type": "text", "text": "Memory store unavailable"}]}
+        return _tool_response("Memory store unavailable")
     runtime.memory_store.record_lesson(
         cwd=runtime.cwd,
         task=runtime.plan.goal,
@@ -1320,7 +1237,7 @@ async def remember_learning(args: dict[str, Any]) -> dict[str, Any]:
         confidence=confidence,
     )
     # No console output \u2014 internal bookkeeping.
-    return {"content": [{"type": "text", "text": "Stored reusable lesson"}]}
+    return _tool_response("Stored reusable lesson")
 
 
 @tool(
@@ -1354,7 +1271,7 @@ async def report_completion(args: dict[str, Any]) -> dict[str, Any]:
     )
     _record_phase_anchor("report", notes, pct)
     _remember_run_summary(notes, pct)
-    return {"content": [{"type": "text", "text": f"Reported {pct}% \u2014 {notes}"}]}
+    return _tool_response(f"Reported {pct}% \u2014 {notes}")
 
 
 @tool(
@@ -1405,7 +1322,7 @@ async def ask_user(args: dict[str, Any]) -> dict[str, Any]:
         "tool.ask_user",
         {"question": question, "choices": choices, "answer": answer},
     )
-    return {"content": [{"type": "text", "text": answer}]}
+    return _tool_response(answer)
 
 
 @tool(
@@ -1418,7 +1335,7 @@ async def ask_user(args: dict[str, Any]) -> dict[str, Any]:
 async def wait_tool(args: dict[str, Any]) -> dict[str, Any]:
     seconds = min(max(args.get("seconds", 30), 5), 120)
     await anyio.sleep(seconds)
-    return {"content": [{"type": "text", "text": f"Waited {seconds}s"}]}
+    return _tool_response(f"Waited {seconds}s")
 
 
 @tool(
@@ -1446,25 +1363,15 @@ async def run_command(args: dict[str, Any]) -> dict[str, Any]:
         cmd_list = [command_str]
 
     if not cmd_list:
-        return {"content": [{"type": "text", "text": "Error: empty command"}]}
+        return _tool_response("Error: empty command")
 
-    if runtime.agent_window_id is None:
-        pane = runtime.pane_mgr.create_window(
-            command=cmd_list,
-            purpose=task_name,
-            agent_type="command",
-            title=f"openMax: {runtime.plan.goal[:40]}",
-            cwd=runtime.cwd,
-        )
-        runtime.agent_window_id = pane.window_id
-    else:
-        pane = runtime.pane_mgr.add_pane(
-            window_id=runtime.agent_window_id,
-            command=cmd_list,
-            purpose=task_name,
-            agent_type="command",
-            cwd=runtime.cwd,
-        )
+    pane = _launch_pane(
+        runtime,
+        command=cmd_list,
+        purpose=task_name,
+        agent_type="command",
+        title=f"openMax: {runtime.plan.goal[:40]}",
+    )
 
     subtask = SubTask(
         name=task_name,
@@ -1493,24 +1400,17 @@ async def run_command(args: dict[str, Any]) -> dict[str, Any]:
         },
     )
 
-    return {
-        "content": [
-            {
-                "type": "text",
-                "text": json.dumps(
-                    {
-                        "status": "launched",
-                        "pane_id": pane.pane_id,
-                        "window_id": runtime.agent_window_id,
-                        "command": command_str,
-                        "task_name": task_name,
-                        "interactive": interactive,
-                        "panes_in_window": pane_count,
-                    }
-                ),
-            }
-        ]
-    }
+    return _tool_response(
+        {
+            "status": "launched",
+            "pane_id": pane.pane_id,
+            "window_id": runtime.agent_window_id,
+            "command": command_str,
+            "task_name": task_name,
+            "interactive": interactive,
+            "panes_in_window": pane_count,
+        }
+    )
 
 
 @tool(
@@ -1538,30 +1438,20 @@ async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
     except ValueError:
         cmd_list = [command_str]
     if not cmd_list:
-        return {"content": [{"type": "text", "text": "Error: empty command"}]}
+        return _tool_response("Error: empty command")
 
     # Wrap command to capture exit code: run cmd; echo __EXIT_$?__
     wrapped_cmd = f'{command_str}; echo "__OPENMAX_EXIT_$?__"'
     shell_cmd = ["bash", "-c", wrapped_cmd]
 
     task_name = f"verify-{check_type}"
-    if runtime.agent_window_id is None:
-        pane = runtime.pane_mgr.create_window(
-            command=shell_cmd,
-            purpose=task_name,
-            agent_type="command",
-            title=f"openMax: verify {check_type}",
-            cwd=runtime.cwd,
-        )
-        runtime.agent_window_id = pane.window_id
-    else:
-        pane = runtime.pane_mgr.add_pane(
-            window_id=runtime.agent_window_id,
-            command=shell_cmd,
-            purpose=task_name,
-            agent_type="command",
-            cwd=runtime.cwd,
-        )
+    pane = _launch_pane(
+        runtime,
+        command=shell_cmd,
+        purpose=task_name,
+        agent_type="command",
+        title=f"openMax: verify {check_type}",
+    )
 
     console.print(
         f"  [bold cyan]{P}[/bold cyan]  verify {check_type}:"
@@ -1635,7 +1525,7 @@ async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
         )
 
     _append_session_event("tool.run_verification", result)
-    return {"content": [{"type": "text", "text": json.dumps(result)}]}
+    return _tool_response(result)
 
 
 @tool(
@@ -1658,20 +1548,13 @@ async def check_conflicts(args: dict[str, Any]) -> dict[str, Any]:
         )
         status_output = status_result.stdout
     except (subprocess.TimeoutExpired, OSError) as e:
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": json.dumps(
-                        {
-                            "conflict": False,
-                            "details": f"Error running git status: {e}",
-                            "untracked_files": [],
-                        }
-                    ),
-                }
-            ]
-        }
+        return _tool_response(
+            {
+                "conflict": False,
+                "details": f"Error running git status: {e}",
+                "untracked_files": [],
+            }
+        )
 
     # Run git diff --check
     try:
@@ -1714,7 +1597,7 @@ async def check_conflicts(args: dict[str, Any]) -> dict[str, Any]:
     else:
         console.print("  [bold green]\u2713[/bold green]  no conflicts")
     _append_session_event("tool.check_conflicts", result)
-    return {"content": [{"type": "text", "text": json.dumps(result)}]}
+    return _tool_response(result)
 
 
 # ── File exploration tools (instant, no pane needed) ──────────────────
@@ -1735,12 +1618,12 @@ async def find_files_tool(args: dict[str, Any]) -> dict[str, Any]:
     target_dir = (Path(runtime.cwd) / rel_path).resolve()
     cwd_resolved = Path(runtime.cwd).resolve()
     if not str(target_dir).startswith(str(cwd_resolved)):
-        return {"content": [{"type": "text", "text": "Error: path outside working directory"}]}
+        return _tool_response("Error: path outside working directory")
 
     try:
         matches = sorted(target_dir.glob(pattern))
     except Exception as e:
-        return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+        return _tool_response(f"Error: {e}")
 
     filtered = [
         m
@@ -1752,7 +1635,7 @@ async def find_files_tool(args: dict[str, Any]) -> dict[str, Any]:
     rel_paths = [str(m.relative_to(cwd_resolved)) for m in filtered]
     result = f"Found {len(rel_paths)} file(s):\n" + "\n".join(rel_paths)
     console.print(f"  [dim]{P}  find '{pattern}' \u2192 {len(rel_paths)} file(s)[/dim]")
-    return {"content": [{"type": "text", "text": result}]}
+    return _tool_response(result)
 
 
 @tool(
@@ -1773,7 +1656,7 @@ async def grep_files_tool(args: dict[str, Any]) -> dict[str, Any]:
     try:
         regex = re.compile(pattern, re.IGNORECASE)
     except re.error as e:
-        return {"content": [{"type": "text", "text": f"Error: invalid regex: {e}"}]}
+        return _tool_response(f"Error: invalid regex: {e}")
 
     cwd_resolved = Path(runtime.cwd).resolve()
     matches: list[str] = []
@@ -1799,7 +1682,7 @@ async def grep_files_tool(args: dict[str, Any]) -> dict[str, Any]:
             if len(matches) >= max_results:
                 break
     except Exception as e:
-        return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+        return _tool_response(f"Error: {e}")
 
     if not matches:
         result = f"No matches for pattern '{pattern}'"
@@ -1807,7 +1690,7 @@ async def grep_files_tool(args: dict[str, Any]) -> dict[str, Any]:
         result = f"Found {len(matches)} match(es):\n" + "\n".join(matches)
 
     console.print(f"  [dim]{P}  grep '{pattern}' \u2192 {len(matches)} match(es)[/dim]")
-    return {"content": [{"type": "text", "text": result}]}
+    return _tool_response(result)
 
 
 @tool(
@@ -1826,16 +1709,16 @@ async def read_file_tool(args: dict[str, Any]) -> dict[str, Any]:
     target = (Path(runtime.cwd) / rel_path).resolve()
     cwd_resolved = Path(runtime.cwd).resolve()
     if not str(target).startswith(str(cwd_resolved)):
-        return {"content": [{"type": "text", "text": "Error: path outside working directory"}]}
+        return _tool_response("Error: path outside working directory")
 
     try:
         text = target.read_text(errors="replace")
     except FileNotFoundError:
-        return {"content": [{"type": "text", "text": f"Error: file not found: {rel_path}"}]}
+        return _tool_response(f"Error: file not found: {rel_path}")
     except IsADirectoryError:
-        return {"content": [{"type": "text", "text": f"Error: {rel_path} is a directory"}]}
+        return _tool_response(f"Error: {rel_path} is a directory")
     except OSError as e:
-        return {"content": [{"type": "text", "text": f"Error reading file: {e}"}]}
+        return _tool_response(f"Error reading file: {e}")
 
     lines = text.splitlines()
     total = len(lines)
@@ -1848,7 +1731,7 @@ async def read_file_tool(args: dict[str, Any]) -> dict[str, Any]:
     result = header + "\n".join(numbered)
 
     console.print(f"  [dim]{P}  read {rel_path} ({len(selected)}/{total} lines)[/dim]")
-    return {"content": [{"type": "text", "text": result}]}
+    return _tool_response(result)
 
 
 # All tool objects for easy collection

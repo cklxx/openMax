@@ -117,42 +117,35 @@ class PaneManager:
         cwd: str | None = None,
         env: dict[str, str] | None = None,
     ) -> ManagedPane:
-        """Create a NEW window, run command in it, track everything.
-
-        Returns the ManagedPane for the first pane.
-        """
-        if env:
-            pane_id = self._backend.spawn_window(command, cwd=cwd, env=env)
-        else:
-            pane_id = self._backend.spawn_window(command, cwd=cwd)
-
-        # Resolve window_id with retries (pane may not appear in list
-        # immediately after spawn).
+        """Create a NEW window, run command in it, track everything."""
+        pane_id = self._backend.spawn_window(command, cwd=cwd, env=env)
         window_id = self._find_pane_window(pane_id)
-
-        # Always track the window — use pane_id as synthetic window_id
-        # when the real one cannot be determined (e.g. the pane exited
-        # before we could query it).
-        effective_window_id = window_id if window_id is not None else pane_id
-        win = ManagedWindow(
-            window_id=effective_window_id,
-            title=title,
-            pane_ids=[pane_id],
-        )
-        self._windows[effective_window_id] = win
-
+        effective_wid = window_id if window_id is not None else pane_id
+        self._track_window(effective_wid, title, pane_id)
         if window_id is not None:
-            self._set_window_title(pane_id, title)
-            # Focus the agent pane so its window becomes frontmost,
-            # then resize window 1 (which is now the agent window).
-            self.activate_pane(pane_id)
-            time.sleep(0.3)
-            self._backend.resize_frontmost_window()
+            self._focus_and_resize(pane_id, title)
+        return self._track_pane(pane_id, effective_wid, purpose, agent_type)
 
-        # Track pane
+    def _track_window(self, window_id: int, title: str, first_pane_id: int) -> None:
+        win = ManagedWindow(window_id=window_id, title=title, pane_ids=[first_pane_id])
+        self._windows[window_id] = win
+
+    def _focus_and_resize(self, pane_id: int, title: str) -> None:
+        self._set_window_title(pane_id, title)
+        self.activate_pane(pane_id)
+        time.sleep(0.3)
+        self._backend.resize_frontmost_window()
+
+    def _track_pane(
+        self,
+        pane_id: int,
+        window_id: int,
+        purpose: str,
+        agent_type: str,
+    ) -> ManagedPane:
         pane = ManagedPane(
             pane_id=pane_id,
-            window_id=effective_window_id,
+            window_id=window_id,
             purpose=purpose,
             agent_type=agent_type,
             state=PaneState.RUNNING,
@@ -171,27 +164,12 @@ class PaneManager:
         cwd: str | None = None,
         env: dict[str, str] | None = None,
     ) -> ManagedPane:
-        """Add a new pane to an existing managed window with smart layout.
-
-        Automatically picks the split target and direction based on
-        how many panes are already in the window.  If all existing
-        panes in the window have died, falls back to creating a new
-        window instead.
-        """
+        """Add a new pane to an existing managed window with smart layout."""
         win = self._windows.get(window_id)
         if win is None:
             raise RuntimeError(f"Window {window_id} is not managed")
-
-        # Prune dead panes so split targets are valid
-        alive_ids = set()
-        try:
-            alive_ids = {p.pane_id for p in self._list_all_panes()}
-        except RuntimeError:
-            pass
-        win.pane_ids = [pid for pid in win.pane_ids if pid in alive_ids]
-
+        self._prune_dead_panes(win)
         if not win.pane_ids:
-            # All panes in window have died — create a fresh window
             return self.create_window(
                 command=command,
                 purpose=purpose,
@@ -200,37 +178,24 @@ class PaneManager:
                 cwd=cwd,
                 env=env,
             )
-
-        index = len(win.pane_ids)
-        target_pane, direction = _pick_split(win.pane_ids, index)
-
-        if env:
-            pane_id = self._backend.split_pane(
-                target_pane,
-                direction,
-                command,
-                cwd=cwd,
-                env=env,
-            )
-        else:
-            pane_id = self._backend.split_pane(
-                target_pane,
-                direction,
-                command,
-                cwd=cwd,
-            )
-
-        # Track
-        win.pane_ids.append(pane_id)
-        pane = ManagedPane(
-            pane_id=pane_id,
-            window_id=window_id,
-            purpose=purpose,
-            agent_type=agent_type,
-            state=PaneState.RUNNING,
+        target_pane, direction = _pick_split(win.pane_ids, len(win.pane_ids))
+        pane_id = self._backend.split_pane(
+            target_pane,
+            direction,
+            command,
+            cwd=cwd,
+            env=env,
         )
-        self._panes[pane_id] = pane
-        return pane
+        win.pane_ids.append(pane_id)
+        return self._track_pane(pane_id, window_id, purpose, agent_type)
+
+    def _prune_dead_panes(self, win: ManagedWindow) -> None:
+        """Remove pane IDs that no longer exist from a window's list."""
+        try:
+            alive_ids = {p.pane_id for p in self._list_all_panes()}
+        except RuntimeError:
+            return
+        win.pane_ids = [pid for pid in win.pane_ids if pid in alive_ids]
 
     # ── Pane I/O ───────────────────────────────────────────────────
 
@@ -330,46 +295,37 @@ class PaneManager:
     # ── Cleanup ────────────────────────────────────────────────────
 
     def cleanup_all(self) -> None:
-        """Kill all managed panes and ensure managed windows close.
-
-        After killing managed panes, any panes still belonging to our
-        managed windows are also killed (e.g. replacement shells spawned
-        by the terminal).  Kaku closes a window once its last pane dies.
-        """
+        """Kill all managed panes and ensure managed windows close."""
         managed_pane_ids = list(self._panes)
         managed_window_ids = set(self._windows)
-
         for pane_id in managed_pane_ids:
             self._kill_pane_process(pane_id)
-
-        # Verify: some panes may survive the first kill (e.g. interactive
-        # CLIs that trap signals).  Re-check and retry once.
-        time.sleep(0.5)
-        try:
-            alive_panes = self._list_all_panes()
-        except RuntimeError:
-            alive_panes = []
-
-        # Retry stragglers from our managed set
-        stragglers = [p for p in alive_panes if p.pane_id in managed_pane_ids]
-        for p in stragglers:
-            self._kill_pane_process(p.pane_id)
-
-        # Kill any panes still sitting in our managed windows (replacement
-        # shells or panes spawned by the terminal after we killed ours).
-        # Re-list to catch panes Kaku may have created after our kills.
-        if managed_window_ids:
-            time.sleep(0.3)
-            try:
-                still_alive = self._list_all_panes()
-            except RuntimeError:
-                still_alive = []
-            for p in still_alive:
-                if p.window_id in managed_window_ids:
-                    self._kill_pane_process(p.pane_id)
-
+        self._kill_stragglers(managed_pane_ids)
+        self._kill_window_remnants(managed_window_ids)
         self._panes.clear()
         self._windows.clear()
+
+    def _kill_stragglers(self, managed_pane_ids: list[int]) -> None:
+        """Retry killing managed panes that survived the first attempt."""
+        time.sleep(0.5)
+        for p in self._safe_list_panes():
+            if p.pane_id in managed_pane_ids:
+                self._kill_pane_process(p.pane_id)
+
+    def _kill_window_remnants(self, window_ids: set[int]) -> None:
+        """Kill replacement shells the terminal spawned in our windows."""
+        if not window_ids:
+            return
+        time.sleep(0.3)
+        for p in self._safe_list_panes():
+            if p.window_id in window_ids:
+                self._kill_pane_process(p.pane_id)
+
+    def _safe_list_panes(self) -> list[PaneInfo]:
+        try:
+            return self._list_all_panes()
+        except RuntimeError:
+            return []
 
     def __enter__(self) -> PaneManager:
         return self

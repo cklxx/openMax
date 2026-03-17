@@ -39,7 +39,12 @@ class FakeBackend:
         self.calls.append(("list_panes",))
         return list(self.list_panes_result)
 
-    def spawn_window(self, command: list[str], cwd: str | None = None) -> int:
+    def spawn_window(
+        self,
+        command: list[str],
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+    ) -> int:
         self.calls.append(("spawn_window", command, cwd))
         return self.spawned_pane_id
 
@@ -49,6 +54,7 @@ class FakeBackend:
         direction: str,
         command: list[str],
         cwd: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> int:
         self.calls.append(("split_pane", target_pane_id, direction, command, cwd))
         return self.split_pane_id
