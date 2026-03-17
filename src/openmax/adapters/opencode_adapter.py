@@ -10,9 +10,7 @@ class OpenCodeAdapter(AgentAdapter):
     def agent_type(self) -> str:
         return "opencode"
 
-    def get_command(
-        self, prompt: str, cwd: str | None = None, model: str | None = None
-    ) -> AgentCommand:
+    def get_command(self, prompt: str, cwd: str | None = None) -> AgentCommand:
         return AgentCommand(
             launch_cmd=["opencode"],
             initial_input=prompt,

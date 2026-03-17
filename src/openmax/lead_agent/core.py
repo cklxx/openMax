@@ -175,8 +175,6 @@ def _build_lead_prompt(
     resume_context: str | None,
     memory_context: str | None,
     allowed_agents: list[str] | None = None,
-    sub_agent_model: str | None = None,
-    available_models: list[str] | None = None,
 ) -> str:
     parts = [f"## Goal\n{task}", f"Working directory: {cwd}"]
 
@@ -190,15 +188,6 @@ def _build_lead_prompt(
         parts.append(
             f"Allowed agents: {agents_str} (prefer '{allowed_agents[0]}'). "
             f"Do NOT use agent types outside this list."
-        )
-    if available_models:
-        model_list = ", ".join(available_models)
-        default_note = f" (session default: {sub_agent_model})" if sub_agent_model else ""
-        parts.append(
-            f"## Available Sub-Agent Models\n"
-            f"{model_list}{default_note}\n"
-            f"Pass `model` in dispatch_agent to choose a specific model. "
-            f"Use heavyweight models for complex tasks, lightweight for simple ones."
         )
     if session_id:
         parts.append(f"Session ID: {session_id}")
@@ -215,8 +204,6 @@ def run_lead_agent(
     pane_mgr: PaneManager,
     cwd: str,
     model: str | None = None,
-    sub_agent_model: str | None = None,
-    available_models: list[str] | None = None,
     max_turns: int = 50,
     session_id: str | None = None,
     resume: bool = False,
@@ -232,8 +219,6 @@ def run_lead_agent(
                 pane_mgr,
                 cwd,
                 model,
-                sub_agent_model,
-                available_models,
                 max_turns,
                 session_id,
                 resume,
@@ -255,8 +240,6 @@ async def _run_lead_agent_async(
     pane_mgr: PaneManager,
     cwd: str,
     model: str | None,
-    sub_agent_model: str | None,
-    available_models: list[str] | None,
     max_turns: int,
     session_id: str | None,
     resume: bool,
@@ -273,7 +256,6 @@ async def _run_lead_agent_async(
         allowed_agents=allowed_agents,
         agent_registry=agent_registry or built_in_agent_registry(),
         dashboard=dashboard,
-        sub_agent_model=sub_agent_model,
     )
     token = bind_lead_agent_runtime(runtime)
 
@@ -382,8 +364,6 @@ async def _run_lead_agent_async(
             resume_context,
             memory_context.text if memory_context else None,
             allowed_agents=allowed_agents,
-            sub_agent_model=sub_agent_model,
-            available_models=available_models,
         )
 
         console.print()

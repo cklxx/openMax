@@ -28,7 +28,6 @@ class LeadAgentRuntime:
     current_phase: str = "research"
     integration_branch: str | None = None
     token_usage: dict[str, int] = field(default_factory=dict)
-    sub_agent_model: str | None = None
 
 
 _lead_agent_runtime: ContextVar[LeadAgentRuntime | None] = ContextVar(

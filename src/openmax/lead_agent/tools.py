@@ -829,15 +829,6 @@ def _file_protocol_section(brief_file: Path, rep_file: Path, cwd: str) -> str:
             "task_name": {"type": "string"},
             "agent_type": {"type": "string"},
             "prompt": {"type": "string"},
-            "model": {
-                "type": "string",
-                "description": (
-                    "Model ID for the sub-agent "
-                    "(e.g. claude-opus-4-6, claude-haiku-4-5-20251001). "
-                    "Omit to use the session default. "
-                    "Use heavier models for complex tasks, lighter for simple ones."
-                ),
-            },
             "override_reason": {"type": "string"},
             "retry_count": {"type": "integer"},
             "context_budget_tokens": {"type": "integer"},
@@ -951,8 +942,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     rep_file = report_path(agent_cwd, task_name)
     prompt = prompt + _file_protocol_section(brief_file, rep_file, agent_cwd)
 
-    model = args.get("model") or runtime.sub_agent_model
-    cmd_spec = adapter.get_command(prompt, cwd=agent_cwd, model=model)
+    cmd_spec = adapter.get_command(prompt, cwd=agent_cwd)
     launch_env = cmd_spec.env or None
 
     # -- Try to reuse a done pane with the same agent type --
