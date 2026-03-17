@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.10
+
+- **Refactor**: split `lead_agent/tools.py` (2168-line God Object) into `tools/` package — `_dispatch`, `_planning`, `_shared`, `_verify`, `_report`, `_misc`, `_helpers` modules; no behavior change
+- **Fix**: `lead_agent.md` system prompt — added `### Dispatch Failures` section; Lead now retries `dispatch_agent` once on failure and never bootstraps agents via `send_text_to_pane`
+- **Fix**: session event log pruning — `lead.message` events trimmed to last 50 when count exceeds 100, preventing unbounded JSONL growth on long runs
+- **Fix**: `KakuPaneBackend.spawn_window` / `split_pane` now retry up to 2× on `PaneBackendError` with 0.5s delay, reducing transient kaku CLI timeout failures
+
 ## 0.5.9
 
 - **`openmax loop`**: new CLI command for continuous/infinite orchestration — runs `run_lead_agent` in an outer loop with a fresh `PaneManager` each iteration; memory accumulates across iterations; supports `--max-iterations`, `--delay`, `--agents`, `--pane-backend`, `--max-turns`; graceful Ctrl+C shows total iteration count
