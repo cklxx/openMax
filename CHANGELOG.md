@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.4
+
+- Fix: lead agent now always runs `run_verification` (lint + test) after merging all branches — was transitioning to verify phase but silently skipping the actual checks
+
 ## 0.5.3
 
 - Remove `clear_screen` — ANSI clear/scroll sequences caused terminal artifacts in Claude Code, tmux, and other environments
