@@ -718,6 +718,14 @@ def _read_subtask_report(task_name: str) -> str | None:
     return read_report(runtime.cwd, task_name)
 
 
+def _persist_report_to_main(runtime: LeadAgentRuntime, task_name: str, text: str) -> None:
+    """Copy report to main cwd so it survives worktree cleanup."""
+    if read_report(runtime.cwd, task_name) is None:
+        rp = report_path(runtime.cwd, task_name)
+        rp.parent.mkdir(parents=True, exist_ok=True)
+        rp.write_text(text, encoding="utf-8")
+
+
 def _read_subtask_report_for_pane(pane_id: int) -> str | None:
     runtime = _runtime()
     for st in runtime.plan.subtasks:
@@ -861,8 +869,10 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     if context_block:
         prompt = prompt + context_block
 
-    # Write brief BEFORE appending file protocol (avoids circular reference)
+    # Write brief to agent_cwd (worktree) AND main cwd (survives worktree cleanup)
     brief_file = write_brief(agent_cwd, task_name, prompt)
+    if agent_cwd != runtime.cwd:
+        write_brief(runtime.cwd, task_name, prompt)
     rep_file = report_path(agent_cwd, task_name)
     prompt = prompt + _file_protocol_section(brief_file, rep_file, agent_cwd)
 
@@ -1163,6 +1173,7 @@ async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:
             report_text = _read_subtask_report(task_name)
             if report_text:
                 st.completion_notes = report_text[:2000]
+                _persist_report_to_main(runtime, task_name, report_text)
             if notes:
                 st.completion_notes = notes
             console.print(f"  [bold green]\u2713[/bold green]  [bold]{task_name}[/bold] done")

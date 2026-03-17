@@ -14,16 +14,24 @@ def _task_dir(cwd: str, subdir: str) -> Path:
 
 
 def _ensure_gitignore(cwd: str) -> None:
-    """Ensure .openmax/ is listed in the project's root .gitignore."""
-    gi = Path(cwd) / ".gitignore"
+    """Ensure .openmax/ contents are git-ignored.
+
+    Uses two layers:
+    1. Nested .openmax/.gitignore with '*' (always works, no merge conflicts)
+    2. Root .gitignore entry '.openmax/' (if root .gitignore exists and is tracked)
+    """
+    # Nested gitignore — always safe, no merge issues
+    nested = Path(cwd) / _OPENMAX_DIR / ".gitignore"
+    if not nested.exists():
+        nested.parent.mkdir(parents=True, exist_ok=True)
+        nested.write_text("*\n", encoding="utf-8")
+    # Root gitignore — only append if file already exists (don't create it)
+    root_gi = Path(cwd) / ".gitignore"
     entry = ".openmax/"
-    if gi.exists():
-        content = gi.read_text(encoding="utf-8")
-        if entry in content.splitlines():
-            return
-        gi.write_text(content.rstrip("\n") + f"\n{entry}\n", encoding="utf-8")
-    else:
-        gi.write_text(f"{entry}\n", encoding="utf-8")
+    if root_gi.exists():
+        content = root_gi.read_text(encoding="utf-8")
+        if entry not in content.splitlines():
+            root_gi.write_text(content.rstrip("\n") + f"\n{entry}\n", encoding="utf-8")
 
 
 def write_brief(cwd: str, task_name: str, content: str) -> Path:
