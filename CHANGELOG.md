@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.12
+
+- **E2E tests**: `tests/test_e2e.py` — two real-API tests guarded by `OPENMAX_E2E=1`; scripted `task-agent` writes proper `.openmax/reports/` files so the full orchestration loop (dispatch → read → mark done → report) is exercised end-to-end
+- **Fix**: lead agent `mark_task_done` now required in Monitor section — was calling `report_completion` without first marking subtasks done, leaving them in RUNNING state and breaking loop tape done-task tracking; added explicit `mark_task_done` rules to Monitor table and conditional trigger table in `lead_agent.md`
+
 ## 0.5.11
 
 - **`openmax loop` tape context**: each iteration now injects a structured "Loop Context" block into the lead agent's prompt — lists all prior iterations with timestamps, subtask names, and completion %; lead agent explicitly told not to repeat completed work; inspired by bub's tape-based context design
