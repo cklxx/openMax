@@ -9,6 +9,6 @@ P = "\u279c"  # ➜
 
 
 def clear_screen() -> None:
-    """Clear terminal and move cursor to top — vite-style fresh start."""
-    sys.stdout.write("\033[2J\033[H")
+    """Scroll old content up, cursor at top — history preserved in scrollback."""
+    sys.stdout.write("\n" * 40 + "\033[H")
     sys.stdout.flush()
