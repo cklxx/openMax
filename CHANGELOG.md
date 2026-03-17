@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.9
+
+- **`openmax loop`**: new CLI command for continuous/infinite orchestration — runs `run_lead_agent` in an outer loop with a fresh `PaneManager` each iteration; memory accumulates across iterations; supports `--max-iterations`, `--delay`, `--agents`, `--pane-backend`, `--max-turns`; graceful Ctrl+C shows total iteration count
+
 ## 0.5.8
 
 - **Shared Blackboard**: `update_shared_context` / `read_shared_context` tools let Lead write architectural decisions to `.openmax/shared/blackboard.md`; every dispatched sub-agent automatically receives relevant blackboard content in its brief
