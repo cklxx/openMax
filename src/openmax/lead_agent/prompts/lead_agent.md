@@ -90,13 +90,15 @@ When `dispatch_agent` fails:
 
 Loop: `wait` → `read_pane_output` per running agent → act.
 
-| Signal | Indicators |
-|---|---|
-| Done | Agent returned to prompt, "committed", summary printed |
-| Error | "Error", "FAILED", "Traceback", non-zero exit (shown as `[ERROR]` prefix) |
-| Stuck | Output unchanged, or agent asking unanswered question |
-| Report ready | `.openmax/reports/{task_name}.md` exists — use `read_task_report` for structured results |
-| Checkpoint pending | `.openmax/checkpoints/{name}.md` exists — call `check_checkpoints` |
+| Signal | Indicators | Required action |
+|---|---|---|
+| Done | Agent returned to prompt, "committed", summary printed, or `exited: true` with success output | **Call `mark_task_done(task_name, notes)`** |
+| Error | "Error", "FAILED", "Traceback", non-zero exit (shown as `[ERROR]` prefix), or `exited: true` with error output | Call `permanent_error(task_name)` |
+| Stuck | Output unchanged, or agent asking unanswered question | `send_text_to_pane` with guidance; 2 retries then re-dispatch |
+| Report ready | `exited: true` response includes `report` field | Read report, then call `mark_task_done` |
+| Checkpoint pending | `.openmax/checkpoints/{name}.md` exists | Call `check_checkpoints` → `resolve_checkpoint` |
+
+**`mark_task_done` is mandatory** — it records the subtask result and enables loop tape tracking. Calling `report_completion` without first calling `mark_task_done` for each completed subtask leaves tasks in RUNNING state permanently.
 
 Adaptive timing: 10-15s for simple tasks, 30-45s for complex changes.
 
@@ -168,6 +170,8 @@ Each transition requires a `gate_summary` (≥20 chars) describing what was comp
 | Multi-file/multi-module | `submit_plan`, split into parallel subtasks. |
 | Need deeper context mid-task | Dispatch another research agent to investigate and report. |
 | Agent stuck >60s | `send_text_to_pane` with guidance. 2 retries max, then re-dispatch. |
+| Agent exited successfully (`exited: true`, success output or `report` field) | Call `mark_task_done(task_name, notes)` **immediately** |
+| Agent exited with error (`exited: true`, error output) | Call `permanent_error(task_name)` |
 | Agent exited unexpectedly | retry_count <2: re-dispatch. >=2: `permanent_error`. |
 | All agents done | **Immediately** call `run_verification` for lint + test. Do not skip. |
 | Reusable pattern found | `remember_learning`. |
