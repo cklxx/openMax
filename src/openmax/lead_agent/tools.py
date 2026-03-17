@@ -734,7 +734,7 @@ def _save_pane_log(runtime: LeadAgentRuntime, st: SubTask) -> Path | None:
         return None
     if not text or len(text.strip()) < 20:
         return None
-    lines = text.splitlines()[-2000:]
+    lines = text.splitlines()
     log_dir = Path(runtime.cwd) / ".openmax" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{st.name}.log"
@@ -752,7 +752,7 @@ def _synthesize_report_from_pane(runtime: LeadAgentRuntime, st: SubTask) -> str 
     log_rel = log_path.relative_to(runtime.cwd)
     return (
         f"## Status\ndone (auto-synthesized)\n\n"
-        f"## Full Log\n`{log_rel}` (up to 2000 lines)\n\n"
+        f"## Full Log\n`{log_rel}`\n\n"
         f"## Output (last lines)\n```\n{tail}\n```"
     )
 
