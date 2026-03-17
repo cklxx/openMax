@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4
+
+- Fix sub-agents repeatedly running `cd` in worktrees: remove redundant `--add-dir`, inject explicit working directory into prompt context, skip pane reuse across different worktrees
+
 ## 0.4.3
 
 - Save full pane output to .openmax/logs/ (no line limit) as permanent audit trail
