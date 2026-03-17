@@ -2002,3 +2002,127 @@ def test_plan_submission_total_budget():
 
     plan_no_budget = PlanSubmission(rationale="test")
     assert plan_no_budget.total_budget is None
+
+
+# --- Blackboard + Checkpoint tests ---
+
+
+def test_update_and_read_shared_context(tmp_path):
+    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+
+    anyio.run(
+        lead_agent_tools.update_shared_context.handler,
+        {"update": "Use SQLite for storage", "section": "DB decision"},
+    )
+    result = anyio.run(lead_agent_tools.read_shared_context_tool.handler, {})
+
+    content = json.loads(result["content"][0]["text"])["shared_context"]
+    assert content is not None
+    assert "DB decision" in content
+    assert "Use SQLite" in content
+
+    events = store.load_events("lead-test")
+    assert any(e.event_type == "tool.update_shared_context" for e in events)
+    assert any(e.event_type == "tool.read_shared_context" for e in events)
+
+    _teardown_session(token)
+
+
+def test_check_checkpoints_empty(tmp_path):
+    _runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+
+    result = anyio.run(lead_agent_tools.check_checkpoints.handler, {})
+    data = json.loads(result["content"][0]["text"])
+    assert data["count"] == 0
+    assert data["pending_checkpoints"] == []
+
+    _teardown_session(token)
+
+
+def test_check_checkpoints_with_pending(tmp_path):
+    _runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+
+    from openmax.task_file import write_checkpoint
+
+    write_checkpoint(str(tmp_path), "api-task", "## Decision needed\nOption A or B")
+
+    result = anyio.run(lead_agent_tools.check_checkpoints.handler, {})
+    data = json.loads(result["content"][0]["text"])
+    assert data["count"] == 1
+    assert data["pending_checkpoints"][0]["task_name"] == "api-task"
+    assert "Option A or B" in data["pending_checkpoints"][0]["content"]
+
+    _teardown_session(token)
+
+
+def test_resolve_checkpoint_sends_to_pane(tmp_path):
+    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+
+    # Add subtask with a known pane_id
+    runtime.plan.subtasks.append(
+        SubTask(
+            name="api-task",
+            agent_type="claude-code",
+            prompt="p",
+            status=TaskStatus.RUNNING,
+            pane_id=101,
+        )
+    )
+
+    from openmax.task_file import read_checkpoint, read_shared_context, write_checkpoint
+
+    write_checkpoint(str(tmp_path), "api-task", "## Decision needed\nOption A or B")
+
+    anyio.run(
+        lead_agent_tools.resolve_checkpoint.handler,
+        {"task_name": "api-task", "decision": "Use option A"},
+    )
+
+    # Checkpoint deleted
+    assert read_checkpoint(str(tmp_path), "api-task") is None
+    # Decision on blackboard
+    bb = read_shared_context(str(tmp_path))
+    assert bb is not None
+    assert "Use option A" in bb
+    # Sent to pane
+    assert any(text == "Use option A" for (_, text) in runtime.pane_mgr.sent)
+
+    events = store.load_events("lead-test")
+    assert any(e.event_type == "tool.resolve_checkpoint" for e in events)
+
+    _teardown_session(token)
+
+
+def test_dispatch_injects_checkpoint_protocol(monkeypatch, tmp_path):
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    anyio.run(
+        lead_agent_tools.dispatch_agent.handler,
+        {"task_name": "api-task", "agent_type": "generic", "prompt": "Build API"},
+    )
+
+    sent_prompt = runtime.pane_mgr.sent[0][1]
+    assert "Checkpoint Protocol" in sent_prompt
+
+    _teardown_session(token)
+
+
+def test_dispatch_injects_blackboard(monkeypatch, tmp_path):
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    from openmax.task_file import append_shared_context
+
+    append_shared_context(str(tmp_path), "Use SQLite", section="DB decision")
+
+    anyio.run(
+        lead_agent_tools.dispatch_agent.handler,
+        {"task_name": "api-task", "agent_type": "generic", "prompt": "Build API"},
+    )
+
+    sent_prompt = runtime.pane_mgr.sent[0][1]
+    assert "Shared Blackboard" in sent_prompt
+    assert "Use SQLite" in sent_prompt
+
+    _teardown_session(token)

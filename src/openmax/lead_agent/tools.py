@@ -20,7 +20,17 @@ from openmax.output import P, console
 from openmax.pane_backend import PaneBackendError
 from openmax.pane_manager import PaneManager
 from openmax.session_runtime import anchor_payload
-from openmax.task_file import inject_claude_md, read_report, report_path, write_brief
+from openmax.task_file import (
+    append_shared_context,
+    delete_checkpoint,
+    inject_claude_md,
+    list_checkpoint_paths,
+    read_checkpoint,
+    read_report,
+    read_shared_context,
+    report_path,
+    write_brief,
+)
 
 _VALID_PHASE_TRANSITIONS: dict[str, set[str]] = {
     "research": {"plan"},
@@ -97,6 +107,49 @@ def _remember_run_summary(notes: str, completion_pct: int) -> None:
         subtasks=serialize_subtasks(runtime.plan.subtasks),
         anchors=anchors,
     )
+
+
+def _pane_id_for_task(task_name: str) -> int | None:
+    for st in _runtime().plan.subtasks:
+        if st.name == task_name:
+            return st.pane_id
+    return None
+
+
+def _build_blackboard_block(cwd: str) -> str:
+    content = read_shared_context(cwd)
+    if not content:
+        return ""
+    return (
+        "\n\n## Shared Blackboard\n\n"
+        "Read before making architectural decisions:\n\n" + content[:3000]
+    )
+
+
+_CHECKPOINT_PROTOCOL = """
+
+## Checkpoint Protocol
+
+If you reach a decision fork where multiple approaches are valid and the choice
+has significant downstream impact, write a structured request:
+
+File: `.openmax/checkpoints/{task_name}.md`
+
+```markdown
+## Decision needed
+<what you are trying to decide>
+
+## Options
+1. <option A> — pros/cons
+2. <option B> — pros/cons
+
+## My recommendation
+<which option and why>
+```
+
+Then pause and wait — do NOT proceed until you receive a decision via message.
+Only use this for genuine forks; use your judgment for routine implementation choices.
+"""
 
 
 async def _wait_for_pane_ready(
@@ -934,6 +987,11 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     )
     if context_block:
         prompt = prompt + context_block
+
+    blackboard_block = _build_blackboard_block(agent_cwd if agent_cwd else runtime.cwd)
+    if blackboard_block:
+        prompt = prompt + blackboard_block
+    prompt = prompt + _CHECKPOINT_PROTOCOL.format(task_name=task_name)
 
     # Write brief to agent_cwd (worktree) AND main cwd (survives worktree cleanup)
     brief_file = write_brief(agent_cwd, task_name, prompt)
@@ -1996,6 +2054,88 @@ async def read_task_report(args: dict[str, Any]) -> dict[str, Any]:
     return _tool_response({"task_name": task_name, "report": report[:4000]})
 
 
+@tool(
+    "update_shared_context",
+    "Append an update to the shared blackboard visible to all agents. "
+    "Use after key architectural decisions so subsequent agents inherit context.",
+    {
+        "type": "object",
+        "properties": {
+            "update": {"type": "string"},
+            "section": {"type": "string"},
+        },
+        "required": ["update"],
+    },
+)
+async def update_shared_context(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
+    path = append_shared_context(runtime.cwd, args["update"], args.get("section"))
+    _append_session_event("tool.update_shared_context", {"section": args.get("section")})
+    return _tool_response(f"Appended to {path.relative_to(runtime.cwd)}")
+
+
+@tool(
+    "read_shared_context",
+    "Read the shared blackboard. Call before dispatching dependent agents "
+    "to include relevant prior decisions in their briefs.",
+    {},
+)
+async def read_shared_context_tool(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
+    content = read_shared_context(runtime.cwd)
+    _append_session_event("tool.read_shared_context", {"chars": len(content) if content else 0})
+    return _tool_response({"shared_context": content[:8000] if content else None})
+
+
+@tool(
+    "check_checkpoints",
+    "Check for pending agent checkpoints — decision forks where sub-agents are waiting. "
+    "Include in every monitoring round.",
+    {},
+)
+async def check_checkpoints(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
+    items = []
+    for p in list_checkpoint_paths(runtime.cwd):
+        task_name = p.stem
+        content = read_checkpoint(runtime.cwd, task_name)
+        if content is not None:
+            items.append(
+                {
+                    "task_name": task_name,
+                    "pane_id": _pane_id_for_task(task_name),
+                    "content": content[:2000],
+                }
+            )
+    _append_session_event("tool.check_checkpoints", {"pending": len(items)})
+    return _tool_response({"pending_checkpoints": items, "count": len(items)})
+
+
+@tool(
+    "resolve_checkpoint",
+    "Resolve a pending agent checkpoint: delete the file, record the decision on the "
+    "blackboard, and send the decision to the agent's pane so it can continue.",
+    {
+        "type": "object",
+        "properties": {
+            "task_name": {"type": "string"},
+            "decision": {"type": "string"},
+        },
+        "required": ["task_name", "decision"],
+    },
+)
+async def resolve_checkpoint(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
+    task_name, decision = args["task_name"], args["decision"]
+    delete_checkpoint(runtime.cwd, task_name)
+    append_shared_context(runtime.cwd, decision, section=f"Decision for {task_name}")
+    pane_id = _pane_id_for_task(task_name)
+    if pane_id is not None and runtime.pane_mgr.is_pane_alive(pane_id):
+        runtime.pane_mgr.send_text(pane_id, decision)
+    _append_session_event("tool.resolve_checkpoint", {"task_name": task_name, "pane_id": pane_id})
+    return _tool_response(f"Resolved checkpoint for '{task_name}', decision sent to pane {pane_id}")
+
+
 # All tool objects for easy collection
 #
 # Excluded by design:
@@ -2007,12 +2147,15 @@ async def read_task_report(args: dict[str, Any]) -> dict[str, Any]:
 # - record_phase_anchor: already called inside transition_phase.
 ALL_TOOLS = [
     ask_user,
+    check_checkpoints,
     check_conflicts,
     dispatch_agent,
     mark_task_done,
     merge_agent_branch,
     read_pane_output,
+    read_shared_context_tool,
     read_task_report,
+    resolve_checkpoint,
     run_command,
     run_verification,
     send_text_to_pane,
@@ -2020,5 +2163,6 @@ ALL_TOOLS = [
     remember_learning,
     report_completion,
     transition_phase,
+    update_shared_context,
     wait_tool,
 ]

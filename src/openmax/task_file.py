@@ -7,6 +7,8 @@ from pathlib import Path
 _OPENMAX_DIR = ".openmax"
 _BRIEFS_DIR = "briefs"
 _REPORTS_DIR = "reports"
+_SHARED_DIR = "shared"
+_CHECKPOINTS_DIR = "checkpoints"
 
 
 def _task_dir(cwd: str, subdir: str) -> Path:
@@ -57,6 +59,51 @@ def brief_path(cwd: str, task_name: str) -> Path:
 
 def report_path(cwd: str, task_name: str) -> Path:
     return _task_dir(cwd, _REPORTS_DIR) / f"{task_name}.md"
+
+
+def shared_context_path(cwd: str) -> Path:
+    return _task_dir(cwd, _SHARED_DIR) / "blackboard.md"
+
+
+def checkpoint_path(cwd: str, task_name: str) -> Path:
+    return _task_dir(cwd, _CHECKPOINTS_DIR) / f"{task_name}.md"
+
+
+def list_checkpoint_paths(cwd: str) -> list[Path]:
+    d = _task_dir(cwd, _CHECKPOINTS_DIR)
+    return sorted(d.glob("*.md")) if d.exists() else []
+
+
+def append_shared_context(cwd: str, update: str, section: str | None = None) -> Path:
+    _ensure_gitignore(cwd)
+    path = shared_context_path(cwd)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    header = f"\n\n## {section}\n" if section else "\n\n"
+    with path.open("a", encoding="utf-8") as f:
+        f.write(header + update.rstrip() + "\n")
+    return path
+
+
+def read_shared_context(cwd: str) -> str | None:
+    path = shared_context_path(cwd)
+    return path.read_text(encoding="utf-8") if path.exists() else None
+
+
+def read_checkpoint(cwd: str, task_name: str) -> str | None:
+    path = checkpoint_path(cwd, task_name)
+    return path.read_text(encoding="utf-8") if path.exists() else None
+
+
+def write_checkpoint(cwd: str, task_name: str, content: str) -> Path:
+    _ensure_gitignore(cwd)
+    path = checkpoint_path(cwd, task_name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def delete_checkpoint(cwd: str, task_name: str) -> None:
+    checkpoint_path(cwd, task_name).unlink(missing_ok=True)
 
 
 def cleanup_task_files(cwd: str, task_name: str) -> None:

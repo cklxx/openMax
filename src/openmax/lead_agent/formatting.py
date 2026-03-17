@@ -28,6 +28,10 @@ _TOOL_CATEGORIES: dict[str, str] = {
     "check_conflicts": "system",
     "report_completion": "system",
     "wait": "system",
+    "update_shared_context": "system",
+    "read_shared_context": "monitor",
+    "check_checkpoints": "monitor",
+    "resolve_checkpoint": "intervention",
 }
 
 _CATEGORY_STYLES: dict[str, str] = {
@@ -208,6 +212,25 @@ def _format_tool_use(tool_name: str, tool_input: dict[str, Any] | None = None) -
             f"Waiting {seconds}s before the next check"
             if seconds
             else "Waiting before the next check"
+        )
+
+    if normalized == "update_shared_context":
+        section = str(tool_input.get("section", "")).strip()
+        return f"Updating blackboard: {section}" if section else "Updating shared blackboard"
+
+    if normalized == "read_shared_context":
+        return "Reading shared blackboard"
+
+    if normalized == "check_checkpoints":
+        return "Checking for pending agent checkpoints"
+
+    if normalized == "resolve_checkpoint":
+        task_name = str(tool_input.get("task_name", "")).strip()
+        decision = str(tool_input.get("decision", "")).strip()
+        return (
+            f"Resolving checkpoint for {task_name}: {_truncate_text(decision)}"
+            if task_name
+            else "Resolving checkpoint"
         )
 
     fallback = normalized.replace("_", " ").strip() or tool_name
