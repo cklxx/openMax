@@ -6,6 +6,7 @@ import atexit
 import os
 import signal
 import sys
+import time
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
@@ -273,6 +274,138 @@ def run(
             _do_cleanup()
         elif keep_panes:
             console.print("[dim]Keeping panes open (--keep-panes).[/dim]")
+
+
+@main.command()
+@click.argument("goal")
+@click.option("--cwd", default=None, help="Working directory for agents")
+@click.option("--model", default=None, help="Model for the lead agent")
+@click.option("--max-turns", default=50, type=click.IntRange(min=1), help="Max turns per iteration")
+@click.option(
+    "--max-iterations",
+    default=0,
+    type=click.IntRange(min=0),
+    help="Max iterations to run (0 = unlimited)",
+)
+@click.option(
+    "--delay",
+    default=5,
+    type=click.IntRange(min=0),
+    help="Seconds to pause between iterations",
+)
+@click.option(
+    "--agents",
+    default=None,
+    help="Comma-separated list of allowed agent names",
+)
+@click.option(
+    "--pane-backend",
+    "pane_backend_name",
+    type=click.Choice(["kaku", "tmux", "headless", "auto"], case_sensitive=False),
+    default=None,
+    help="Pane backend to use",
+)
+def loop(
+    goal: str,
+    cwd: str | None,
+    model: str | None,
+    max_turns: int,
+    max_iterations: int,
+    delay: int,
+    agents: str | None,
+    pane_backend_name: str | None,
+) -> None:
+    """Run openmax in a continuous loop, pursuing GOAL across unlimited iterations.
+
+    Memory accumulates between iterations — the lead agent naturally discovers
+    new improvements each run based on what was done before.
+
+    Press Ctrl+C to stop gracefully.
+    """
+    cwd = _resolve_cwd(cwd)
+    pane_backend_name = resolve_pane_backend_name(pane_backend_name)
+
+    try:
+        agent_registry = load_agent_registry(cwd)
+    except AgentConfigError as exc:
+        raise click.UsageError(str(exc)) from exc
+
+    available_agents = set(agent_registry.names())
+    allowed_agents = _parse_allowed_agents(agents, available_agents)
+    effective_model = model or get_model()
+
+    _print_loop_header(goal, max_iterations)
+
+    iteration = 0
+    try:
+        while max_iterations == 0 or iteration < max_iterations:
+            iteration += 1
+            console.print(f"[bold]─── Iteration {iteration} {'─' * 40}[/bold]")
+            _run_loop_iteration(
+                goal=goal,
+                cwd=cwd,
+                effective_model=effective_model,
+                max_turns=max_turns,
+                allowed_agents=allowed_agents,
+                agent_registry=agent_registry,
+                pane_backend_name=pane_backend_name,
+                iteration=iteration,
+            )
+            if delay > 0 and (max_iterations == 0 or iteration < max_iterations):
+                console.print(f"[dim]Pausing {delay}s before next iteration...[/dim]")
+                time.sleep(delay)
+    except KeyboardInterrupt:
+        console.print(f"\n[yellow]Loop stopped after {iteration} iteration(s).[/yellow]")
+
+
+def _print_loop_header(goal: str, max_iterations: int) -> None:
+    console.print(f"\n[bold cyan]openmax loop[/bold cyan]  [dim]{goal[:60]}[/dim]")
+    if max_iterations:
+        console.print(f"[dim]Max iterations: {max_iterations}[/dim]")
+    else:
+        console.print("[dim]Running indefinitely — Ctrl+C to stop[/dim]")
+    console.print()
+
+
+def _run_loop_iteration(
+    *,
+    goal: str,
+    cwd: str,
+    effective_model: str,
+    max_turns: int,
+    allowed_agents: list[str] | None,
+    agent_registry,
+    pane_backend_name: str | None,
+    iteration: int,
+) -> None:
+    pane_mgr = PaneManager(backend_name=pane_backend_name)
+    cleaned_up = False
+
+    def _do_cleanup() -> None:
+        nonlocal cleaned_up
+        if cleaned_up:
+            return
+        cleaned_up = True
+        try:
+            pane_mgr.cleanup_all()
+        except Exception:
+            pass
+
+    atexit.register(_do_cleanup)
+    try:
+        run_lead_agent(
+            task=goal,
+            pane_mgr=pane_mgr,
+            cwd=cwd,
+            model=effective_model,
+            max_turns=max_turns,
+            allowed_agents=allowed_agents,
+            agent_registry=agent_registry,
+        )
+    except LeadAgentStartupError as exc:
+        console.print(f"[red]Iteration {iteration} failed to start: {exc}[/red]")
+    finally:
+        _do_cleanup()
 
 
 @main.command()
