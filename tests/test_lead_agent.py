@@ -895,15 +895,29 @@ def test_transition_phase_valid(tmp_path):
             lead_agent_tools.transition_phase.handler,
             {
                 "from_phase": "research",
-                "to_phase": "implement",
-                "gate_summary": "Plan complete with 3 subtasks identified",
-                "artifacts": ["plan.md"],
+                "to_phase": "plan",
+                "gate_summary": "Research complete, relevant files and data flow identified",
+                "artifacts": ["research-report.md"],
             },
         )
         text = result["content"][0]["text"]
         assert "Transitioned" in text
+        assert runtime.current_phase == "plan"
+        assert runtime.session_meta.latest_phase == "plan"
+
+        # follow-on: plan → implement
+        result2 = anyio.run(
+            lead_agent_tools.transition_phase.handler,
+            {
+                "from_phase": "plan",
+                "to_phase": "implement",
+                "gate_summary": "Plan submitted with 3 subtasks in 2 parallel groups",
+                "artifacts": ["plan.md"],
+            },
+        )
+        text2 = result2["content"][0]["text"]
+        assert "Transitioned" in text2
         assert runtime.current_phase == "implement"
-        assert runtime.session_meta.latest_phase == "implement"
     finally:
         _teardown_session(token)
 
@@ -916,7 +930,7 @@ def test_transition_phase_short_summary_rejected(tmp_path):
             lead_agent_tools.transition_phase.handler,
             {
                 "from_phase": "research",
-                "to_phase": "implement",
+                "to_phase": "plan",
                 "gate_summary": "short",
                 "artifacts": [],
             },

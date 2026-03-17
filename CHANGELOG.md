@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.8
+
+- Sub-agent model selection: pass `model` in `dispatch_agent` to choose a specific Claude model per task; `--sub-model` CLI flag sets the session default; available models fetched from Anthropic API and injected into lead agent context
+- Fix phase transition state machine: `research → plan → implement → verify` now works correctly (code previously allowed `research → implement` directly, contradicting the system prompt)
+- Tighten lead agent research guidance: targeted research prompt template, explicit skip conditions (single-file, user-provided paths, visible project structure)
+- Sync `wait` tool description with system prompt timing (30-45s for complex tasks)
+
 ## 0.4.7
 
 - Fix merge conflict detection reading stdout instead of stderr — git writes "Merge conflict in X" to stderr

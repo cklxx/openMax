@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openmax"
-version = "0.4.7"
+version = "0.4.8"
 description = "Multi AI Agent orchestration hub — dispatch interactive AI agents across terminal panes"
 readme = "README.md"
 license = "MIT"
@@ -26,6 +26,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 dependencies = [
+    "anthropic>=0.40.0",
     "claude-agent-sdk>=0.1.49,<0.2.0",
     "click>=8.0",
     "rich>=13.0",

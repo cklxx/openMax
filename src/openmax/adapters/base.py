@@ -40,6 +40,8 @@ class AgentAdapter(ABC):
         return True
 
     @abstractmethod
-    def get_command(self, prompt: str, cwd: str | None = None) -> AgentCommand:
+    def get_command(
+        self, prompt: str, cwd: str | None = None, model: str | None = None
+    ) -> AgentCommand:
         """Return the command spec to start this agent with the given prompt."""
         ...

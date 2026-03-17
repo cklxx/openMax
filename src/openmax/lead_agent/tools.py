@@ -23,7 +23,8 @@ from openmax.session_runtime import anchor_payload
 from openmax.task_file import inject_claude_md, read_report, report_path, write_brief
 
 _VALID_PHASE_TRANSITIONS: dict[str, set[str]] = {
-    "research": {"implement"},
+    "research": {"plan"},
+    "plan": {"implement"},
     "implement": {"verify"},
     "verify": {"finish", "implement"},  # allow re-dispatch via verify → implement
 }
@@ -823,13 +824,26 @@ def _file_protocol_section(brief_file: Path, rep_file: Path, cwd: str) -> str:
     "and any knowledge it cannot discover on its own. "
     "All agents share one window with smart grid layout. Returns pane_id.",
     {
-        "task_name": str,
-        "agent_type": str,
-        "prompt": str,
-        "override_reason": str,
-        "retry_count": int,
-        "context_budget_tokens": int,
-        "token_budget": int,
+        "type": "object",
+        "properties": {
+            "task_name": {"type": "string"},
+            "agent_type": {"type": "string"},
+            "prompt": {"type": "string"},
+            "model": {
+                "type": "string",
+                "description": (
+                    "Model ID for the sub-agent "
+                    "(e.g. claude-opus-4-6, claude-haiku-4-5-20251001). "
+                    "Omit to use the session default. "
+                    "Use heavier models for complex tasks, lighter for simple ones."
+                ),
+            },
+            "override_reason": {"type": "string"},
+            "retry_count": {"type": "integer"},
+            "context_budget_tokens": {"type": "integer"},
+            "token_budget": {"type": "integer"},
+        },
+        "required": ["task_name", "agent_type", "prompt"],
     },
 )
 async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
@@ -937,7 +951,8 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     rep_file = report_path(agent_cwd, task_name)
     prompt = prompt + _file_protocol_section(brief_file, rep_file, agent_cwd)
 
-    cmd_spec = adapter.get_command(prompt, cwd=agent_cwd)
+    model = args.get("model") or runtime.sub_agent_model
+    cmd_spec = adapter.get_command(prompt, cwd=agent_cwd, model=model)
     launch_env = cmd_spec.env or None
 
     # -- Try to reuse a done pane with the same agent type --
@@ -1565,7 +1580,7 @@ async def ask_user(args: dict[str, Any]) -> dict[str, Any]:
 @tool(
     "wait",
     "Wait for a specified number of seconds before continuing. "
-    "Use between monitoring rounds: 10-15s for simple tasks, 20-30s for complex ones. "
+    "Use between monitoring rounds: 10-15s for simple tasks, 30-45s for complex ones. "
     "Increase if the agent is making steady progress.",
     {"seconds": int},
 )

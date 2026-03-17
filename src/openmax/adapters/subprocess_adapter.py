@@ -42,19 +42,25 @@ class SubprocessAdapter(AgentAdapter):
     def interactive(self) -> bool:
         return self._interactive
 
-    def _render_template(self, value: str, prompt: str, cwd: str | None) -> str:
+    def _render_template(self, value: str, prompt: str, cwd: str | None, model: str | None) -> str:
         replacements = {
             "{prompt}": prompt,
             "{prompt_sh}": shlex.quote(prompt),
             "{cwd}": cwd or "",
             "{cwd_sh}": shlex.quote(cwd or ""),
+            "{model}": model or "",
+            "{model_sh}": shlex.quote(model or ""),
         }
         for placeholder, replacement in replacements.items():
             value = value.replace(placeholder, replacement)
         return value
 
-    def get_command(self, prompt: str, cwd: str | None = None) -> AgentCommand:
-        command = [self._render_template(part, prompt, cwd) for part in self._command_template]
+    def get_command(
+        self, prompt: str, cwd: str | None = None, model: str | None = None
+    ) -> AgentCommand:
+        command = [
+            self._render_template(part, prompt, cwd, model) for part in self._command_template
+        ]
         if self._interactive:
             return AgentCommand(
                 launch_cmd=command,

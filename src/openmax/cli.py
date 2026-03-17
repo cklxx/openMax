@@ -18,6 +18,7 @@ from openmax.auth import has_claude_auth, run_claude_setup_token
 from openmax.doctor import render_results, run_checks
 from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
 from openmax.memory import MemoryStore
+from openmax.model_list import fetch_anthropic_models
 from openmax.output import clear_screen, console
 from openmax.pane_backend import resolve_pane_backend_name
 from openmax.pane_manager import PaneManager
@@ -156,6 +157,7 @@ def main() -> None:
 @click.argument("task")
 @click.option("--cwd", default=None, help="Working directory for agents")
 @click.option("--model", default=None, help="Model for the lead agent")
+@click.option("--sub-model", "sub_model", default=None, help="Default model for sub-agents")
 @click.option("--max-turns", default=50, type=click.IntRange(min=1), help="Max agent loop turns")
 @click.option("--keep-panes", is_flag=True, default=False, help="Don't close panes on exit")
 @click.option("--session-id", default=None, help="Persistent lead-agent session identifier")
@@ -181,6 +183,7 @@ def run(
     task: str,
     cwd: str | None,
     model: str | None,
+    sub_model: str | None,
     max_turns: int,
     keep_panes: bool,
     session_id: str | None,
@@ -244,12 +247,15 @@ def run(
     signal.signal(signal.SIGTERM, _cleanup_and_exit)
 
     try:
+        available_models = fetch_anthropic_models()
         try:
             plan = run_lead_agent(
                 task=task,
                 pane_mgr=pane_mgr,
                 cwd=cwd,
                 model=model,
+                sub_agent_model=sub_model,
+                available_models=available_models or None,
                 max_turns=max_turns,
                 session_id=session_id,
                 resume=resume,

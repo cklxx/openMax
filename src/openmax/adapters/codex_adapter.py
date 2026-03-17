@@ -10,9 +10,14 @@ class CodexAdapter(AgentAdapter):
     def agent_type(self) -> str:
         return "codex"
 
-    def get_command(self, prompt: str, cwd: str | None = None) -> AgentCommand:
+    def get_command(
+        self, prompt: str, cwd: str | None = None, model: str | None = None
+    ) -> AgentCommand:
+        cmd = ["codex"]
+        if model:
+            cmd += ["--model", model]
         return AgentCommand(
-            launch_cmd=["codex"],
+            launch_cmd=cmd,
             initial_input=prompt,
             interactive=True,
             ready_patterns=["codex>", "> ", "❯ "],
@@ -30,8 +35,10 @@ class CodexExecAdapter(AgentAdapter):
     def interactive(self) -> bool:
         return False
 
-    def get_command(self, prompt: str, cwd: str | None = None) -> AgentCommand:
-        return AgentCommand(
-            launch_cmd=["codex", "exec", prompt],
-            interactive=False,
-        )
+    def get_command(
+        self, prompt: str, cwd: str | None = None, model: str | None = None
+    ) -> AgentCommand:
+        cmd = ["codex", "exec", prompt]
+        if model:
+            cmd += ["--model", model]
+        return AgentCommand(launch_cmd=cmd, interactive=False)
