@@ -325,8 +325,23 @@ def _get_integration_branch(cwd: str) -> str | None:
     return None
 
 
+def _branch_exists(cwd: str, branch_name: str) -> bool:
+    r = subprocess.run(
+        ["git", "rev-parse", "--verify", branch_name],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    return r.returncode == 0
+
+
+def _worktree_is_valid(worktree_dir: Path) -> bool:
+    return (worktree_dir / ".git").exists()
+
+
 def _create_agent_branch(cwd: str, branch_name: str) -> tuple[str | None, str | None]:
-    """Create a git branch and worktree for an agent.
+    """Create or reuse a git branch and worktree for an agent.
 
     Returns (worktree_path, error_message). On success error_message is None.
     """
@@ -334,7 +349,23 @@ def _create_agent_branch(cwd: str, branch_name: str) -> tuple[str | None, str | 
     worktree_dir = worktree_base / branch_name.replace("/", "_")
 
     try:
-        # Create branch from HEAD
+        # Reuse existing branch + worktree if both are valid
+        if _branch_exists(cwd, branch_name) and _worktree_is_valid(worktree_dir):
+            return str(worktree_dir), None
+
+        # Branch exists but worktree is gone — prune stale worktree ref, recreate
+        if _branch_exists(cwd, branch_name):
+            subprocess.run(
+                ["git", "worktree", "prune"],
+                cwd=cwd,
+                capture_output=True,
+                timeout=10,
+            )
+            if _worktree_is_valid(worktree_dir):
+                return str(worktree_dir), None
+            return _add_worktree(cwd, worktree_dir, branch_name, cleanup_branch=False)
+
+        # Fresh: create branch + worktree
         result = subprocess.run(
             ["git", "branch", branch_name],
             cwd=cwd,
@@ -344,29 +375,37 @@ def _create_agent_branch(cwd: str, branch_name: str) -> tuple[str | None, str | 
         )
         if result.returncode != 0:
             return None, f"Failed to create branch: {result.stderr.strip()}"
+        return _add_worktree(cwd, worktree_dir, branch_name, cleanup_branch=True)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return None, f"Git error: {e}"
 
-        # Create worktree
-        worktree_dir.parent.mkdir(parents=True, exist_ok=True)
-        result = subprocess.run(
-            ["git", "worktree", "add", str(worktree_dir), branch_name],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            # Clean up branch if worktree creation failed
+
+def _add_worktree(
+    cwd: str,
+    worktree_dir: Path,
+    branch_name: str,
+    *,
+    cleanup_branch: bool = True,
+) -> tuple[str | None, str | None]:
+    """Add a git worktree for an existing branch. Returns (path, error)."""
+    worktree_dir.parent.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        ["git", "worktree", "add", str(worktree_dir), branch_name],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        if cleanup_branch:
             subprocess.run(
                 ["git", "branch", "-D", branch_name],
                 cwd=cwd,
                 capture_output=True,
                 timeout=10,
             )
-            return None, f"Failed to create worktree: {result.stderr.strip()}"
-
-        return str(worktree_dir), None
-    except (OSError, subprocess.TimeoutExpired) as e:
-        return None, f"Git error: {e}"
+        return None, f"Failed to create worktree: {result.stderr.strip()}"
+    return str(worktree_dir), None
 
 
 def _cleanup_agent_branch(cwd: str, branch_name: str) -> str | None:
