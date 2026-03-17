@@ -1040,23 +1040,13 @@ def models() -> None:
     if current:
         console.print(f"[dim]Current model:[/dim] [bold]{current}[/bold]\n")
 
-    console.print("[dim]Fetching available models...[/dim]")
     model_ids = fetch_anthropic_models()
-
-    if not model_ids:
-        console.print("[yellow]Could not fetch models — is ANTHROPIC_API_KEY set?[/yellow]")
-        console.print("\nEnter a model ID manually:")
-        model_ids = []
-
-    if model_ids:
-        console.print()
-        for i, mid in enumerate(model_ids, 1):
-            marker = " [green]✓[/green]" if mid == current else ""
-            console.print(f"  [bold]{i}.[/bold] {mid}{marker}")
-        console.print()
-        raw = input("Select model (number or paste ID): ").strip()
-    else:
-        raw = input("Model ID: ").strip()
+    console.print()
+    for i, mid in enumerate(model_ids, 1):
+        marker = " [green]✓[/green]" if mid == current else ""
+        console.print(f"  [bold]{i}.[/bold] {mid}{marker}")
+    console.print()
+    raw = input("Select model (number or paste ID): ").strip()
 
     if not raw:
         console.print("[yellow]Cancelled.[/yellow]")

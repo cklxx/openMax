@@ -30,11 +30,24 @@ def set_model(model: str) -> None:
     _save(data)
 
 
+# Known Claude models — used when ANTHROPIC_API_KEY is not available (e.g. OAuth auth).
+_KNOWN_MODELS = [
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5-20251001",
+    "claude-opus-4-5",
+    "claude-sonnet-4-5-20251001",
+]
+
+
 def fetch_anthropic_models() -> list[str]:
-    """Return model IDs from the Anthropic API. Empty list on any error."""
+    """Return model IDs. Tries Anthropic API first; falls back to built-in list."""
     try:
         import anthropic
 
-        return [m.id for m in anthropic.Anthropic().models.list().data]
+        ids = [m.id for m in anthropic.Anthropic().models.list().data]
+        if ids:
+            return ids
     except Exception:
-        return []
+        pass
+    return _KNOWN_MODELS
