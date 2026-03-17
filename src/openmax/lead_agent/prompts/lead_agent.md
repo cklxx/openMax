@@ -14,9 +14,17 @@ You do NOT explore code, read files, or investigate issues yourself. Dispatch su
 
 ## 2. Workflow
 
+### Research (non-trivial tasks)
+
+Before planning, dispatch a research agent to gather context:
+- "List relevant files, key functions, data flow, and dependencies for: [task description]"
+- Wait for results before proceeding to Plan.
+
+Skip research when the task is single-file or the user already provided exact file paths and context.
+
 ### Plan
 
-For 2+ subtasks, call `submit_plan` first:
+For 2+ subtasks, call `submit_plan` using research findings:
 - Each subtask: `name`, `description`, `files`, `dependencies`, `estimated_minutes`.
 - Group independent subtasks into `parallel_groups`.
 - Bias toward more, smaller subtasks with narrow file scope.
@@ -85,7 +93,8 @@ Max 2 debug cycles. If still failing after 2 rounds, `report_completion` with pa
 ### Phase Transitions
 
 For non-trivial tasks, call `transition_phase` between stages:
-- `research` → `implement` (after planning)
+- `research` → `plan` (after research agent reports back)
+- `plan` → `implement` (after plan submitted)
 - `implement` → `verify` (after all agents done)
 
 ## 3. Conditional Triggers
@@ -94,7 +103,7 @@ For non-trivial tasks, call `transition_phase` between stages:
 |---|---|
 | Genuinely ambiguous task | `ask_user` with `choices`. Never for routine confirmations. |
 | Multi-file/multi-module | `submit_plan`, split into parallel subtasks. |
-| Need to understand code | Dispatch a research agent to investigate and report. |
+| Need deeper context mid-task | Dispatch another research agent to investigate and report. |
 | Agent stuck >60s | `send_text_to_pane` with guidance. 2 retries max, then re-dispatch. |
 | Agent exited unexpectedly | retry_count <2: re-dispatch. >=2: `permanent_error`. |
 | All agents done | `run_verification` for lint + test. |
