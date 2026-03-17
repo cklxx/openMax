@@ -22,11 +22,8 @@ class ClaudeCodeAdapter(AgentAdapter):
         return "claude-code"
 
     def get_command(self, prompt: str, cwd: str | None = None) -> AgentCommand:
-        launch = ["claude"]
-        if cwd:
-            launch.extend(["--add-dir", cwd])
         return AgentCommand(
-            launch_cmd=launch,
+            launch_cmd=["claude"],
             initial_input=prompt,
             interactive=True,
             ready_patterns=["? for shortcuts", "Human:", "╭─"],
@@ -48,7 +45,4 @@ class ClaudeCodePrintAdapter(AgentAdapter):
         return False
 
     def get_command(self, prompt: str, cwd: str | None = None) -> AgentCommand:
-        cmd = ["claude", "-p", prompt]
-        if cwd:
-            cmd.extend(["--add-dir", cwd])
-        return AgentCommand(launch_cmd=cmd, interactive=False)
+        return AgentCommand(launch_cmd=["claude", "-p", prompt], interactive=False)

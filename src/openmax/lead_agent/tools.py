@@ -683,6 +683,7 @@ def _compress_context(context: str, budget: int) -> str:
 def _build_subagent_context(
     *,
     branch_name: str | None,
+    agent_cwd: str | None = None,
     memory_text: str | None,
 ) -> str:
     """Build a structured context block for sub-agent prompts.
@@ -690,6 +691,12 @@ def _build_subagent_context(
     Returns empty string when there is nothing to inject.
     """
     sections: list[str] = []
+
+    if agent_cwd:
+        sections.append(
+            f"Working directory: {agent_cwd}\n"
+            f"You are already in the correct directory. Do NOT run `cd`."
+        )
 
     if branch_name:
         sections.append(
@@ -896,6 +903,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     # Inject structured context (git branch + memory)
     context_block = _build_subagent_context(
         branch_name=branch_name,
+        agent_cwd=agent_cwd,
         memory_text=memory_text,
     )
     if context_block:
@@ -912,7 +920,10 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     launch_env = cmd_spec.env or None
 
     # -- Try to reuse a done pane with the same agent type --
-    reused_pane = _try_reuse_done_pane(runtime, agent_type, task_name)
+    # Skip reuse when agent runs in a worktree: /clear resets the conversation
+    # but the process stays in the old cwd, causing the agent to `cd` repeatedly.
+    has_worktree = agent_cwd != runtime.cwd
+    reused_pane = None if has_worktree else _try_reuse_done_pane(runtime, agent_type, task_name)
 
     if reused_pane is not None:
         pane = reused_pane
