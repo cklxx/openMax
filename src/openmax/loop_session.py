@@ -87,8 +87,14 @@ class LoopSessionStore:
         )
 
 
+_LOOP_CONTEXT_MAX_ITERATIONS = 10
+
+
 def build_loop_context(session: LoopSession, current_iteration: int) -> str:
-    """Build a context block summarising all prior iterations for the lead agent."""
+    """Build a context block summarising prior iterations for the lead agent.
+
+    Caps at the last 10 iterations to keep prompt size bounded.
+    """
     if not session.iterations:
         return ""
     lines = [
@@ -97,7 +103,11 @@ def build_loop_context(session: LoopSession, current_iteration: int) -> str:
         "",
         "Completed iterations — DO NOT repeat any of this work:",
     ]
-    for it in session.iterations:
+    recent = session.iterations[-_LOOP_CONTEXT_MAX_ITERATIONS:]
+    if len(session.iterations) > _LOOP_CONTEXT_MAX_ITERATIONS:
+        total = len(session.iterations)
+        lines.append(f"  (showing last {_LOOP_CONTEXT_MAX_ITERATIONS} of {total} iterations)")
+    for it in recent:
         ts = it.started_at[:16].replace("T", " ")
         pct = f"{it.completion_pct}%" if it.completion_pct is not None else "?"
         lines.append(f"  {it.iteration}. [{ts}] {it.outcome_summary}  ({pct})")

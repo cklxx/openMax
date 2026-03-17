@@ -422,6 +422,7 @@ def _run_loop_iteration(
         return _make_loop_iteration(iteration, started_at, None)
     finally:
         _do_cleanup()
+        atexit.unregister(_do_cleanup)
 
 
 def _make_loop_iteration(iteration: int, started_at: str, plan: Any) -> LoopIteration:

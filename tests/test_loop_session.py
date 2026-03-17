@@ -158,3 +158,21 @@ def test_build_loop_context_covers_all_prior_iterations(tmp_path):
     assert "iteration 1 work" in ctx
     assert "iteration 2 work" in ctx
     assert "iteration 3 work" in ctx
+
+
+def test_build_loop_context_caps_at_ten_iterations(tmp_path):
+    store = _store(tmp_path)
+    session = store.create("goal", "/cwd")
+    for i in range(1, 16):  # 15 iterations — exceeds cap of 10
+        session.iterations.append(_iteration(i))
+
+    ctx = build_loop_context(session, current_iteration=16)
+
+    # Last 10 should be present
+    assert "iteration 15 work" in ctx
+    assert "iteration 6 work" in ctx
+    # First 5 should be omitted
+    assert "iteration 1 work" not in ctx
+    assert "iteration 5 work" not in ctx
+    # Truncation notice present
+    assert "showing last 10 of 15 iterations" in ctx

@@ -139,6 +139,9 @@ Max 2 debug cycles. If still failing after 2 rounds, `report_completion` with pa
 
 ### Finish
 
+**Required order — do not skip steps:**
+
+0. **Mark done**: `mark_task_done(task_name, notes)` for every completed subtask. This must happen before `report_completion` — calling `report_completion` without marking tasks done leaves them in RUNNING state permanently and breaks loop tape tracking.
 1. **Merge branches** sequentially via `merge_agent_branch(task_name=...)`.
    - `"conflict"` → the response includes `files` (conflicting paths) and `diff` (full diff between branches). Use these to write a precise, context-aware prompt: tell the agent *exactly* which files conflict, *what each side changed*, and *what the correct semantic resolution should be*. The agent runs `git merge <branch>`, reads the conflict markers, resolves based on your guidance, then commits. After the agent completes, call `merge_agent_branch` again to confirm.
 2. **Verify — you MUST call `run_verification` for both lint and test. No exceptions.**
