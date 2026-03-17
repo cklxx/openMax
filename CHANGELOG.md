@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+- Fix `openmax models` crashing when `ANTHROPIC_API_KEY` is not set (Claude Code uses OAuth, not API key) — now falls back to a built-in list of known models
+
 ## 0.5.0
 
 - `openmax models`: interactive model selector — fetches available models from Anthropic API, user picks by number or pastes ID, saves to `~/.openmax/config.json`
