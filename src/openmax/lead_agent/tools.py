@@ -217,9 +217,29 @@ def _topological_sort_check(subtasks: list[dict[str, Any]]) -> str | None:
     "groups (no conflicts). Call this after planning and before "
     "any dispatch_agent calls.",
     {
-        "subtasks": list,
-        "rationale": str,
-        "parallel_groups": list,
+        "type": "object",
+        "properties": {
+            "subtasks": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "description": {"type": "string"},
+                        "files": {"type": "array", "items": {"type": "string"}},
+                        "dependencies": {"type": "array", "items": {"type": "string"}},
+                        "estimated_minutes": {"type": "integer"},
+                    },
+                    "required": ["name", "description"],
+                },
+            },
+            "rationale": {"type": "string"},
+            "parallel_groups": {
+                "type": "array",
+                "items": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "required": ["subtasks", "rationale", "parallel_groups"],
     },
 )
 async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
@@ -1362,10 +1382,14 @@ async def record_phase_anchor(args: dict[str, Any]) -> dict[str, Any]:
     "Transition between workflow phases. Validates from_phase matches current, "
     "gate_summary is descriptive. Records phase.anchor event and updates session phase.",
     {
-        "from_phase": str,
-        "to_phase": str,
-        "gate_summary": str,
-        "artifacts": list,
+        "type": "object",
+        "properties": {
+            "from_phase": {"type": "string"},
+            "to_phase": {"type": "string"},
+            "gate_summary": {"type": "string"},
+            "artifacts": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["from_phase", "to_phase", "gate_summary", "artifacts"],
     },
 )
 async def transition_phase(args: dict[str, Any]) -> dict[str, Any]:

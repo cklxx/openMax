@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.6
+
+- Fix `submit_plan` and `transition_phase` tools sending `list` params as `"string"` to Claude — use proper JSON Schema (`{"type": "array"}`) so Claude constructs calls correctly
+
 ## 0.4.5
 
 - Fix clear_screen using Rich console.print which corrupted ANSI escape sequences — use raw stdout instead
