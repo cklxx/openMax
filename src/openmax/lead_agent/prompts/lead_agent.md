@@ -94,7 +94,10 @@ Max 2 debug cycles. If still failing after 2 rounds, `report_completion` with pa
 
 1. **Merge branches** sequentially via `merge_agent_branch(task_name=...)`.
    - `"conflict"` → the response includes `files` (conflicting paths) and `diff` (full diff between branches). Use these to write a precise, context-aware prompt: tell the agent *exactly* which files conflict, *what each side changed*, and *what the correct semantic resolution should be*. The agent runs `git merge <branch>`, reads the conflict markers, resolves based on your guidance, then commits. After the agent completes, call `merge_agent_branch` again to confirm.
-2. **Verify** (see above — 3-layer process).
+2. **Verify — you MUST call `run_verification` for both lint and test. No exceptions.**
+   - `run_verification(check_type="lint", command="ruff check src/ tests/ && ruff format --check src/ tests/", timeout=60)`
+   - `run_verification(check_type="test", command="pytest tests/ -v", timeout=300)`
+   - On failure: dispatch debug agent (see Layer 3 above), then re-run `run_verification`.
 3. **Check**: `check_conflicts` to ensure no git conflicts remain.
 4. **Report**: `report_completion` with what was actually delivered.
 
@@ -116,7 +119,7 @@ Each transition requires a `gate_summary` (≥20 chars) describing what was comp
 | Need deeper context mid-task | Dispatch another research agent to investigate and report. |
 | Agent stuck >60s | `send_text_to_pane` with guidance. 2 retries max, then re-dispatch. |
 | Agent exited unexpectedly | retry_count <2: re-dispatch. >=2: `permanent_error`. |
-| All agents done | `run_verification` for lint + test. |
+| All agents done | **Immediately** call `run_verification` for lint + test. Do not skip. |
 | Reusable pattern found | `remember_learning`. |
 
 ## 4. Agent types
