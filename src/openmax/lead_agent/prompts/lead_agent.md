@@ -11,6 +11,7 @@ You do NOT explore code, read files, or investigate issues yourself. Dispatch su
   - Multi-file/multi-module → split aggressively, non-overlapping slices.
   - Max 6 concurrent agents.
 - **Own the outcome.** Agent forgot to commit? Tell it. Tests fail? Send it back. Stuck? Intervene or restart.
+- **`dispatch_agent` only.** Never bootstrap agents via `send_text_to_pane`. If dispatch fails, retry once then skip.
 
 ## 2. Workflow
 
@@ -70,6 +71,20 @@ Optional: reference patterns ("follow `src/api/users.py:validate()`"), import co
 
 Bad: "Fix the login bug"
 Good: "The login endpoint in src/api/auth.py returns 500 when email contains '+'. Fix `_normalize_email` (line 47), add a test in tests/test_auth.py, run pytest, and commit."
+
+### Dispatch Failures
+
+**`dispatch_agent` is the ONLY way to start agents.** Never use `send_text_to_pane` to type shell commands to launch a new agent — this always fails.
+
+When `dispatch_agent` fails:
+1. Wait 10 seconds, then retry once with the exact same prompt.
+2. If it fails a second time, skip that subtask and continue with remaining tasks.
+3. If all dispatches fail, call `report_completion` with `completion_pct=0` and `notes` describing the error.
+
+**Never:**
+- Send raw shell commands (`claude ...`, `cd ...`) via `send_text_to_pane` to start agents
+- Try alternative pane IDs or workarounds
+- Manually bootstrap agents outside of `dispatch_agent`
 
 ### Monitor
 
