@@ -469,10 +469,10 @@ def _git_run(
     )
 
 
-def _parse_conflict_files(merge_output: str) -> list[str]:
+def _parse_conflict_files(merge_stderr: str) -> list[str]:
     return [
         line.split("Merge conflict in ")[-1].strip()
-        for line in merge_output.splitlines()
+        for line in merge_stderr.splitlines()
         if "Merge conflict in " in line
     ]
 
@@ -481,15 +481,16 @@ def _merge_and_handle_conflicts(
     cwd: str,
     branch: str,
     target: str,
-) -> tuple[str, str | None, list[str]]:
-    """Merge branch into target. Returns (status, commit_hash, conflict_files)."""
+) -> tuple[str, str | None, list[str], str]:
+    """Merge branch into target. Returns (status, commit_hash, conflict_files, diff)."""
     _git_run(["git", "checkout", target], cwd)
     merge = _git_run(["git", "merge", "--no-edit", branch], cwd, timeout=60)
     if merge.returncode == 0:
         head = _git_run(["git", "rev-parse", "HEAD"], cwd, timeout=10)
-        return ("merged", head.stdout.strip(), [])
+        return ("merged", head.stdout.strip(), [], "")
+    diff = _git_run(["git", "diff", f"{target}...{branch}"], cwd, timeout=30)
     _git_run(["git", "merge", "--abort"], cwd)
-    return ("conflict", None, _parse_conflict_files(merge.stdout))
+    return ("conflict", None, _parse_conflict_files(merge.stderr), diff.stdout[:8000])
 
 
 def _report_merge_success(branch: str, integration: str, short_hash: str) -> str:
@@ -523,7 +524,7 @@ def _auto_merge_branch(runtime: LeadAgentRuntime, subtask: SubTask) -> str:
         return ""
     integration = runtime.integration_branch or "main"
     try:
-        status, commit_hash, files = _merge_and_handle_conflicts(
+        status, commit_hash, files, _diff = _merge_and_handle_conflicts(
             runtime.cwd,
             branch,
             integration,
@@ -1281,6 +1282,7 @@ def _merge_branch_result(
     status: str,
     commit_hash: str | None,
     conflict_files: list[str],
+    diff: str,
     branch: str,
     integration: str,
 ) -> dict[str, Any]:
@@ -1303,6 +1305,13 @@ def _merge_branch_result(
             "status": "conflict",
             "task_name": task_name,
             "files": conflict_files,
+            "diff": diff,
+            "resolve_hint": (
+                f"Dispatch a claude-code agent to: cd into the repo, run "
+                f"`git merge {branch}`, read the conflict markers in each file, "
+                f"understand the semantic intent of both sides from the diff above, "
+                f"resolve intelligently, then `git add` and `git commit`."
+            ),
         }
     _append_session_event("tool.merge_agent_branch", data)
     return data
@@ -1339,7 +1348,7 @@ async def merge_agent_branch(args: dict[str, Any]) -> dict[str, Any]:
         )
     integration = runtime.integration_branch or "main"
     try:
-        status, hash_, files = _merge_and_handle_conflicts(
+        status, hash_, files, diff = _merge_and_handle_conflicts(
             runtime.cwd,
             target.branch_name,
             integration,
@@ -1354,6 +1363,7 @@ async def merge_agent_branch(args: dict[str, Any]) -> dict[str, Any]:
             status,
             hash_,
             files,
+            diff,
             target.branch_name,
             integration,
         )

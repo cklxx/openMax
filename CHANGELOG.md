@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.7
+
+- Fix merge conflict detection reading stdout instead of stderr — git writes "Merge conflict in X" to stderr
+- On conflict, capture full `git diff branch...integration` and include it plus a `resolve_hint` in the response so the lead agent can write a semantically-informed resolution prompt
+- Update lead agent prompt: on conflict, use the diff to tell the resolution agent exactly what each side changed and what the correct resolution should be
+
 ## 0.4.6
 
 - Fix `submit_plan` and `transition_phase` tools sending `list` params as `"string"` to Claude — use proper JSON Schema (`{"type": "array"}`) so Claude constructs calls correctly

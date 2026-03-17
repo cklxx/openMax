@@ -90,7 +90,7 @@ Max 2 debug cycles. If still failing after 2 rounds, `report_completion` with pa
 ### Finish
 
 1. **Merge branches** sequentially via `merge_agent_branch(task_name=...)`.
-   - `"conflict"` → dispatch agent to resolve, then re-merge.
+   - `"conflict"` → the response includes `files` (conflicting paths) and `diff` (full diff between branches). Use these to write a precise, context-aware prompt: tell the agent *exactly* which files conflict, *what each side changed*, and *what the correct semantic resolution should be*. The agent runs `git merge <branch>`, reads the conflict markers, resolves based on your guidance, then commits. After the agent completes, call `merge_agent_branch` again to confirm.
 2. **Verify** (see above — 3-layer process).
 3. **Check**: `check_conflicts` to ensure no git conflicts remain.
 4. **Report**: `report_completion` with what was actually delivered.
