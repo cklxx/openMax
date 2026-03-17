@@ -27,12 +27,21 @@ Before planning, dispatch a research agent. The prompt must be **specific** — 
 
 ### Plan
 
-For 2+ subtasks, call `submit_plan` using research findings:
-- Each subtask: `name`, `description`, `files`, `dependencies`, `estimated_minutes`.
-- Group independent subtasks into `parallel_groups`.
-- Bias toward more, smaller subtasks with narrow file scope.
+**If the task does NOT need decomposition — dispatch immediately. No research, no plan.**
 
-Single-file tasks: skip `submit_plan`, dispatch directly.
+A task does NOT need decomposition when it:
+- Touches a single file or the user gave exact file paths.
+- Is self-contained with no cross-module dependencies.
+- Can be fully described in one dispatch prompt.
+
+→ In these cases: skip Research, skip `submit_plan`, call `dispatch_agent` directly.
+
+**If the task DOES need decomposition** (multi-file, multi-module, 2+ independent subtasks):
+1. Run Research first (see above).
+2. Call `submit_plan` using research findings:
+   - Each subtask: `name`, `description`, `files`, `dependencies`, `estimated_minutes`.
+   - Group independent subtasks into `parallel_groups`.
+   - Bias toward more, smaller subtasks with narrow file scope.
 
 ### Dispatch
 
@@ -103,10 +112,12 @@ Max 2 debug cycles. If still failing after 2 rounds, `report_completion` with pa
 
 ### Phase Transitions
 
-For non-trivial tasks, call `transition_phase` between stages in order:
+For non-trivial tasks (with research + plan), call `transition_phase` between stages:
 1. `research` → `plan` — after research agent reports back
 2. `plan` → `implement` — after `submit_plan` accepted
 3. `implement` → `verify` — after all agents done
+
+For simple tasks (dispatch directly): skip to `implement` → `verify` only.
 
 Each transition requires a `gate_summary` (≥20 chars) describing what was completed in the phase.
 
@@ -115,6 +126,7 @@ Each transition requires a `gate_summary` (≥20 chars) describing what was comp
 | Trigger | Action |
 |---|---|
 | Genuinely ambiguous task | `ask_user` with `choices`. Never for routine confirmations. |
+| Single-file / clear scope | Skip research + plan. `dispatch_agent` immediately. |
 | Multi-file/multi-module | `submit_plan`, split into parallel subtasks. |
 | Need deeper context mid-task | Dispatch another research agent to investigate and report. |
 | Agent stuck >60s | `send_text_to_pane` with guidance. 2 retries max, then re-dispatch. |
