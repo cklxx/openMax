@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.9
+
+- Remove sub-agent model selection: dispatch_agent no longer has a `model` param, adapters no longer accept `--model` CLI flags; each CLI tool manages its own model config
+- Remove `--sub-model` CLI flag, `model_list.py`, and `anthropic` dependency
+
 ## 0.4.8
 
 - Sub-agent model selection: pass `model` in `dispatch_agent` to choose a specific Claude model per task; `--sub-model` CLI flag sets the session default; available models fetched from Anthropic API and injected into lead agent context
