@@ -726,16 +726,35 @@ def _persist_report_to_main(runtime: LeadAgentRuntime, task_name: str, text: str
         rp.write_text(text, encoding="utf-8")
 
 
-def _synthesize_report_from_pane(runtime: LeadAgentRuntime, st: SubTask) -> str | None:
-    """Fallback: synthesize a minimal report from pane output when agent didn't write one."""
+def _save_pane_log(runtime: LeadAgentRuntime, st: SubTask) -> Path | None:
+    """Save full pane output to .openmax/logs/{task_name}.log (up to 2000 lines)."""
     try:
         text = runtime.pane_mgr.get_text(st.pane_id)
     except Exception:
         return None
     if not text or len(text.strip()) < 20:
         return None
-    tail = _extract_smart_output(text, tail_lines=40)
-    return f"## Status\ndone (auto-synthesized)\n\n## Pane Output (last lines)\n```\n{tail}\n```"
+    lines = text.splitlines()[-2000:]
+    log_dir = Path(runtime.cwd) / ".openmax" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"{st.name}.log"
+    log_path.write_text("\n".join(lines), encoding="utf-8")
+    return log_path
+
+
+def _synthesize_report_from_pane(runtime: LeadAgentRuntime, st: SubTask) -> str | None:
+    """Fallback: synthesize a minimal report from the saved pane log."""
+    log_path = Path(runtime.cwd) / ".openmax" / "logs" / f"{st.name}.log"
+    if not log_path.exists():
+        return None
+    content = log_path.read_text(encoding="utf-8")
+    tail = _extract_smart_output(content, tail_lines=50)
+    log_rel = log_path.relative_to(runtime.cwd)
+    return (
+        f"## Status\ndone (auto-synthesized)\n\n"
+        f"## Full Log\n`{log_rel}` (up to 2000 lines)\n\n"
+        f"## Output (last lines)\n```\n{tail}\n```"
+    )
 
 
 def _read_subtask_report_for_pane(pane_id: int) -> str | None:
@@ -1183,8 +1202,11 @@ async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:
         if st.name == task_name:
             st.status = TaskStatus.DONE
             st.finished_at = time.time()
+            # Always save full pane output as log backup
+            if st.pane_id is not None:
+                _save_pane_log(runtime, st)
             report_text = _read_subtask_report(task_name)
-            if report_text is None and st.pane_id is not None:
+            if report_text is None:
                 report_text = _synthesize_report_from_pane(runtime, st)
             if report_text:
                 st.completion_notes = report_text[:2000]
