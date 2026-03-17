@@ -14,11 +14,16 @@ def _task_dir(cwd: str, subdir: str) -> Path:
 
 
 def _ensure_gitignore(cwd: str) -> None:
-    """Create .openmax/.gitignore with '*' if it doesn't exist."""
-    gi = Path(cwd) / _OPENMAX_DIR / ".gitignore"
-    if not gi.exists():
-        gi.parent.mkdir(parents=True, exist_ok=True)
-        gi.write_text("*\n", encoding="utf-8")
+    """Ensure .openmax/ is listed in the project's root .gitignore."""
+    gi = Path(cwd) / ".gitignore"
+    entry = ".openmax/"
+    if gi.exists():
+        content = gi.read_text(encoding="utf-8")
+        if entry in content.splitlines():
+            return
+        gi.write_text(content.rstrip("\n") + f"\n{entry}\n", encoding="utf-8")
+    else:
+        gi.write_text(f"{entry}\n", encoding="utf-8")
 
 
 def write_brief(cwd: str, task_name: str, content: str) -> Path:
