@@ -7,6 +7,7 @@ import os
 import platform
 import subprocess
 import threading
+import time
 from dataclasses import dataclass, field
 from itertools import count
 from typing import Literal, Protocol, cast
@@ -362,15 +363,20 @@ class KakuPaneBackend:
         cwd: str | None = None,
         env: dict[str, str] | None = None,
     ) -> int:
+        return self._retry(lambda: self._spawn_window_once(command, cwd, env))
+
+    def _spawn_window_once(
+        self,
+        command: list[str],
+        cwd: str | None,
+        env: dict[str, str] | None,
+    ) -> int:
         args = ["spawn", "--new-window"]
         if cwd:
             args.extend(["--cwd", cwd])
         args.append("--")
         args.extend(_wrap_command_clean_env(command))
-        if env:
-            result = self._run_kaku(args, env=env)
-        else:
-            result = self._run_kaku(args)
+        result = self._run_kaku(args, env=env) if env else self._run_kaku(args)
         return int(result.stdout.strip())
 
     def split_pane(
@@ -380,6 +386,18 @@ class KakuPaneBackend:
         command: list[str],
         cwd: str | None = None,
         env: dict[str, str] | None = None,
+    ) -> int:
+        return self._retry(
+            lambda: self._split_pane_once(target_pane_id, direction, command, cwd, env)
+        )
+
+    def _split_pane_once(
+        self,
+        target_pane_id: int,
+        direction: SplitDirection,
+        command: list[str],
+        cwd: str | None,
+        env: dict[str, str] | None,
     ) -> int:
         args = ["split-pane", "--pane-id", str(target_pane_id)]
         direction_flag = {
@@ -393,11 +411,19 @@ class KakuPaneBackend:
             args.extend(["--cwd", cwd])
         args.append("--")
         args.extend(_wrap_command_clean_env(command))
-        if env:
-            result = self._run_kaku(args, env=env)
-        else:
-            result = self._run_kaku(args)
+        result = self._run_kaku(args, env=env) if env else self._run_kaku(args)
         return int(result.stdout.strip())
+
+    @staticmethod
+    def _retry(fn, *, retries: int = 2, delay: float = 0.5):
+        """Call fn(), retrying up to `retries` times on PaneBackendError."""
+        for attempt in range(retries + 1):
+            try:
+                return fn()
+            except PaneBackendError:
+                if attempt >= retries:
+                    raise
+                time.sleep(delay)
 
     def send_text(self, pane_id: int, text: str) -> None:
         if len(text) > _SEND_TEXT_ARG_LIMIT:

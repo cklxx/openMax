@@ -183,9 +183,25 @@ class SessionStore:
         events_path.parent.mkdir(parents=True, exist_ok=True)
         with events_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(asdict(event), ensure_ascii=False) + "\n")
+        if event_type == "lead.message":
+            self._prune_lead_messages(meta.session_id)
         meta.updated_at = event.timestamp
         self._write_meta(meta)
         return event
+
+    def _prune_lead_messages(self, session_id: str) -> None:
+        events = self.load_events(session_id)
+        lead_events = [e for e in events if e.event_type == "lead.message"]
+        if len(lead_events) <= 100:
+            return
+        kept_leads = set(id(e) for e in lead_events[-50:])
+        pruned = [e for e in events if e.event_type != "lead.message" or id(e) in kept_leads]
+        self._rewrite_events(session_id, pruned)
+
+    def _rewrite_events(self, session_id: str, events: list[LeadEvent]) -> None:
+        events_path = self._events_path(session_id)
+        lines = [json.dumps(asdict(e), ensure_ascii=False) + "\n" for e in events]
+        events_path.write_text("".join(lines), encoding="utf-8")
 
     def load_events(self, session_id: str) -> list[LeadEvent]:
         events, _warnings = self._load_events_with_warnings(session_id)
