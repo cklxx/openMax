@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.3.5
+
+- CLAUDE.md: add code style section (15-line max, composition, transform pipelines)
+- CLAUDE.md: replace hardcoded project structure with discovery command
+- Lead agent prompt: 3-layer verification workflow (agent self-verify → lead check → debug agent)
+- Lead agent prompt: tighter dispatch checklist, monitor signal table
+
+## 0.3.2
+
+- Lead agent acts as team manager, never explores code itself
+- Transient API errors handled with retry and proper error display
+- Tmux backend auto-creates session, no manual setup needed
+
+## 0.3.0
+
+- Tmux backend for cross-platform terminal pane support (no longer Kaku-only)
+- Enriched lead agent and sub-agent context for better task awareness
+
+## 0.2.1
+
+- Usage tracking and provider status with live quota
+- Total summary added to status output
+
+## 0.2.0
+
+- Interactive post-run mode and `run_command` tool
+- Dashboard and prompt improvements
+- Lead agent and memory system split into packages
+
+### Tools
+
+- `submit_plan`: structured task decomposition (1.1)
+- `run_verification`: lint/test verification tool (5.2)
+- `transition_phase`: explicit phase gating (8.1)
+- `check_conflicts`: git conflict detection
+- Stuck detection in `read_pane_output`
+- Pane exit detection and retry tracking
+- `ask_user` with choices support
+
+### Memory
+
+- Eviction scoring with age+relevance and capacity limit (7.1)
+- Auto-inject memory context into dispatch prompts
+
+### Reliability
+
+- Branch isolation and auto-merge (11.1)
+- Context compression protocol (11.2)
+- Failure auto-retry (10.1)
+- Robust window management with retry and dead-pane recovery
+- Kill orphan panes during cleanup, re-list after straggler kill
+
+### Dashboard
+
+- Subtask table, phase dividers, progress bar
+- Elapsed time tracking for subtasks
+
 ## 0.1.9
 
 ### Predictive Memory System
