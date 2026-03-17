@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.3
+
+- Remove `clear_screen` — ANSI clear/scroll sequences caused terminal artifacts in Claude Code, tmux, and other environments
+
 ## 0.5.2
 
 - Use scroll-to-top instead of erasing screen on startup — old content preserved in terminal scrollback
