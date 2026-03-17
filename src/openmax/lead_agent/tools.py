@@ -1516,8 +1516,9 @@ async def run_command(args: dict[str, Any]) -> dict[str, Any]:
 @tool(
     "run_verification",
     "Run a verification command (lint, test, build) and return structured pass/fail. "
-    "Executes the command in a temporary pane, polls for completion, and returns "
-    "{status, exit_code, output, duration_s}. Use after all agents finish.",
+    "On failure, includes a dispatch_hint field with error context — use it directly "
+    "as the prompt when dispatching a debug agent. Returns {status, exit_code, output, "
+    "duration_s, dispatch_hint?}.",
     {
         "check_type": str,
         "command": str,
@@ -1604,14 +1605,25 @@ async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
     if not output and text:
         output = _extract_smart_output(text, tail_lines=50)
 
-    result = {
+    capped_output = output[-2000:]
+    result: dict[str, Any] = {
         "status": status,
         "check_type": check_type,
         "exit_code": exit_code,
-        "output": output[-2000:],  # cap output size
+        "output": capped_output,
         "duration_s": duration_s,
         "command": command_str,
     }
+
+    # On failure, provide a ready-made dispatch hint for a debug agent
+    if status != "pass":
+        result["dispatch_hint"] = (
+            f"The {check_type} check failed (exit code {exit_code}).\n"
+            f"Command: {command_str}\n"
+            f"Error output:\n{capped_output}\n\n"
+            f"Investigate the root cause, fix the issue, re-run `{command_str}` "
+            f"until it passes, then commit."
+        )
 
     if status == "pass":
         console.print(
