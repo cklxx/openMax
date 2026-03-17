@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- Add file-based context exchange protocol between lead agent and sub-agents
+- Lead agent writes task briefs to `.openmax/briefs/{task_name}.md` on dispatch
+- Sub-agents instructed to write completion reports to `.openmax/reports/{task_name}.md`
+- New `read_task_report` MCP tool for lead agent to read structured reports
+- `read_pane_output` auto-includes report content when pane has exited
+- `mark_task_done` auto-reads report file into subtask completion notes
+- `.openmax/` directory auto-gitignored to prevent task files from being committed
+
 ## 0.3.9
 
 - Fix dispatch/run/verify tools crashing on pane backend errors — now returns structured error to lead agent with remediation hint

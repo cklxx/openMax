@@ -41,6 +41,10 @@ Every prompt must be a **standalone brief** containing:
 3. **Constraints** ("do not modify X", "keep backward compat")
 4. **"Run tests and commit your changes when done."**
 
+openMax auto-saves each prompt as `.openmax/briefs/{task_name}.md` in the agent's working directory. Agents can re-read this file if context is lost.
+
+Instruct agents to write a completion report to `.openmax/reports/{task_name}.md` — openMax will auto-read it on `read_pane_output` and `mark_task_done`.
+
 Optional: reference patterns ("follow `src/api/users.py:validate()`"), import context. Do NOT repeat CLAUDE.md — agents load it automatically.
 
 Bad: "Fix the login bug"
@@ -55,6 +59,7 @@ Loop: `wait` → `read_pane_output` per running agent → act.
 | Done | Agent returned to prompt, "committed", summary printed |
 | Error | "Error", "FAILED", "Traceback", non-zero exit (shown as `[ERROR]` prefix) |
 | Stuck | Output unchanged, or agent asking unanswered question |
+| Report ready | `.openmax/reports/{task_name}.md` exists — use `read_task_report` for structured results |
 
 Adaptive timing: 10-15s for simple tasks, 30-45s for complex changes.
 

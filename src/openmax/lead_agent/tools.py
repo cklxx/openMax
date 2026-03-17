@@ -20,6 +20,7 @@ from openmax.output import P, console
 from openmax.pane_backend import PaneBackendError
 from openmax.pane_manager import PaneManager
 from openmax.session_runtime import anchor_payload
+from openmax.task_file import read_report, report_path, write_brief
 
 _VALID_PHASE_TRANSITIONS: dict[str, set[str]] = {
     "research": {"implement"},
@@ -705,6 +706,49 @@ def _build_subagent_context(
     return "\n\n" + header + "\n\n" + "\n\n".join(sections)
 
 
+def _read_subtask_report(task_name: str) -> str | None:
+    """Try to read a subtask's completion report from known locations."""
+    runtime = _runtime()
+    for st in runtime.plan.subtasks:
+        if st.name == task_name and st.branch_name:
+            wt = str(Path(runtime.cwd) / ".openmax-worktrees" / st.branch_name.replace("/", "_"))
+            report = read_report(wt, task_name)
+            if report:
+                return report
+    return read_report(runtime.cwd, task_name)
+
+
+def _read_subtask_report_for_pane(pane_id: int) -> str | None:
+    runtime = _runtime()
+    for st in runtime.plan.subtasks:
+        if st.pane_id == pane_id:
+            return _read_subtask_report(st.name)
+    return None
+
+
+def _file_protocol_section(brief_file: Path, rep_file: Path, cwd: str) -> str:
+    """Build the file protocol instructions to append to agent prompts."""
+    brief_rel = brief_file.relative_to(cwd)
+    report_rel = rep_file.relative_to(cwd)
+    return (
+        f"\n\n## File Protocol (openMax)\n\n"
+        f"Your full task brief is saved at: `{brief_rel}`\n\n"
+        f"When you finish, write a completion report to: "
+        f"`{report_rel}`\n\n"
+        f"Report format:\n"
+        f"```\n"
+        f"## Status\n"
+        f"done | error | partial\n\n"
+        f"## Summary\n"
+        f"<What was accomplished>\n\n"
+        f"## Changes\n"
+        f"- <file>: <what changed>\n\n"
+        f"## Test Results\n"
+        f"<pass/fail details>\n"
+        f"```"
+    )
+
+
 @tool(
     "dispatch_agent",
     "Dispatch a sub-task to an AI agent in a terminal pane. "
@@ -816,6 +860,11 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     )
     if context_block:
         prompt = prompt + context_block
+
+    # Write brief BEFORE appending file protocol (avoids circular reference)
+    brief_file = write_brief(agent_cwd, task_name, prompt)
+    rep_file = report_path(agent_cwd, task_name)
+    prompt = prompt + _file_protocol_section(brief_file, rep_file, agent_cwd)
 
     cmd_spec = adapter.get_command(prompt, cwd=agent_cwd)
     launch_env = cmd_spec.env or None
@@ -992,6 +1041,9 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
                 "stuck": False,
                 "exited": True,
             }
+            report = _read_subtask_report_for_pane(pane_id)
+            if report:
+                response["report"] = report[:4000]
             response.update(retry_info)
             event_payload: dict[str, Any] = {
                 "pane_id": pane_id,
@@ -1108,6 +1160,9 @@ async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:
         if st.name == task_name:
             st.status = TaskStatus.DONE
             st.finished_at = time.time()
+            report_text = _read_subtask_report(task_name)
+            if report_text:
+                st.completion_notes = report_text[:2000]
             if notes:
                 st.completion_notes = notes
             console.print(f"  [bold green]\u2713[/bold green]  [bold]{task_name}[/bold] done")
@@ -1829,6 +1884,20 @@ async def read_file_tool(args: dict[str, Any]) -> dict[str, Any]:
     return _tool_response(result)
 
 
+@tool(
+    "read_task_report",
+    "Read a sub-agent's completion report file. Returns the structured report "
+    "if the agent wrote one, or null if no report exists yet.",
+    {"task_name": str},
+)
+async def read_task_report(args: dict[str, Any]) -> dict[str, Any]:
+    task_name = args["task_name"]
+    report = _read_subtask_report(task_name)
+    if report is None:
+        return _tool_response({"task_name": task_name, "report": None})
+    return _tool_response({"task_name": task_name, "report": report[:4000]})
+
+
 # All tool objects for easy collection
 #
 # Excluded by design:
@@ -1845,6 +1914,7 @@ ALL_TOOLS = [
     mark_task_done,
     merge_agent_branch,
     read_pane_output,
+    read_task_report,
     run_command,
     run_verification,
     send_text_to_pane,

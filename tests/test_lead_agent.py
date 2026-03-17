@@ -140,11 +140,14 @@ def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
     st = runtime.plan.subtasks[0]
     assert st.name == "API"
     assert st.agent_type == "generic"
-    assert st.prompt == "Implement API"
+    assert st.prompt.startswith("Implement API")
+    assert "## File Protocol (openMax)" in st.prompt
     assert st.status == TaskStatus.RUNNING
     assert st.pane_id == 101
     assert st.started_at is not None
-    assert runtime.pane_mgr.sent == [(101, "Implement API")]
+    assert len(runtime.pane_mgr.sent) == 1
+    assert runtime.pane_mgr.sent[0][0] == 101
+    assert runtime.pane_mgr.sent[0][1].startswith("Implement API")
 
     _teardown_session(token)
 
@@ -357,7 +360,9 @@ def test_dispatch_agent_uses_configured_custom_agent(monkeypatch, tmp_path):
     assert runtime.pane_mgr.created_commands == [
         ["ssh", "devbox", "bash", "-lc", f"cd {tmp_path!s} && codex"]
     ]
-    assert runtime.pane_mgr.sent == [(101, "Implement API")]
+    assert len(runtime.pane_mgr.sent) == 1
+    assert runtime.pane_mgr.sent[0][0] == 101
+    assert runtime.pane_mgr.sent[0][1].startswith("Implement API")
 
     _teardown_session(token)
 
