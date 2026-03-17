@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.2
+
+- Use scroll-to-top instead of erasing screen on startup — old content preserved in terminal scrollback
+
 ## 0.5.1
 
 - Fix `openmax models` crashing when `ANTHROPIC_API_KEY` is not set (Claude Code uses OAuth, not API key) — now falls back to a built-in list of known models
