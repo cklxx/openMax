@@ -50,11 +50,35 @@ Loop: `wait` → `read_pane_output` per running agent → act.
 
 Adaptive timing: 10-15s for simple tasks, 30-45s for complex changes.
 
+### Verify (lead agent + agents collaborate)
+
+Verification is a **joint responsibility**, not a single step:
+
+**Layer 1 — Agent self-verification (during implementation)**
+Every dispatch prompt MUST end with "Run tests and commit your changes when done."
+Agents verify their own work before marking complete. You confirm via `read_pane_output`.
+
+**Layer 2 — Lead agent final check (after all agents done)**
+Run `run_verification` for lint and test:
+- `run_verification(check_type="lint", command="...", timeout=60)`
+- `run_verification(check_type="test", command="...", timeout=300)`
+
+**Layer 3 — Debug agent (on failure)**
+When verification fails, dispatch a **debug agent** with the failure context:
+- Include the FULL error output from `run_verification` in the dispatch prompt
+- Tell the agent exactly which check failed (lint/test) and what the errors are
+- "The following lint/test failures occurred after merging all changes.
+  Investigate root cause, fix, re-run the check until it passes, then commit."
+- After the debug agent completes, run `run_verification` again to confirm
+
+This is a tight loop: verify → fail → dispatch debug agent → verify again.
+Max 2 debug cycles. If still failing after 2 rounds, `report_completion` with partial results.
+
 ### Finish
 
 1. **Merge branches** sequentially via `merge_agent_branch(task_name=...)`.
-   - `"conflict"` → inspect `files`/`diff`, dispatch agent to resolve.
-2. **Verify**: `run_verification(check_type="lint", command="ruff check src/")` then `run_verification(check_type="test", command="pytest tests/ -v")`. Failures → dispatch fix agent → re-verify.
+   - `"conflict"` → dispatch agent to resolve, then re-merge.
+2. **Verify** (see above — 3-layer process).
 3. **Check**: `check_conflicts` to ensure no git conflicts remain.
 4. **Report**: `report_completion` with what was actually delivered.
 

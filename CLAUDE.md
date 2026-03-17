@@ -93,39 +93,9 @@ Default route: inspect target files → implement minimal correct change → lin
 
 ## Project structure
 
-```
-src/openmax/
-├── cli.py                # CLI entry (click)
-├── lead_agent/           # Lead agent orchestration
-│   ├── types.py          # TaskStatus, SubTask, PlanResult, LeadAgentStartupError
-│   ├── tools.py          # @tool functions + runtime helpers
-│   ├── formatting.py     # Text formatting and tool-use display
-│   ├── core.py           # run_lead_agent, prompt building, SDK client loop
-│   └── prompts/
-│       └── lead_agent.md # Lead agent system prompt
-├── memory/               # Workspace memory system
-│   ├── models.py         # MemoryEntry, MemoryContext dataclasses
-│   ├── taxonomy.py       # Task classification and prediction
-│   ├── store.py          # MemoryStore: persistence, context, lessons
-│   ├── rankings.py       # Agent ranking and strategy derivation
-│   └── _utils.py         # Constants, serialization helpers
-├── adapters/             # Agent CLI adapters
-│   ├── base.py           # Base adapter interface
-│   ├── claude_code.py    # Claude Code adapter
-│   ├── codex_adapter.py  # OpenAI Codex adapter
-│   ├── opencode_adapter.py
-│   └── subprocess_adapter.py
-├── pane_manager.py       # Terminal pane lifecycle
-├── pane_backend.py       # Backend abstraction (Kaku/tmux)
-├── terminal.py           # Terminal detection and capabilities
-├── session_runtime.py    # Session persistence + context recovery
-├── agent_registry.py     # Agent registration and discovery
-├── auth.py               # Authentication helpers
-├── dashboard.py          # Status dashboard
-├── doctor.py             # Diagnostic checks
-├── provider_usage.py     # Provider API usage tracking
-└── usage.py              # Usage statistics
-```
+Source lives in `src/openmax/`. Discover layout via `find src/openmax -type f -name '*.py' | sort`.
+
+Key packages: `lead_agent/` (orchestration), `memory/` (workspace memory), `adapters/` (agent CLI adapters).
 
 ---
 
