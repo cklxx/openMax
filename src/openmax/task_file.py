@@ -64,3 +64,43 @@ def cleanup_task_files(cwd: str, task_name: str) -> None:
     for subdir in (_BRIEFS_DIR, _REPORTS_DIR):
         path = _task_dir(cwd, subdir) / f"{task_name}.md"
         path.unlink(missing_ok=True)
+
+
+_REPORT_INSTRUCTION = """\
+When you complete your task, write a completion report to \
+`.openmax/reports/{task_name}.md`:
+
+```markdown
+## Status
+done | error | partial
+
+## Summary
+<What was accomplished in 1-2 sentences>
+
+## Changes
+- <file>: <what changed>
+
+## Test Results
+<pass/fail details>
+```
+
+This report is read by the orchestrator — always write it before finishing.\
+"""
+
+
+def inject_claude_md(cwd: str, task_name: str) -> None:
+    """Append file-protocol instructions to CLAUDE.md in the agent's cwd.
+
+    Claude Code auto-loads CLAUDE.md, making this more reliable than
+    prompt injection alone.
+    """
+    instruction = _REPORT_INSTRUCTION.format(task_name=task_name)
+    block = f"\n\n# openMax Task: {task_name}\n\n{instruction}\n"
+    claude_md = Path(cwd) / "CLAUDE.md"
+    if claude_md.exists():
+        existing = claude_md.read_text(encoding="utf-8")
+        if "openMax Task:" in existing:
+            return
+        claude_md.write_text(existing + block, encoding="utf-8")
+    else:
+        claude_md.write_text(block, encoding="utf-8")

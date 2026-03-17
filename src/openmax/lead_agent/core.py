@@ -376,7 +376,7 @@ async def _run_lead_agent_async(
         if meta_parts:
             header += "  [dim]" + " \u2502 ".join(meta_parts) + "[/dim]"
         console.print(header)
-        console.print(f"\n  {P}  {task}\n")
+        console.print()
 
         async with ClaudeSDKClient(options=options) as client:
             startup_stage = "prompt_submission"

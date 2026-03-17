@@ -20,7 +20,7 @@ from openmax.output import P, console
 from openmax.pane_backend import PaneBackendError
 from openmax.pane_manager import PaneManager
 from openmax.session_runtime import anchor_payload
-from openmax.task_file import read_report, report_path, write_brief
+from openmax.task_file import inject_claude_md, read_report, report_path, write_brief
 
 _VALID_PHASE_TRANSITIONS: dict[str, set[str]] = {
     "research": {"implement"},
@@ -726,6 +726,18 @@ def _persist_report_to_main(runtime: LeadAgentRuntime, task_name: str, text: str
         rp.write_text(text, encoding="utf-8")
 
 
+def _synthesize_report_from_pane(runtime: LeadAgentRuntime, st: SubTask) -> str | None:
+    """Fallback: synthesize a minimal report from pane output when agent didn't write one."""
+    try:
+        text = runtime.pane_mgr.get_text(st.pane_id)
+    except Exception:
+        return None
+    if not text or len(text.strip()) < 20:
+        return None
+    tail = _extract_smart_output(text, tail_lines=40)
+    return f"## Status\ndone (auto-synthesized)\n\n## Pane Output (last lines)\n```\n{tail}\n```"
+
+
 def _read_subtask_report_for_pane(pane_id: int) -> str | None:
     runtime = _runtime()
     for st in runtime.plan.subtasks:
@@ -857,6 +869,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     if worktree_path is not None:
         branch_name = branch_name_candidate
         agent_cwd = worktree_path
+        inject_claude_md(agent_cwd, task_name)
         console.print(f"  [dim]{P}  branch {branch_name} → {worktree_path}[/dim]")
     elif branch_err:
         console.print(f"  [yellow]![/yellow]  Branch isolation skipped: {branch_err}")
@@ -1171,6 +1184,8 @@ async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:
             st.status = TaskStatus.DONE
             st.finished_at = time.time()
             report_text = _read_subtask_report(task_name)
+            if report_text is None and st.pane_id is not None:
+                report_text = _synthesize_report_from_pane(runtime, st)
             if report_text:
                 st.completion_notes = report_text[:2000]
                 _persist_report_to_main(runtime, task_name, report_text)
