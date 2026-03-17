@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.8
+
+- Fix module layering: move LeadAgentRuntime from persistence to orchestration layer
+- Decouple shared console from dashboard into dedicated output.py
+- Extract shared path/time utilities into _paths.py
+- Consolidate duplicate serialize functions across module boundaries
+
 ## 0.3.7
 
 - Systematic code quality cleanup: -248 lines, zero behavior changes
