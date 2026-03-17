@@ -1,0 +1,463 @@
+"""Private helper functions shared across tool modules."""
+
+from __future__ import annotations
+
+import json
+import time
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+import anyio
+
+from openmax.lead_agent.runtime import LeadAgentRuntime, get_lead_agent_runtime
+from openmax.lead_agent.types import SubTask, TaskStatus
+from openmax.memory import serialize_subtasks
+from openmax.output import P, console
+from openmax.pane_backend import PaneBackendError
+from openmax.pane_manager import PaneManager
+from openmax.session_runtime import anchor_payload
+from openmax.task_file import read_report, read_shared_context, report_path
+
+_VALID_PHASE_TRANSITIONS: dict[str, set[str]] = {
+    "research": {"plan"},
+    "plan": {"implement"},
+    "implement": {"verify"},
+    "verify": {"finish", "implement"},  # allow re-dispatch via verify → implement
+}
+
+_CHECKPOINT_PROTOCOL = """
+
+## Checkpoint Protocol
+
+If you reach a decision fork where multiple approaches are valid and the choice
+has significant downstream impact, write a structured request:
+
+File: `.openmax/checkpoints/{task_name}.md`
+
+```markdown
+## Decision needed
+<what you are trying to decide>
+
+## Options
+1. <option A> — pros/cons
+2. <option B> — pros/cons
+
+## My recommendation
+<which option and why>
+```
+
+Then pause and wait — do NOT proceed until you receive a decision via message.
+Only use this for genuine forks; use your judgment for routine implementation choices.
+"""
+
+
+def _runtime() -> LeadAgentRuntime:
+    return get_lead_agent_runtime()
+
+
+def _append_session_event(event_type: str, payload: dict[str, Any] | None = None) -> None:
+    runtime = _runtime()
+    if runtime.session_store is None or runtime.session_meta is None:
+        return
+    runtime.session_store.append_event(runtime.session_meta, event_type, payload)
+
+
+def _update_session_phase(phase: str | None) -> None:
+    runtime = _runtime()
+    if runtime.session_store is None or runtime.session_meta is None or not phase:
+        return
+    runtime.session_meta.latest_phase = phase
+    runtime.session_store.save_meta(runtime.session_meta)
+
+
+def _upsert_subtask(subtask: SubTask) -> None:
+    runtime = _runtime()
+    if runtime.plan is None:
+        raise RuntimeError("Lead agent plan is not initialized")
+    for index, existing in enumerate(runtime.plan.subtasks):
+        if existing.name == subtask.name:
+            runtime.plan.subtasks[index] = subtask
+            return
+    runtime.plan.subtasks.append(subtask)
+
+
+def _record_phase_anchor(phase: str, summary: str, completion_pct: int | None = None) -> None:
+    runtime = _runtime()
+    if runtime.plan is None:
+        return
+    normalized_phase = phase.strip().lower()
+    payload = anchor_payload(
+        phase=normalized_phase,
+        summary=summary.strip(),
+        tasks=serialize_subtasks(runtime.plan.subtasks),
+        completion_pct=completion_pct,
+    )
+    _append_session_event("phase.anchor", payload)
+    _update_session_phase(normalized_phase)
+
+
+def _tool_response(data: Any) -> dict[str, Any]:
+    text = json.dumps(data, ensure_ascii=False) if isinstance(data, (dict, list)) else str(data)
+    return {"content": [{"type": "text", "text": text}]}
+
+
+def _remember_run_summary(notes: str, completion_pct: int) -> None:
+    runtime = _runtime()
+    if runtime.memory_store is None or runtime.plan is None:
+        return
+    anchors: list[dict[str, Any]] = []
+    if runtime.session_store is not None and runtime.session_meta is not None:
+        for event in runtime.session_store.load_events(runtime.session_meta.session_id):
+            if event.event_type == "phase.anchor":
+                anchors.append(event.payload)
+    runtime.memory_store.record_run_summary(
+        cwd=runtime.cwd,
+        task=runtime.plan.goal,
+        notes=notes,
+        completion_pct=completion_pct,
+        subtasks=serialize_subtasks(runtime.plan.subtasks),
+        anchors=anchors,
+    )
+
+
+def _pane_id_for_task(task_name: str) -> int | None:
+    for st in _runtime().plan.subtasks:
+        if st.name == task_name:
+            return st.pane_id
+    return None
+
+
+def _build_blackboard_block(cwd: str) -> str:
+    content = read_shared_context(cwd)
+    if not content:
+        return ""
+    return (
+        "\n\n## Shared Blackboard\n\n"
+        "Read before making architectural decisions:\n\n" + content[:3000]
+    )
+
+
+async def _wait_for_pane_ready(
+    pane_mgr: PaneManager,
+    pane_id: int,
+    ready_patterns: list[str],
+    timeout: float = 30.0,
+    poll_interval: float = 0.5,
+) -> bool:
+    """Poll pane output until a ready pattern appears or timeout.
+
+    Uses two strategies:
+    1. Pattern match — look for known ready strings in pane output.
+    2. Output stability — if the pane has substantial output (≥3 lines)
+       and output hasn't changed for 2 consecutive checks, treat as ready.
+       This handles CLI version changes where patterns shift.
+    """
+    if not ready_patterns:
+        return False
+    deadline = time.monotonic() + timeout
+    prev_text = ""
+    stable_count = 0
+    while time.monotonic() < deadline:
+        try:
+            text = pane_mgr.get_text(pane_id)
+        except Exception:
+            text = ""
+        if any(pat in text for pat in ready_patterns):
+            return True
+        lines = [ln for ln in text.strip().splitlines() if ln.strip()]
+        if len(lines) >= 3 and text == prev_text:
+            stable_count += 1
+            if stable_count >= 2:
+                return True
+        else:
+            stable_count = 0
+        prev_text = text
+        await anyio.sleep(poll_interval)
+    return False
+
+
+def _extract_smart_output(text: str, tail_lines: int = 100) -> str:
+    """Return tail of output, with error lines from earlier surfaced at top."""
+    lines = text.splitlines()
+    tail = lines[-tail_lines:]
+    error_kw = ["Error", "error", "Traceback", "FAILED", "fatal", "exception", "❌"]
+    error_context = [
+        f"[ERROR] {line.strip()}"
+        for line in lines[:-tail_lines]
+        if any(k in line for k in error_kw)
+    ][-20:]
+    if error_context:
+        return "\n".join(error_context) + "\n---\n" + "\n".join(tail)
+    return "\n".join(tail)
+
+
+def _compress_context(context: str, budget: int) -> str:
+    """Compress context text to fit within an approximate token budget.
+
+    Uses len(text)//4 as a rough token estimate. If over budget, keeps the
+    first paragraph and as many subsequent bullet/numbered-list lines as fit.
+    """
+    approx_tokens = len(context) // 4
+    if approx_tokens <= budget:
+        return context
+
+    char_budget = budget * 4
+    lines = context.split("\n")
+
+    kept: list[str] = []
+    i = 0
+    while i < len(lines):
+        kept.append(lines[i])
+        if lines[i].strip() == "" and i > 0:
+            i += 1
+            break
+        i += 1
+
+    for line in lines[i:]:
+        stripped = line.lstrip()
+        is_key_line = stripped.startswith(("-", "*", "#")) or (
+            len(stripped) > 1 and stripped[0].isdigit() and stripped[1] in ".)"
+        )
+        if not is_key_line:
+            continue
+        candidate = "\n".join(kept + [line])
+        if len(candidate) <= char_budget:
+            kept.append(line)
+        else:
+            break
+
+    result = "\n".join(kept)
+    if len(result) > char_budget:
+        result = result[:char_budget].rsplit("\n", 1)[0]
+    return result
+
+
+def _build_subagent_context(
+    *,
+    branch_name: str | None,
+    agent_cwd: str | None = None,
+    memory_text: str | None,
+) -> str:
+    """Build a structured context block for sub-agent prompts.
+
+    Returns empty string when there is nothing to inject.
+    """
+    sections: list[str] = []
+
+    if agent_cwd:
+        sections.append(
+            f"Working directory: {agent_cwd}\n"
+            f"You are already in the correct directory. Do NOT run `cd`."
+        )
+
+    if branch_name:
+        sections.append(
+            f"Branch: {branch_name} (isolated worktree — commit here, do not switch branches)"
+        )
+
+    if memory_text:
+        sections.append(f"Relevant history:\n{memory_text}")
+
+    if not sections:
+        return ""
+
+    header = "## Context (auto-injected by openMax — use only if relevant)"
+    return "\n\n" + header + "\n\n" + "\n\n".join(sections)
+
+
+def _launch_pane(
+    runtime: LeadAgentRuntime,
+    command: list[str] | str,
+    purpose: str,
+    agent_type: str = "tool",
+    title: str | None = None,
+    cwd: str | None = None,
+    env: dict[str, str] | None = None,
+) -> SimpleNamespace:
+    if runtime.agent_window_id is None:
+        pane = runtime.pane_mgr.create_window(
+            command=command,
+            purpose=purpose,
+            agent_type=agent_type,
+            title=title,
+            cwd=cwd or runtime.cwd,
+            env=env,
+        )
+        runtime.agent_window_id = pane.window_id
+    else:
+        pane = runtime.pane_mgr.add_pane(
+            window_id=runtime.agent_window_id,
+            command=command,
+            purpose=purpose,
+            agent_type=agent_type,
+            title=title,
+            cwd=cwd or runtime.cwd,
+            env=env,
+        )
+    return pane
+
+
+def _safe_launch_pane(
+    runtime: LeadAgentRuntime,
+    *,
+    command: list[str] | str,
+    purpose: str,
+    agent_type: str,
+    title: str | None = None,
+    cwd: str | None = None,
+    env: dict[str, str] | None = None,
+) -> tuple[SimpleNamespace | None, str | None]:
+    """Launch a pane with error handling. Returns (pane, error_message)."""
+    try:
+        pane = _launch_pane(
+            runtime,
+            command=command,
+            purpose=purpose,
+            agent_type=agent_type,
+            title=title,
+            cwd=cwd,
+            env=env,
+        )
+        return pane, None
+    except PaneBackendError as e:
+        return None, f"Pane backend error: {e}"
+    except RuntimeError as e:
+        return None, f"Pane launch failed: {e}"
+    except OSError as e:
+        return None, f"OS error during pane launch: {e}"
+
+
+def _try_reuse_done_pane(
+    runtime: LeadAgentRuntime, agent_type: str, task_name: str
+) -> SimpleNamespace | None:
+    """Find a done pane with the same agent type to reuse.
+
+    Only reuses a pane if no other running/pending task is already occupying it.
+    This prevents multiple parallel tasks from being funneled into the same pane.
+    """
+    busy_panes: set[int] = set()
+    for st in runtime.plan.subtasks:
+        if st.status in (TaskStatus.RUNNING, TaskStatus.PENDING) and st.pane_id is not None:
+            busy_panes.add(st.pane_id)
+
+    for st in runtime.plan.subtasks:
+        if (
+            st.agent_type == agent_type
+            and st.status == TaskStatus.DONE
+            and st.pane_id is not None
+            and st.pane_id not in busy_panes
+            and runtime.pane_mgr.is_pane_alive(st.pane_id)
+        ):
+            console.print(f"  [dim]{P}  reusing pane {st.pane_id} for {task_name}[/dim]")
+            return SimpleNamespace(
+                pane_id=st.pane_id,
+                window_id=runtime.agent_window_id,
+            )
+    return None
+
+
+async def _wait_and_send_prompt(
+    runtime: LeadAgentRuntime,
+    pane: SimpleNamespace,
+    cmd_spec: Any,
+    agent_type: str,
+) -> None:
+    """Wait for CLI ready then send the initial prompt."""
+    if cmd_spec.ready_patterns:
+        ready = await _wait_for_pane_ready(
+            runtime.pane_mgr,
+            pane.pane_id,
+            cmd_spec.ready_patterns,
+            timeout=max(cmd_spec.ready_delay_seconds * 4, 30.0),
+        )
+        if not ready:
+            console.print(
+                f"  [yellow]![/yellow]Pane {pane.pane_id} ({agent_type}) "
+                "did not show ready signal within timeout — sending prompt anyway"
+            )
+    else:
+        await anyio.sleep(cmd_spec.ready_delay_seconds)
+    runtime.pane_mgr.send_text(pane.pane_id, cmd_spec.initial_input)
+
+
+def _read_subtask_report(task_name: str) -> str | None:
+    """Try to read a subtask's completion report from known locations."""
+    runtime = _runtime()
+    for st in runtime.plan.subtasks:
+        if st.name == task_name and st.branch_name:
+            wt = str(Path(runtime.cwd) / ".openmax-worktrees" / st.branch_name.replace("/", "_"))
+            report = read_report(wt, task_name)
+            if report:
+                return report
+    return read_report(runtime.cwd, task_name)
+
+
+def _persist_report_to_main(runtime: LeadAgentRuntime, task_name: str, text: str) -> None:
+    """Copy report to main cwd so it survives worktree cleanup."""
+    if read_report(runtime.cwd, task_name) is None:
+        rp = report_path(runtime.cwd, task_name)
+        rp.parent.mkdir(parents=True, exist_ok=True)
+        rp.write_text(text, encoding="utf-8")
+
+
+def _save_pane_log(runtime: LeadAgentRuntime, st: SubTask) -> Path | None:
+    """Save full pane output to .openmax/logs/{task_name}.log (up to 2000 lines)."""
+    try:
+        text = runtime.pane_mgr.get_text(st.pane_id)
+    except Exception:
+        return None
+    if not text or len(text.strip()) < 20:
+        return None
+    lines = text.splitlines()
+    log_dir = Path(runtime.cwd) / ".openmax" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"{st.name}.log"
+    log_path.write_text("\n".join(lines), encoding="utf-8")
+    return log_path
+
+
+def _synthesize_report_from_pane(runtime: LeadAgentRuntime, st: SubTask) -> str | None:
+    """Fallback: synthesize a minimal report from the saved pane log."""
+    log_path = Path(runtime.cwd) / ".openmax" / "logs" / f"{st.name}.log"
+    if not log_path.exists():
+        return None
+    content = log_path.read_text(encoding="utf-8")
+    tail = _extract_smart_output(content, tail_lines=50)
+    log_rel = log_path.relative_to(runtime.cwd)
+    return (
+        f"## Status\ndone (auto-synthesized)\n\n"
+        f"## Full Log\n`{log_rel}`\n\n"
+        f"## Output (last lines)\n```\n{tail}\n```"
+    )
+
+
+def _read_subtask_report_for_pane(pane_id: int) -> str | None:
+    runtime = _runtime()
+    for st in runtime.plan.subtasks:
+        if st.pane_id == pane_id:
+            return _read_subtask_report(st.name)
+    return None
+
+
+def _file_protocol_section(brief_file: Path, rep_file: Path, cwd: str) -> str:
+    """Build the file protocol instructions to append to agent prompts."""
+    brief_rel = brief_file.relative_to(cwd)
+    report_rel = rep_file.relative_to(cwd)
+    return (
+        f"\n\n## File Protocol (openMax)\n\n"
+        f"Your full task brief is saved at: `{brief_rel}`\n\n"
+        f"When you finish, write a completion report to: "
+        f"`{report_rel}`\n\n"
+        f"Report format:\n"
+        f"```\n"
+        f"## Status\n"
+        f"done | error | partial\n\n"
+        f"## Summary\n"
+        f"<What was accomplished>\n\n"
+        f"## Changes\n"
+        f"- <file>: <what changed>\n\n"
+        f"## Test Results\n"
+        f"<pass/fail details>\n"
+        f"```"
+    )
