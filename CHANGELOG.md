@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.13
+
+- **Fix**: `atexit` handler accumulation in `openmax loop` — each iteration registered a new handler without deregistering; now calls `atexit.unregister` after cleanup, preventing N handlers at process exit on long loops
+- **Fix**: `build_loop_context` now caps at last 10 iterations with a truncation notice; prevents unbounded prompt growth after 50+ iterations
+- **Fix**: `lead_agent.md` Finish section — added explicit step 0 requiring `mark_task_done` for all completed subtasks before `report_completion`, with explanation of consequences
+
 ## 0.5.12
 
 - **E2E tests**: `tests/test_e2e.py` — two real-API tests guarded by `OPENMAX_E2E=1`; scripted `task-agent` writes proper `.openmax/reports/` files so the full orchestration loop (dispatch → read → mark done → report) is exercised end-to-end
