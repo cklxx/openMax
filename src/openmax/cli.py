@@ -15,6 +15,7 @@ from rich.table import Table
 
 from openmax.agent_registry import AgentConfigError, load_agent_registry
 from openmax.auth import has_claude_auth, run_claude_setup_token
+from openmax.config import fetch_anthropic_models, get_model, set_model
 from openmax.doctor import render_results, run_checks
 from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
 from openmax.memory import MemoryStore
@@ -244,12 +245,13 @@ def run(
     signal.signal(signal.SIGTERM, _cleanup_and_exit)
 
     try:
+        effective_model = model or get_model()
         try:
             plan = run_lead_agent(
                 task=task,
                 pane_mgr=pane_mgr,
                 cwd=cwd,
-                model=model,
+                model=effective_model,
                 max_turns=max_turns,
                 session_id=session_id,
                 resume=resume,
@@ -1029,3 +1031,46 @@ def setup(status: bool) -> None:
     else:
         console.print("\n[red]Setup failed.[/red]")
         raise SystemExit(1)
+
+
+@main.command()
+def models() -> None:
+    """Select the lead agent model and save it to config."""
+    current = get_model()
+    if current:
+        console.print(f"[dim]Current model:[/dim] [bold]{current}[/bold]\n")
+
+    console.print("[dim]Fetching available models...[/dim]")
+    model_ids = fetch_anthropic_models()
+
+    if not model_ids:
+        console.print("[yellow]Could not fetch models — is ANTHROPIC_API_KEY set?[/yellow]")
+        console.print("\nEnter a model ID manually:")
+        model_ids = []
+
+    if model_ids:
+        console.print()
+        for i, mid in enumerate(model_ids, 1):
+            marker = " [green]✓[/green]" if mid == current else ""
+            console.print(f"  [bold]{i}.[/bold] {mid}{marker}")
+        console.print()
+        raw = input("Select model (number or paste ID): ").strip()
+    else:
+        raw = input("Model ID: ").strip()
+
+    if not raw:
+        console.print("[yellow]Cancelled.[/yellow]")
+        return
+
+    if raw.isdigit() and model_ids:
+        idx = int(raw) - 1
+        if not (0 <= idx < len(model_ids)):
+            console.print("[red]Invalid selection.[/red]")
+            raise SystemExit(1)
+        chosen = model_ids[idx]
+    else:
+        chosen = raw
+
+    set_model(chosen)
+    console.print(f"\n[green]Model set:[/green] [bold]{chosen}[/bold]")
+    console.print("[dim]Used by future `openmax run` calls (override with --model).[/dim]")
