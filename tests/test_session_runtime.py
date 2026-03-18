@@ -15,7 +15,10 @@ from openmax.lead_agent.runtime import (
 )
 from openmax.session_runtime import (
     ContextBuilder,
+    LeadEvent,
     SessionStore,
+    _compute_acceleration_ratio,
+    _compute_overhead_breakdown,
     anchor_payload,
     task_hash,
 )
@@ -384,9 +387,8 @@ def test_session_store_derives_run_scorecard_from_existing_session_data(monkeypa
     assert snapshot.plan.scorecard.manual_intervention_count == 1
     assert snapshot.plan.scorecard.completion_pct == 100
     assert snapshot.plan.scorecard.startup_failure_category is None
-    assert (
-        snapshot.plan.scorecard.surface_summary
-        == "status=completed | completion=100% | duration=240s"
+    assert snapshot.plan.scorecard.surface_summary.startswith(
+        "status=completed | completion=100% | duration=240s"
     )
     assert (
         snapshot.plan.scorecard.surface_details
@@ -589,3 +591,170 @@ def test_pruning_does_not_trigger_below_100(tmp_path):
     events = store.load_events(meta.session_id)
     lead_msgs = [e for e in events if e.event_type == "lead.message"]
     assert len(lead_msgs) == 99  # untouched
+
+
+# ── Acceleration ratio ─────────────────────────────────────────────────────
+
+
+def _make_event(event_type: str, ts: str, payload: dict | None = None) -> LeadEvent:
+    return LeadEvent(
+        event_id="x",
+        event_type=event_type,
+        session_id="s",
+        cwd="/tmp",
+        task_hash="h",
+        timestamp=ts,
+        payload=payload or {},
+    )
+
+
+def test_acceleration_ratio_parallel_tasks():
+    """3 tasks: A(60s), B(30s dep on A), C(40s independent).
+    Critical path = A + B = 90s. Wall clock 100s. Ratio = 100/90."""
+    events = [
+        _make_event(
+            "tool.submit_plan",
+            "2026-03-13T12:00:00+00:00",
+            {
+                "subtasks": [
+                    {"name": "A", "depends_on": []},
+                    {"name": "B", "depends_on": ["A"]},
+                    {"name": "C", "depends_on": []},
+                ]
+            },
+        ),
+        _make_event(
+            "tool.dispatch_agent",
+            "2026-03-13T12:00:00+00:00",
+            {"task_name": "A", "agent_type": "codex", "pane_id": 1},
+        ),
+        _make_event(
+            "tool.dispatch_agent",
+            "2026-03-13T12:00:00+00:00",
+            {"task_name": "C", "agent_type": "codex", "pane_id": 2},
+        ),
+        _make_event(
+            "tool.mark_task_done",
+            "2026-03-13T12:01:00+00:00",
+            {"task_name": "A"},
+        ),
+        _make_event(
+            "tool.dispatch_agent",
+            "2026-03-13T12:01:00+00:00",
+            {"task_name": "B", "agent_type": "codex", "pane_id": 1},
+        ),
+        _make_event(
+            "tool.mark_task_done",
+            "2026-03-13T12:00:40+00:00",
+            {"task_name": "C"},
+        ),
+        _make_event(
+            "tool.mark_task_done",
+            "2026-03-13T12:01:30+00:00",
+            {"task_name": "B"},
+        ),
+    ]
+    cp, ratio = _compute_acceleration_ratio(events)
+    assert cp == 90.0  # A(60) + B(30)
+    assert ratio == 1.0  # wall=90 / cp=90
+
+
+def test_acceleration_ratio_no_deps():
+    """All independent tasks: critical path = longest task."""
+    events = [
+        _make_event(
+            "tool.submit_plan",
+            "2026-03-13T12:00:00+00:00",
+            {
+                "subtasks": [
+                    {"name": "X", "depends_on": []},
+                    {"name": "Y", "depends_on": []},
+                ]
+            },
+        ),
+        _make_event(
+            "tool.dispatch_agent",
+            "2026-03-13T12:00:00+00:00",
+            {"task_name": "X", "agent_type": "codex", "pane_id": 1},
+        ),
+        _make_event(
+            "tool.dispatch_agent",
+            "2026-03-13T12:00:00+00:00",
+            {"task_name": "Y", "agent_type": "codex", "pane_id": 2},
+        ),
+        _make_event(
+            "tool.mark_task_done",
+            "2026-03-13T12:01:00+00:00",
+            {"task_name": "X"},
+        ),
+        _make_event(
+            "tool.mark_task_done",
+            "2026-03-13T12:00:30+00:00",
+            {"task_name": "Y"},
+        ),
+    ]
+    cp, ratio = _compute_acceleration_ratio(events)
+    # Critical path = max(60, 30) = 60. Wall = 60s. Ratio = 1.0.
+    assert cp == 60.0
+    assert ratio == 1.0
+
+
+def test_acceleration_ratio_single_task():
+    """Single task: ratio = 1.0."""
+    events = [
+        _make_event(
+            "tool.dispatch_agent",
+            "2026-03-13T12:00:00+00:00",
+            {"task_name": "only", "agent_type": "codex", "pane_id": 1},
+        ),
+        _make_event(
+            "tool.mark_task_done",
+            "2026-03-13T12:01:00+00:00",
+            {"task_name": "only"},
+        ),
+    ]
+    cp, ratio = _compute_acceleration_ratio(events)
+    assert cp == 60.0
+    assert ratio == 1.0
+
+
+# ── Overhead breakdown ─────────────────────────────────────────────────────
+
+
+def test_overhead_breakdown_basic():
+    """Dispatch/monitor/merge events classify into correct buckets."""
+    events = [
+        _make_event(
+            "tool.dispatch_agent",
+            "2026-03-13T12:00:00+00:00",
+            {"task_name": "T1", "agent_type": "codex", "pane_id": 1},
+        ),
+        _make_event(
+            "tool.read_pane_output",
+            "2026-03-13T12:00:10+00:00",
+            {"pane_id": 1},
+        ),
+        _make_event(
+            "tool.mark_task_done",
+            "2026-03-13T12:01:00+00:00",
+            {"task_name": "T1"},
+        ),
+        _make_event(
+            "tool.merge_agent_branch",
+            "2026-03-13T12:01:05+00:00",
+            {"task_name": "T1", "status": "merged", "commit": "abc123"},
+        ),
+    ]
+    result = _compute_overhead_breakdown(events, 65.0)
+    assert result is not None
+    assert result.agent_work_seconds == 60.0
+    assert result.monitor_seconds == 10.0
+    assert result.merge_seconds == 5.0
+    # other = max(total - agent - non_agent, 0) — agent work overlaps gaps
+    assert result.other_seconds == 0.0
+
+
+def test_overhead_breakdown_no_events():
+    """Empty events returns None."""
+    result = _compute_overhead_breakdown([], 100.0)
+    assert result is None

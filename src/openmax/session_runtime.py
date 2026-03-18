@@ -70,6 +70,36 @@ class PhaseAnchor:
 
 
 @dataclass
+class OverheadBreakdown:
+    agent_work_seconds: float
+    dispatch_seconds: float
+    monitor_seconds: float
+    merge_seconds: float
+    other_seconds: float
+
+    def surface(self) -> str:
+        total = max(self.total, 0.01)
+        return " ".join(f"{label}={self._pct(val, total)}%" for label, val in self._items())
+
+    @property
+    def total(self) -> float:
+        return sum(v for _, v in self._items())
+
+    def _items(self) -> list[tuple[str, float]]:
+        return [
+            ("agent", self.agent_work_seconds),
+            ("dispatch", self.dispatch_seconds),
+            ("monitor", self.monitor_seconds),
+            ("merge", self.merge_seconds),
+            ("other", self.other_seconds),
+        ]
+
+    @staticmethod
+    def _pct(val: float, total: float) -> int:
+        return int(round(val / total * 100))
+
+
+@dataclass
 class RunScorecard:
     status: str
     success: bool
@@ -82,15 +112,28 @@ class RunScorecard:
     total_output_tokens: int = 0
     completion_pct: int | None = None
     startup_failure_category: str | None = None
+    critical_path_seconds: float | None = None
+    acceleration_ratio: float | None = None
+    overhead: OverheadBreakdown | None = None
 
     @property
     def surface_summary(self) -> str:
-        return " | ".join(
-            [
-                f"status={self.status}",
-                f"completion={_format_scorecard_completion(self.completion_pct)}",
-                f"duration={_format_scorecard_duration(self.duration_seconds)}",
-            ]
+        parts = [
+            f"status={self.status}",
+            f"completion={_format_scorecard_completion(self.completion_pct)}",
+            f"duration={_format_scorecard_duration(self.duration_seconds)}",
+        ]
+        if self.acceleration_ratio is not None:
+            parts.append(self.surface_acceleration)
+        return " | ".join(parts)
+
+    @property
+    def surface_acceleration(self) -> str:
+        if self.acceleration_ratio is None or self.critical_path_seconds is None:
+            return ""
+        return (
+            f"acceleration={self.acceleration_ratio:.1f}x"
+            f" (critical_path={int(self.critical_path_seconds)}s)"
         )
 
     @property
@@ -780,6 +823,124 @@ def _describe_startup_failure(payload: dict[str, Any]) -> str:
     return description
 
 
+def _compute_acceleration_ratio(
+    events: list[LeadEvent],
+) -> tuple[float | None, float | None]:
+    """Return (critical_path_seconds, acceleration_ratio) from event history."""
+    deps = _extract_task_deps(events)
+    durations = _extract_task_durations(events)
+    if not durations:
+        return None, None
+    wall = _wall_clock_seconds(events)
+    if wall is None or wall <= 0:
+        return None, None
+    cp = _critical_path(durations, deps)
+    if cp <= 0:
+        return None, None
+    return cp, round(wall / cp, 2)
+
+
+def _extract_task_deps(events: list[LeadEvent]) -> dict[str, list[str]]:
+    for ev in events:
+        if ev.event_type == "tool.submit_plan":
+            subtasks = ev.payload.get("subtasks", [])
+            return {
+                str(st.get("name", "")): [str(d) for d in st.get("depends_on", [])]
+                for st in subtasks
+                if isinstance(st, dict)
+            }
+    return {}
+
+
+def _extract_task_durations(events: list[LeadEvent]) -> dict[str, float]:
+    dispatch_times: dict[str, datetime] = {}
+    done_times: dict[str, datetime] = {}
+    for ev in events:
+        if ev.event_type == "tool.dispatch_agent":
+            name = str(ev.payload.get("task_name", ""))
+            if name and name not in dispatch_times:
+                dispatch_times[name] = _parse_timestamp(ev.timestamp)
+        elif ev.event_type == "tool.mark_task_done":
+            name = str(ev.payload.get("task_name", ""))
+            if name:
+                done_times[name] = _parse_timestamp(ev.timestamp)
+    result: dict[str, float] = {}
+    for name, start in dispatch_times.items():
+        end = done_times.get(name)
+        if end is not None:
+            result[name] = max((end - start).total_seconds(), 0)
+    return result
+
+
+def _critical_path(
+    durations: dict[str, float],
+    deps: dict[str, list[str]],
+) -> float:
+    cache: dict[str, float] = {}
+
+    def cp(task: str) -> float:
+        if task in cache:
+            return cache[task]
+        dur = durations.get(task, 0)
+        dep_max = max((cp(d) for d in deps.get(task, []) if d in durations), default=0)
+        cache[task] = dur + dep_max
+        return cache[task]
+
+    return max((cp(t) for t in durations), default=0)
+
+
+def _wall_clock_seconds(events: list[LeadEvent]) -> float | None:
+    dispatch_times = [
+        _parse_timestamp(ev.timestamp) for ev in events if ev.event_type == "tool.dispatch_agent"
+    ]
+    done_times = [
+        _parse_timestamp(ev.timestamp) for ev in events if ev.event_type == "tool.mark_task_done"
+    ]
+    if not dispatch_times or not done_times:
+        return None
+    return (max(done_times) - min(dispatch_times)).total_seconds()
+
+
+def _compute_overhead_breakdown(
+    events: list[LeadEvent],
+    total_seconds: float | None,
+) -> OverheadBreakdown | None:
+    if not events or not total_seconds or total_seconds <= 0:
+        return None
+    durations = _extract_task_durations(events)
+    agent_work = sum(durations.values())
+    dispatch_s = 0.0
+    monitor_s = 0.0
+    merge_s = 0.0
+    _DISPATCH = {"tool.dispatch_agent", "tool.dispatch_agent.failed"}
+    _MONITOR = {"tool.read_pane_output", "tool.check_conflicts"}
+    _MERGE = {"tool.merge_agent_branch", "tool.run_verification"}
+    sorted_events = sorted(events, key=lambda e: e.timestamp)
+    for i in range(1, len(sorted_events)):
+        gap = (
+            _parse_timestamp(sorted_events[i].timestamp)
+            - _parse_timestamp(sorted_events[i - 1].timestamp)
+        ).total_seconds()
+        if gap <= 0:
+            continue
+        etype = sorted_events[i].event_type
+        if etype in _DISPATCH:
+            dispatch_s += gap
+        elif etype in _MONITOR:
+            monitor_s += gap
+        elif etype in _MERGE:
+            merge_s += gap
+    non_agent = dispatch_s + monitor_s + merge_s
+    other = max(total_seconds - agent_work - non_agent, 0)
+    return OverheadBreakdown(
+        agent_work_seconds=agent_work,
+        dispatch_seconds=dispatch_s,
+        monitor_seconds=monitor_s,
+        merge_seconds=merge_s,
+        other_seconds=other,
+    )
+
+
 def _build_run_scorecard(
     *,
     meta: SessionMeta,
@@ -803,6 +964,11 @@ def _build_run_scorecard(
             total_output_tokens += _coerce_int(ev.payload.get("output_tokens")) or 0
 
     done_subtask_count = sum(1 for task in tasks if task.status == "done")
+    cp_seconds, accel_ratio = _compute_acceleration_ratio(events)
+    overhead = _compute_overhead_breakdown(
+        events,
+        float(duration_seconds) if duration_seconds is not None else None,
+    )
     return RunScorecard(
         status=meta.status,
         success=meta.status == "completed",
@@ -815,6 +981,9 @@ def _build_run_scorecard(
         total_output_tokens=total_output_tokens,
         completion_pct=completion_pct,
         startup_failure_category=startup_failure_category,
+        critical_path_seconds=cp_seconds,
+        acceleration_ratio=accel_ratio,
+        overhead=overhead,
     )
 
 

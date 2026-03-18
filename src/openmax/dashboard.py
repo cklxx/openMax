@@ -33,6 +33,13 @@ _STATUS_BADGES: dict[str, tuple[str, str]] = {
     "pending": ("\u25cb", "dim"),  # ○
 }
 
+_ROW_STYLES: dict[str, str] = {
+    "running": "bold",
+    "done": "dim strike",
+    "error": "bold red",
+    "pending": "dim",
+}
+
 
 def _elapsed(start: float) -> str:
     secs = int(time.monotonic() - start)
@@ -84,6 +91,7 @@ class RunDashboard:
         self.subtasks: dict[str, dict] = {}
         self.pane_activity: dict[int, str] = {}
         self.tool_events: list[dict] = []
+        self.phase_times: dict[str, tuple[float, float | None]] = {}
         self._live: Live | None = None
         self._spinner_live: Live | None = None
         self._active = False
@@ -151,6 +159,12 @@ class RunDashboard:
     def update_phase(self, phase: str, pct: int | None = None) -> None:
         old_phase = self.phase
         self.phase = phase
+        now = time.monotonic()
+        if old_phase and old_phase in self.phase_times:
+            start, _ = self.phase_times[old_phase]
+            self.phase_times[old_phase] = (start, now)
+        if phase not in self.phase_times:
+            self.phase_times[phase] = (now, None)
         if phase != old_phase and self._last_phase != phase:
             self._last_phase = phase
             # Temporarily stop live to print the divider cleanly
@@ -250,10 +264,12 @@ class RunDashboard:
             status = info.get("status", "pending")
             badge_char, badge_style = _STATUS_BADGES.get(status, ("\u25cb", "dim"))
             badge = Text(badge_char, style=badge_style)
-            agent = info.get("agent", "")
+            row_style = _ROW_STYLES.get(status, "")
+            agent = Text(info.get("agent", ""), style=row_style)
+            name_text = Text(name, style=row_style)
             pane_str = f"#{info['pane_id']}" if info.get("pane_id") is not None else ""
             elapsed = _elapsed_since(info.get("started_at"), info.get("finished_at"))
-            tbl.add_row(badge, name, agent, pane_str, elapsed)
+            tbl.add_row(badge, name_text, agent, pane_str, elapsed)
 
         # Progress counts
         elapsed = _elapsed(self.start_time)
@@ -295,16 +311,44 @@ class RunDashboard:
         if self._monitor_count > 0:
             progress.append(f"  [{self._monitor_count} checks]", style="dim")
 
-        # Wrap table in a panel with dim border
+        parts: list[ConsoleRenderable] = [tbl, progress]
+        phase_row = self._render_phase_durations()
+        if phase_row:
+            parts.append(phase_row)
+
+        all_done = done == total > 0
+        if all_done:
+            parts.append(self._render_done_banner())
+
+        border = "green" if all_done else "dim"
         panel = Panel(
-            Group(tbl, progress),
+            Group(*parts),
             title="[bold]agents[/bold]",
             title_align="left",
-            border_style="dim",
+            border_style=border,
             padding=(0, 1),
         )
 
         return panel
+
+    def _render_phase_durations(self) -> Text | None:
+        if not self.phase_times:
+            return None
+        now = time.monotonic()
+        segments = []
+        for phase, (start, end) in self.phase_times.items():
+            secs = int((end or now) - start)
+            segments.append(f"{phase}: {secs}s")
+        line = Text("  ")
+        line.append(" | ".join(segments), style="dim")
+        return line
+
+    def _render_done_banner(self) -> Text:
+        elapsed = _elapsed(self.start_time)
+        banner = Text()
+        banner.append("  \u2714 ALL DONE", style="bold green")
+        banner.append(f"  {elapsed}", style="dim")
+        return banner
 
     def _refresh(self) -> None:
         if self._live is not None and self._active:

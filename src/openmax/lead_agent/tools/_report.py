@@ -14,6 +14,20 @@ from openmax.lead_agent.tools._helpers import (
 )
 
 
+def _get_scorecard():
+    """Best-effort fetch of the current run scorecard, or None."""
+    try:
+        from openmax.lead_agent.runtime import get_lead_agent_runtime
+
+        rt = get_lead_agent_runtime()
+        if rt.session_store and rt.session_meta:
+            snap = rt.session_store.load_snapshot(rt.session_meta.session_id)
+            return snap.plan.scorecard
+    except Exception:
+        pass
+    return None
+
+
 @tool(
     "report_completion",
     "Report overall goal completion percentage and summary. Call exactly once "
@@ -27,8 +41,14 @@ async def report_completion(args: dict[str, Any]) -> dict[str, Any]:
     from rich.panel import Panel
 
     pct_color = "green" if pct >= 80 else "yellow" if pct >= 50 else "red"
+    lines = [f"  [{pct_color}]{pct}%[/{pct_color}] complete", f"  {notes}"]
+    scorecard = _get_scorecard()
+    if scorecard and scorecard.acceleration_ratio is not None:
+        lines.append(f"  [dim]{scorecard.surface_acceleration}[/dim]")
+    if scorecard and scorecard.overhead is not None:
+        lines.append(f"  [dim]{scorecard.overhead.surface()}[/dim]")
     panel = Panel(
-        f"  [{pct_color}]{pct}%[/{pct_color}] complete\n  {notes}",
+        "\n".join(lines),
         title="[bold]Result[/bold]",
         title_align="left",
         border_style="dim cyan",
