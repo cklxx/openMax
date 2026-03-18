@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import anyio
 
+import tests.conftest as _conftest
 from openmax.adapters.subprocess_adapter import SubprocessAdapter
 from openmax.agent_registry import AgentDefinition, built_in_agent_registry
 from openmax.lead_agent import LeadAgentStartupError, PlanResult, SubTask, TaskStatus
@@ -20,6 +21,8 @@ from openmax.lead_agent.runtime import (
 )
 from openmax.memory import MemoryStore
 from openmax.session_runtime import SessionStore
+from tests.conftest import _fake_monotonic, _no_sleep
+from tests.conftest import patch_time as _patch_time
 
 
 class DummyPaneManager:
@@ -54,21 +57,9 @@ class DummyPaneManager:
         return {"total_windows": len(self.windows), "done": 0}
 
 
-_fake_time = 0.0
-
-
 async def _fake_run_sync(fn):
     """Async replacement for anyio.to_thread.run_sync in tests."""
     return fn()
-
-
-async def _no_sleep(seconds: float) -> None:
-    global _fake_time  # noqa: PLW0603
-    _fake_time += seconds
-
-
-def _fake_monotonic() -> float:
-    return _fake_time
 
 
 def _setup_session(tmp_path):
@@ -115,14 +106,6 @@ class FailingClaudeClient:
             raise self._error
         if False:
             yield None
-
-
-def _patch_time(monkeypatch):
-    """Patch both anyio.sleep and time.monotonic so _wait_for_pane_ready exits fast."""
-    global _fake_time  # noqa: PLW0603
-    _fake_time = 0.0
-    monkeypatch.setattr(lead_agent_tools.anyio, "sleep", _no_sleep)
-    monkeypatch.setattr(lead_agent_tools.time, "monotonic", _fake_monotonic)
 
 
 def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
@@ -328,13 +311,10 @@ def test_get_agent_recommendations_returns_ranked_json(tmp_path):
 def test_dispatch_agent_uses_configured_custom_agent(monkeypatch, tmp_path):
     runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
     sleep_calls: list[float] = []
-
-    global _fake_time  # noqa: PLW0603
-    _fake_time = 0.0
+    _conftest._fake_time = 0.0
 
     async def fake_sleep(seconds: float) -> None:
-        global _fake_time  # noqa: PLW0603
-        _fake_time += seconds
+        _conftest._fake_time += seconds
         sleep_calls.append(seconds)
 
     monkeypatch.setattr(lead_agent_tools.anyio, "sleep", fake_sleep)

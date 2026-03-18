@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-import time
 
 import anyio
 from click.testing import CliRunner
@@ -19,15 +18,7 @@ from openmax.lead_agent.runtime import (
 from openmax.memory import MemoryStore
 from openmax.pane_manager import PaneManager
 from openmax.session_runtime import SessionStore
-
-
-def _wait_until(predicate, timeout: float = 3.0) -> None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return
-        time.sleep(0.05)
-    raise AssertionError("condition not met before timeout")
+from tests.conftest import wait_until
 
 
 def test_ci_smoke_exercises_headless_noninteractive_dispatch_and_session_cli(
@@ -100,7 +91,7 @@ def test_ci_smoke_exercises_headless_noninteractive_dispatch_and_session_cli(
 
         pane_id = runtime.plan.subtasks[0].pane_id
         assert pane_id is not None
-        _wait_until(
+        wait_until(
             lambda: "print session smoke output" in pane_mgr.get_text(pane_id),
         )
 

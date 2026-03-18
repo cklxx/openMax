@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import sys
-import time
 from types import SimpleNamespace
 
 import anyio
@@ -25,29 +24,10 @@ from openmax.lead_agent.runtime import (
 )
 from openmax.lead_agent.tools._dispatch import _STUCK_THRESHOLD
 from openmax.memory import MemoryStore
-from openmax.pane_backend import HeadlessPaneBackend
+from openmax.pane_backend import HeadlessPaneBackend, PaneBackendError
 from openmax.pane_manager import PaneManager
 from openmax.session_runtime import SessionStore, reconcile_resumed_subtasks
-
-# ── Helpers ──────────────────────────────────────────────────────────────────
-
-_fake_time = 0.0
-
-
-async def _no_sleep(seconds: float) -> None:
-    global _fake_time  # noqa: PLW0603
-    _fake_time += seconds
-
-
-def _fake_monotonic() -> float:
-    return _fake_time
-
-
-def _patch_time(monkeypatch):
-    global _fake_time  # noqa: PLW0603
-    _fake_time = 0.0
-    monkeypatch.setattr(lead_agent_tools.anyio, "sleep", _no_sleep)
-    monkeypatch.setattr(lead_agent_tools.time, "monotonic", _fake_monotonic)
+from tests.conftest import patch_time, wait_until
 
 
 def _setup(tmp_path, *, pane_mgr=None, agent_registry=None):
@@ -71,15 +51,6 @@ def _setup(tmp_path, *, pane_mgr=None, agent_registry=None):
 
 def _teardown(token):
     reset_lead_agent_runtime(token)
-
-
-def _wait_until(predicate, timeout: float = 3.0):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return
-        time.sleep(0.05)
-    raise AssertionError("condition not met before timeout")
 
 
 def _crash_agent_registry() -> AgentRegistry:
@@ -109,7 +80,7 @@ def _slow_agent_registry() -> AgentRegistry:
 def test_agent_crash_detected_as_exited(monkeypatch, tmp_path):
     """Dispatch an agent that exits immediately; read_pane_output reports exited=True."""
     runtime, token = _setup(tmp_path, agent_registry=_crash_agent_registry())
-    _patch_time(monkeypatch)
+    patch_time(monkeypatch)
     try:
         dispatch_result = anyio.run(
             lead_agent_tools.dispatch_agent.handler,
@@ -120,7 +91,7 @@ def test_agent_crash_detected_as_exited(monkeypatch, tmp_path):
         pane_id = text["pane_id"]
 
         # Wait for process to actually exit
-        _wait_until(lambda: not runtime.pane_mgr.is_pane_alive(pane_id))
+        wait_until(lambda: not runtime.pane_mgr.is_pane_alive(pane_id))
 
         read_result = anyio.run(
             lead_agent_tools.read_pane_output.handler,
@@ -159,7 +130,7 @@ def test_dead_pane_cached_output_readable(monkeypatch, tmp_path):
             ]
         ),
     )
-    _patch_time(monkeypatch)
+    patch_time(monkeypatch)
     try:
         anyio.run(
             lead_agent_tools.dispatch_agent.handler,
@@ -167,8 +138,8 @@ def test_dead_pane_cached_output_readable(monkeypatch, tmp_path):
         )
         pane_id = runtime.plan.subtasks[0].pane_id
         # Wait for output to appear then process to die
-        _wait_until(lambda: "HELLO_CACHE_TEST" in pane_mgr.get_text(pane_id))
-        _wait_until(lambda: not pane_mgr.is_pane_alive(pane_id))
+        wait_until(lambda: "HELLO_CACHE_TEST" in pane_mgr.get_text(pane_id))
+        wait_until(lambda: not pane_mgr.is_pane_alive(pane_id))
 
         # Cached output should still be accessible
         cached = pane_mgr.get_text(pane_id)
@@ -181,14 +152,14 @@ def test_dead_pane_cached_output_readable(monkeypatch, tmp_path):
 def test_stuck_detection_after_identical_reads(monkeypatch, tmp_path):
     """read_pane_output reports stuck=True after STUCK_THRESHOLD identical reads."""
     runtime, token = _setup(tmp_path, agent_registry=_slow_agent_registry())
-    _patch_time(monkeypatch)
+    patch_time(monkeypatch)
     try:
         anyio.run(
             lead_agent_tools.dispatch_agent.handler,
             {"task_name": "stuck-task", "agent_type": "slow-agent", "prompt": "wait"},
         )
         pane_id = runtime.plan.subtasks[0].pane_id
-        _wait_until(lambda: "READY" in runtime.pane_mgr.get_text(pane_id))
+        wait_until(lambda: "READY" in runtime.pane_mgr.get_text(pane_id))
 
         # Read N times — output is identical each time ("READY\n" + sleep)
         last_data = None
@@ -211,14 +182,14 @@ def test_stuck_detection_after_identical_reads(monkeypatch, tmp_path):
 def test_send_text_to_dead_pane_returns_error(monkeypatch, tmp_path):
     """Sending text to a dead pane returns an error, not a crash."""
     runtime, token = _setup(tmp_path, agent_registry=_crash_agent_registry())
-    _patch_time(monkeypatch)
+    patch_time(monkeypatch)
     try:
         anyio.run(
             lead_agent_tools.dispatch_agent.handler,
             {"task_name": "dead-send", "agent_type": "crash-agent", "prompt": "x"},
         )
         pane_id = runtime.plan.subtasks[0].pane_id
-        _wait_until(lambda: not runtime.pane_mgr.is_pane_alive(pane_id))
+        wait_until(lambda: not runtime.pane_mgr.is_pane_alive(pane_id))
 
         result = anyio.run(
             lead_agent_tools.send_text_to_pane.handler,
@@ -237,13 +208,9 @@ def test_dispatch_failure_returns_error_response(monkeypatch, tmp_path):
 
     class FailingBackend(HeadlessPaneBackend):
         def spawn_window(self, command, cwd=None, env=None):
-            from openmax.pane_backend import PaneBackendError
-
             raise PaneBackendError("backend is down")
 
         def split_pane(self, target, direction, command, cwd=None, env=None):
-            from openmax.pane_backend import PaneBackendError
-
             raise PaneBackendError("backend is down")
 
     pane_mgr = PaneManager(backend=FailingBackend())
@@ -252,7 +219,7 @@ def test_dispatch_failure_returns_error_response(monkeypatch, tmp_path):
         pane_mgr=pane_mgr,
         agent_registry=_crash_agent_registry(),
     )
-    _patch_time(monkeypatch)
+    patch_time(monkeypatch)
     try:
         result = anyio.run(
             lead_agent_tools.dispatch_agent.handler,
@@ -269,14 +236,14 @@ def test_dispatch_failure_returns_error_response(monkeypatch, tmp_path):
 def test_mark_task_done_on_dead_pane(monkeypatch, tmp_path):
     """mark_task_done succeeds even after the agent pane has died."""
     runtime, token = _setup(tmp_path, agent_registry=_crash_agent_registry())
-    _patch_time(monkeypatch)
+    patch_time(monkeypatch)
     try:
         anyio.run(
             lead_agent_tools.dispatch_agent.handler,
             {"task_name": "done-dead", "agent_type": "crash-agent", "prompt": "x"},
         )
         pane_id = runtime.plan.subtasks[0].pane_id
-        _wait_until(lambda: not runtime.pane_mgr.is_pane_alive(pane_id))
+        wait_until(lambda: not runtime.pane_mgr.is_pane_alive(pane_id))
 
         result = anyio.run(
             lead_agent_tools.mark_task_done.handler,
@@ -359,7 +326,7 @@ def test_verification_pass_returns_clean_result(monkeypatch, tmp_path):
 def test_read_pane_output_all_panes_summary(monkeypatch, tmp_path):
     """read_pane_output with pane_id=-1 returns a summary of all managed panes."""
     runtime, token = _setup(tmp_path, agent_registry=_slow_agent_registry())
-    _patch_time(monkeypatch)
+    patch_time(monkeypatch)
     try:
         anyio.run(
             lead_agent_tools.dispatch_agent.handler,
@@ -379,7 +346,7 @@ def test_read_pane_output_all_panes_summary(monkeypatch, tmp_path):
 def test_concurrent_dispatch_creates_multiple_panes(monkeypatch, tmp_path):
     """Dispatching two agents creates two separate panes in the same window."""
     runtime, token = _setup(tmp_path, agent_registry=_slow_agent_registry())
-    _patch_time(monkeypatch)
+    patch_time(monkeypatch)
     try:
         for name in ("task-a", "task-b"):
             anyio.run(
@@ -401,7 +368,7 @@ def test_concurrent_dispatch_creates_multiple_panes(monkeypatch, tmp_path):
 def test_duplicate_task_name_deduplication(monkeypatch, tmp_path):
     """Dispatching two tasks with the same name auto-deduplicates the second."""
     runtime, token = _setup(tmp_path, agent_registry=_slow_agent_registry())
-    _patch_time(monkeypatch)
+    patch_time(monkeypatch)
     try:
         anyio.run(
             lead_agent_tools.dispatch_agent.handler,
