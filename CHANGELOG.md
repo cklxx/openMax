@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.15
+
+- **Test**: `tests/test_stability.py` — 12 stability/recoverability tests: agent crash detection, dead-pane cached output, stuck agent detection, send-to-dead-pane error, dispatch backend failure, mark-done on dead pane, resume stale task reset, verification pass/fail with dispatch_hint, all-panes summary, concurrent dispatch, and task name deduplication
+
 ## 0.5.14
 
 - **Refactor**: eliminate redundant `total` variable in `build_loop_context` — use `n_total` computed once before the conditional
