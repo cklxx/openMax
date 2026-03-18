@@ -499,8 +499,25 @@ def _display_panes_table(panes_list: list) -> None:
     console.print(t)
 
 
-def _attached_panes_context(panes_list: list) -> str:
-    """Build a text block describing existing panes for the lead agent prompt."""
+_PANE_SNAPSHOT_LINES = 30
+_PANE_SNAPSHOT_CHARS = 1500
+
+
+def _snapshot_panes(pane_mgr: PaneManager, panes_list: list) -> dict[int, str]:
+    """Read last output of each pane; silently skip unreadable ones."""
+    out: dict[int, str] = {}
+    for p in panes_list:
+        try:
+            text = pane_mgr.get_text(p.pane_id)
+            tail = "\n".join(text.splitlines()[-_PANE_SNAPSHOT_LINES:])
+            out[p.pane_id] = tail[-_PANE_SNAPSHOT_CHARS:]
+        except Exception:
+            out[p.pane_id] = "(unreadable)"
+    return out
+
+
+def _attached_panes_context(panes_list: list, contents: dict[int, str] | None = None) -> str:
+    """Build a text block describing existing panes (with output snapshots) for the lead agent."""
     from collections import defaultdict
 
     by_window: dict[int, list] = defaultdict(list)
@@ -516,9 +533,12 @@ def _attached_panes_context(panes_list: list) -> str:
         lines.append(f"\nWindow {wid}:")
         for p in by_window[wid]:
             active = " [ACTIVE]" if p.is_active else ""
-            lines.append(
-                f"  pane_id={p.pane_id}  title={p.title or '(untitled)!r'}  cwd={p.cwd}{active}"
-            )
+            title = p.title or "(untitled)"
+            lines.append(f"  pane_id={p.pane_id}  title={title!r}  cwd={p.cwd}{active}")
+            if contents and p.pane_id in contents:
+                lines.append("  ```")
+                lines.extend(f"  {ln}" for ln in contents[p.pane_id].splitlines())
+                lines.append("  ```")
     return "\n".join(lines)
 
 
@@ -582,6 +602,7 @@ def manage(
     for p in all_panes:
         pane_mgr.attach_pane(p, purpose=p.title or p.cwd or f"pane-{p.pane_id}")
 
+    pane_contents = _snapshot_panes(pane_mgr, all_panes)
     _cleaned_up = False
 
     def _do_cleanup():
@@ -618,7 +639,7 @@ def manage(
                 max_turns=max_turns,
                 allowed_agents=allowed_agents,
                 agent_registry=agent_registry,
-                loop_context=_attached_panes_context(all_panes),
+                loop_context=_attached_panes_context(all_panes, pane_contents),
             )
         except LeadAgentStartupError as exc:
             raise SystemExit(1) from exc

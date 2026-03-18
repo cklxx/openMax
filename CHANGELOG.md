@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.19
+
+- **Improve**: `openmax manage TASK` now snapshots the last 30 lines of every attached pane's output before starting the lead agent — agent receives full context of what each CLI is currently doing without needing to call `read_pane_output` for each one
+
 ## 0.5.18
 
 - **Improve**: lead-agent text output now rendered as markdown via Rich `Markdown` renderer — headers, tables, bold, code blocks all display correctly instead of raw `│`-prefixed plain text
