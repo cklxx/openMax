@@ -24,6 +24,7 @@ class LeadAgentRuntime:
     agent_registry: Any | None = None
     dashboard: Any | None = None
     pane_output_hashes: dict[int, list[str]] = field(default_factory=dict)
+    plan_confirm: bool = True
     plan_submitted: bool = False
     current_phase: str = "research"
     integration_branch: str | None = None

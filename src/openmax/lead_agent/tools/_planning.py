@@ -64,6 +64,45 @@ def _topological_sort_check(subtasks: list[dict[str, Any]]) -> str | None:
     return None
 
 
+def _format_plan_for_display(
+    subtasks: list[dict[str, Any]],
+    rationale: str,
+    parallel_groups: list[list[str]],
+) -> None:
+    console.print("\n  [bold cyan]Proposed Plan[/bold cyan]")
+    console.print(f"  [dim]{rationale}[/dim]\n")
+    for i, st in enumerate(subtasks, 1):
+        files_str = ", ".join(st.get("files", []))[:60]
+        console.print(f"  {i}. [bold]{st['name']}[/bold] — {st['description']}")
+        if files_str:
+            console.print(f"     [dim]{files_str}[/dim]")
+    if parallel_groups:
+        groups_str = " | ".join(", ".join(g) for g in parallel_groups)
+        console.print(f"\n  [dim]Parallel: {groups_str}[/dim]")
+
+
+def _prompt_plan_confirmation(
+    subtasks: list[dict[str, Any]],
+    rationale: str,
+    parallel_groups: list[list[str]],
+    runtime: Any,
+) -> str | None:
+    """Show plan and prompt user. Returns feedback string or None if approved."""
+    dashboard = runtime.dashboard
+    if dashboard:
+        dashboard.stop()
+    _format_plan_for_display(subtasks, rationale, parallel_groups)
+    try:
+        raw = input("\n  Approve? [Y/n/feedback]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        raw = "y"
+    if dashboard:
+        dashboard.start()
+    if raw.lower() in ("", "y", "yes"):
+        return None
+    return raw
+
+
 @tool(
     "submit_plan",
     "Submit a structured task decomposition before dispatching "
@@ -145,13 +184,20 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
                         f"'{a}' and '{b}' share files: {', '.join(sorted(overlap))}"
                     )
 
-    runtime.plan_submitted = True
     plan_data = {
         "subtasks": subtasks_raw,
         "rationale": rationale,
         "parallel_groups": parallel_groups,
     }
     console.print(f"  [bold cyan]{P}[/bold cyan]  plan: {len(subtasks_raw)} subtasks")
+
+    if runtime.plan_confirm:
+        feedback = _prompt_plan_confirmation(subtasks_raw, rationale, parallel_groups, runtime)
+        if feedback is not None:
+            _append_session_event("tool.submit_plan.revision_requested", plan_data)
+            return _tool_response({"status": "revision_requested", "feedback": feedback})
+
+    runtime.plan_submitted = True
     _append_session_event("tool.submit_plan", plan_data)
 
     result_data: dict[str, Any] = {

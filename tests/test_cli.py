@@ -44,6 +44,7 @@ def test_run_help():
     assert "--session-id" in result.output
     assert "--agents" in result.output
     assert "--pane-backend" in result.output
+    assert "--no-confirm" in result.output
 
 
 def test_resume_requires_session_id():
@@ -225,6 +226,52 @@ def test_agents_option_accepts_configured_agent(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert captured["allowed_agents"] == ["remote-codex", "codex"]
+
+
+def test_run_no_confirm_flag_forwards_plan_confirm_false(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "ensure_kaku", lambda: True)
+    monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+
+    captured: dict[str, object] = {}
+
+    def fake_run_lead_agent(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(subtasks=[])
+
+    monkeypatch.setattr(cli, "run_lead_agent", fake_run_lead_agent)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        ["run", "Build feature", "--cwd", str(tmp_path), "--no-confirm"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["plan_confirm"] is False
+
+
+def test_run_default_plan_confirm_true(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "ensure_kaku", lambda: True)
+    monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+
+    captured: dict[str, object] = {}
+
+    def fake_run_lead_agent(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(subtasks=[])
+
+    monkeypatch.setattr(cli, "run_lead_agent", fake_run_lead_agent)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        ["run", "Build feature", "--cwd", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert captured["plan_confirm"] is True
 
 
 def test_run_exits_non_zero_on_lead_agent_startup_failure(monkeypatch, tmp_path):

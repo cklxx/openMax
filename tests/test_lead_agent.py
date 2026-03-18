@@ -74,6 +74,7 @@ def _setup_session(tmp_path):
         session_meta=meta,
         memory_store=memory_store,
         agent_registry=built_in_agent_registry(),
+        plan_confirm=False,
     )
     token = bind_lead_agent_runtime(runtime)
     return runtime, token, store, meta, memory_store

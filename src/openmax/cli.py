@@ -182,6 +182,12 @@ def main() -> None:
     default=None,
     help="Pane backend to use (defaults to auto-detect: kaku > tmux)",
 )
+@click.option(
+    "--no-confirm",
+    is_flag=True,
+    default=False,
+    help="Skip interactive plan confirmation (for automation)",
+)
 def run(
     task: str,
     cwd: str | None,
@@ -192,6 +198,7 @@ def run(
     resume: bool,
     agents: str | None,
     pane_backend_name: str | None,
+    no_confirm: bool,
 ) -> None:
     """Decompose TASK and dispatch sub-agents in terminal panes."""
     cwd = _resolve_cwd(cwd)
@@ -260,6 +267,7 @@ def run(
                 resume=resume,
                 allowed_agents=allowed_agents,
                 agent_registry=agent_registry,
+                plan_confirm=not no_confirm,
             )
         except LeadAgentStartupError as exc:
             raise SystemExit(1) from exc
@@ -556,6 +564,12 @@ def _attached_panes_context(panes_list: list, contents: dict[int, str] | None = 
     default=None,
     help="Pane backend to use (defaults to auto-detect)",
 )
+@click.option(
+    "--no-confirm",
+    is_flag=True,
+    default=False,
+    help="Skip interactive plan confirmation (for automation)",
+)
 def manage(
     task: str | None,
     cwd: str | None,
@@ -564,6 +578,7 @@ def manage(
     keep_panes: bool,
     agents: str | None,
     pane_backend_name: str | None,
+    no_confirm: bool,
 ) -> None:
     """Discover all existing terminal panes and optionally manage them with TASK.
 
@@ -640,6 +655,7 @@ def manage(
                 allowed_agents=allowed_agents,
                 agent_registry=agent_registry,
                 loop_context=_attached_panes_context(all_panes, pane_contents),
+                plan_confirm=not no_confirm,
             )
         except LeadAgentStartupError as exc:
             raise SystemExit(1) from exc

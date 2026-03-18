@@ -48,6 +48,7 @@ A task does NOT need decomposition when it:
    - Each subtask: `name`, `description`, `files`, `dependencies`, `estimated_minutes`.
    - Group independent subtasks into `parallel_groups`.
    - Bias toward more, smaller subtasks with narrow file scope.
+   - If `submit_plan` returns `"status": "revision_requested"`, revise the plan based on the `"feedback"` field and call `submit_plan` again. Repeat until accepted.
 
 ### Dispatch
 
