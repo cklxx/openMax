@@ -104,9 +104,9 @@ def build_loop_context(session: LoopSession, current_iteration: int) -> str:
         "Completed iterations — DO NOT repeat any of this work:",
     ]
     recent = session.iterations[-_LOOP_CONTEXT_MAX_ITERATIONS:]
-    if len(session.iterations) > _LOOP_CONTEXT_MAX_ITERATIONS:
-        total = len(session.iterations)
-        lines.append(f"  (showing last {_LOOP_CONTEXT_MAX_ITERATIONS} of {total} iterations)")
+    n_total = len(session.iterations)
+    if n_total > _LOOP_CONTEXT_MAX_ITERATIONS:
+        lines.append(f"  (showing last {_LOOP_CONTEXT_MAX_ITERATIONS} of {n_total} iterations)")
     for it in recent:
         ts = it.started_at[:16].replace("T", " ")
         pct = f"{it.completion_pct}%" if it.completion_pct is not None else "?"

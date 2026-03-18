@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.14
+
+- **Refactor**: eliminate redundant `total` variable in `build_loop_context` — use `n_total` computed once before the conditional
+
 ## 0.5.13
 
 - **Fix**: `atexit` handler accumulation in `openmax loop` — each iteration registered a new handler without deregistering; now calls `atexit.unregister` after cleanup, preventing N handlers at process exit on long loops
