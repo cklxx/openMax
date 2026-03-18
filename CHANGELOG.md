@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.25
+
+- **Improve**: lead agent prompt — add strategic thinking patterns: completeness principle (prefer thoroughness over shortcuts), pre-mortem step in planning, NOT-in-scope discipline, edge case checklist in dispatch briefs, zero silent failures in monitoring, reversibility gate for escalation decisions, structured ask_user format
+
 ## 0.5.23
 
 - **Feature**: cost forecasting — `dispatch_agent` estimates token usage and USD cost before dispatch; estimate included in response payload and session events
