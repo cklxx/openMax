@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.21
+
+- **Feature**: interactive plan confirmation — `submit_plan` now presents the proposed plan to the user and waits for approval before dispatching agents; user can approve, or provide feedback to trigger a revision loop
+- **Feature**: `--no-confirm` flag on `run` and `manage` commands to skip plan confirmation (for automation/scripting)
+
 ## 0.5.20
 
 - **Fix**: no more blank gap after "connecting" spinner — `mark_connected` now transitions to "thinking" instead of stopping; spinner only clears when first tool event fires, so there's always something visible while the model is generating
