@@ -91,7 +91,7 @@ class RunDashboard:
             self._spinner_live = Live(
                 self._spinner_renderable("starting up"),
                 console=console,
-                refresh_per_second=4,
+                refresh_per_second=20,
                 transient=True,
             )
             self._spinner_live.start()
@@ -102,7 +102,7 @@ class RunDashboard:
         from rich.spinner import Spinner
 
         return Columns(
-            [Spinner("dots", style="dim cyan"), Text(label, style="dim")], padding=(0, 1)
+            [Spinner("dots2", style="dim cyan"), Text(label, style="dim")], padding=(0, 1)
         )
 
     def _stop_spinner(self) -> None:
@@ -119,7 +119,7 @@ class RunDashboard:
         self._live = Live(
             self._render(),
             console=console,
-            refresh_per_second=2,
+            refresh_per_second=8,
             transient=True,
         )
         self._live.start()
