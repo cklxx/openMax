@@ -85,26 +85,25 @@ class RunDashboard:
     # ── Lifecycle ─────────────────────────────────────────────────
 
     def start(self) -> None:
-        """Mark dashboard as ready and show connecting spinner."""
+        """Mark dashboard as ready and show startup spinner."""
         self._active = True
         if self._is_tty:
-            from rich.columns import Columns
-            from rich.spinner import Spinner
-
-            spinner_display = Columns(
-                [
-                    Spinner("dots", style="dim cyan"),
-                    Text("connecting...", style="dim"),
-                ],
-                padding=(0, 1),
-            )
             self._spinner_live = Live(
-                spinner_display,
+                self._spinner_renderable("starting up"),
                 console=console,
                 refresh_per_second=4,
                 transient=True,
             )
             self._spinner_live.start()
+
+    @staticmethod
+    def _spinner_renderable(label: str):
+        from rich.columns import Columns
+        from rich.spinner import Spinner
+
+        return Columns(
+            [Spinner("dots", style="dim cyan"), Text(label, style="dim")], padding=(0, 1)
+        )
 
     def _stop_spinner(self) -> None:
         if self._spinner_live is not None:
@@ -134,8 +133,9 @@ class RunDashboard:
         self._active = False
 
     def mark_connected(self) -> None:
-        """Called when the first SDK response arrives — dismiss the spinner."""
-        self._stop_spinner()
+        """Called when the first SDK response arrives — switch to 'thinking' state."""
+        if self._spinner_live is not None:
+            self._spinner_live.update(self._spinner_renderable("thinking"))
 
     # ── State updates ─────────────────────────────────────────────
 
@@ -192,6 +192,7 @@ class RunDashboard:
         self._refresh()
 
     def add_tool_event(self, text: str, category: str = "system") -> None:
+        self._stop_spinner()
         self.tool_events.append({"text": text, "category": category, "ts": time.monotonic()})
         if len(self.tool_events) > _MAX_TOOL_EVENTS:
             self.tool_events = self.tool_events[-_MAX_TOOL_EVENTS:]

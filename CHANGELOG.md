@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.20
+
+- **Fix**: no more blank gap after "connecting" spinner — `mark_connected` now transitions to "thinking" instead of stopping; spinner only clears when first tool event fires, so there's always something visible while the model is generating
+- **Improve**: spinner lifecycle: `starting up` → `thinking` → disappears on first tool use
+
 ## 0.5.19
 
 - **Improve**: `openmax manage TASK` now snapshots the last 30 lines of every attached pane's output before starting the lead agent — agent receives full context of what each CLI is currently doing without needing to call `read_pane_output` for each one
