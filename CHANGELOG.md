@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.22
+
+- **Fix**: spinner now runs at 20 fps with `dots2` style — smoother animation, no more choppy frames
+- **Fix**: markdown output spacing — collapse 3+ consecutive newlines to 2; no more double blank lines between table rows and paragraphs
+
 ## 0.5.21
 
 - **Feature**: interactive plan confirmation — `submit_plan` now presents the proposed plan to the user and waits for approval before dispatching agents; user can approve, or provide feedback to trigger a revision loop
