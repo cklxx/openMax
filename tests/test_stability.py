@@ -23,6 +23,7 @@ from openmax.lead_agent.runtime import (
     reset_lead_agent_runtime,
 )
 from openmax.lead_agent.tools._dispatch import _STUCK_THRESHOLD
+from openmax.lead_agent.tools._helpers import strip_terminal_noise
 from openmax.memory import MemoryStore
 from openmax.pane_backend import HeadlessPaneBackend, PaneBackendError
 from openmax.pane_manager import PaneManager
@@ -381,6 +382,61 @@ def test_duplicate_task_name_deduplication(monkeypatch, tmp_path):
         names = [st.name for st in runtime.plan.subtasks]
         assert "dup" in names
         assert "dup-2" in names
+    finally:
+        runtime.pane_mgr.cleanup_all()
+        _teardown(token)
+
+
+# ── ANSI stripping tests ────────────────────────────────────────────────────
+
+
+def test_strip_terminal_noise_removes_ansi_codes():
+    """ANSI escape sequences are stripped for clean hashing."""
+    raw = "\x1b[32mHello\x1b[0m World\x1b[1;34m!"
+    assert strip_terminal_noise(raw) == "Hello World!"
+
+
+def test_strip_terminal_noise_removes_progress_bars():
+    """Box-drawing and block chars used in progress bars are removed."""
+    raw = "Loading ━━━━━━━━━━ 50%"
+    cleaned = strip_terminal_noise(raw)
+    assert "━" not in cleaned
+    assert "50%" in cleaned
+
+
+def test_strip_terminal_noise_removes_spinners():
+    """Spinner characters are removed."""
+    assert strip_terminal_noise("⠋ Working...") == " Working..."
+
+
+def test_strip_terminal_noise_passthrough_plain_text():
+    """Plain text passes through unchanged."""
+    plain = "commit abc123: fix bug in parser"
+    assert strip_terminal_noise(plain) == plain
+
+
+# ── Cached flag test ────────────────────────────────────────────────────────
+
+
+def test_read_pane_output_dead_pane_has_cached_flag(monkeypatch, tmp_path):
+    """read_pane_output for a dead pane includes cached=True."""
+    runtime, token = _setup(tmp_path, agent_registry=_crash_agent_registry())
+    patch_time(monkeypatch)
+    try:
+        anyio.run(
+            lead_agent_tools.dispatch_agent.handler,
+            {"task_name": "cached-test", "agent_type": "crash-agent", "prompt": "x"},
+        )
+        pane_id = runtime.plan.subtasks[0].pane_id
+        wait_until(lambda: not runtime.pane_mgr.is_pane_alive(pane_id))
+
+        result = anyio.run(
+            lead_agent_tools.read_pane_output.handler,
+            {"pane_id": pane_id},
+        )
+        data = json.loads(result["content"][0]["text"])
+        assert data["exited"] is True
+        assert data["cached"] is True
     finally:
         runtime.pane_mgr.cleanup_all()
         _teardown(token)

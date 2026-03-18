@@ -26,7 +26,14 @@ class ClaudeCodeAdapter(AgentAdapter):
             launch_cmd=["claude"],
             initial_input=prompt,
             interactive=True,
-            ready_patterns=["? for shortcuts", "Human:", "╭─"],
+            ready_patterns=[
+                "? for shortcuts",
+                "for help",
+                "Human:",
+                "╭─",
+                "Claude Code",
+                "Type your",
+            ],
         )
 
 

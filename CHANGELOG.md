@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.17
+
+- **Improve**: ANSI stripping for stuck detection — `strip_terminal_noise` removes ANSI escapes, progress bar chars, and spinner symbols before hashing; prevents false negatives where cosmetic output changes mask a stuck agent
+- **Improve**: Claude Code ready patterns expanded — added `"for help"`, `"Claude Code"`, `"Type your"` to handle newer CLI versions
+- **Improve**: `read_pane_output` returns `cached: true` when output is from a dead pane's last capture, so lead agent can distinguish live vs stale output
+- **Improve**: `dispatch_agent` returns `ready_timeout: true` when CLI did not show ready signal before prompt was sent, enabling lead agent to monitor more aggressively
+- **Improve**: lead agent prompt updated with new monitoring signals: cached output, ready timeout, and clarified stuck detection
+- **Refactor**: shared test helpers extracted to `tests/conftest.py`
+
 ## 0.5.16
 
 - **Feature**: `openmax manage [TASK]` — new command to discover and manage all existing terminal panes/windows

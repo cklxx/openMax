@@ -24,6 +24,7 @@ from openmax.lead_agent.tools._helpers import (
     _try_reuse_done_pane,
     _upsert_subtask,
     _wait_and_send_prompt,
+    strip_terminal_noise,
 )
 from openmax.lead_agent.tools._verify import (
     _create_agent_branch,
@@ -247,6 +248,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     has_worktree = agent_cwd != runtime.cwd
     reused_pane = None if has_worktree else _try_reuse_done_pane(runtime, agent_type, task_name)
 
+    ready_confirmed = True
     if reused_pane is not None:
         pane = reused_pane
         runtime.pane_mgr.send_text(pane.pane_id, "/clear")
@@ -266,7 +268,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         if pane is None:
             return _dispatch_failure_response(task_name, agent_type, branch_name, launch_err)
         if cmd_spec.interactive and cmd_spec.initial_input:
-            await _wait_and_send_prompt(runtime, pane, cmd_spec, agent_type)
+            ready_confirmed = await _wait_and_send_prompt(runtime, pane, cmd_spec, agent_type)
 
     subtask = SubTask(
         name=task_name,
@@ -312,19 +314,20 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         event_payload["override_reason"] = override_reason
     _append_session_event("tool.dispatch_agent", event_payload)
 
-    return _tool_response(
-        {
-            "status": "dispatched",
-            "pane_id": pane.pane_id,
-            "window_id": runtime.agent_window_id,
-            "agent_type": agent_type,
-            "task_name": task_name,
-            "panes_in_window": pane_count,
-            "retry_count": retry_count,
-            "branch_name": branch_name,
-            "token_budget": token_budget,
-        }
-    )
+    response_payload: dict[str, Any] = {
+        "status": "dispatched",
+        "pane_id": pane.pane_id,
+        "window_id": runtime.agent_window_id,
+        "agent_type": agent_type,
+        "task_name": task_name,
+        "panes_in_window": pane_count,
+        "retry_count": retry_count,
+        "branch_name": branch_name,
+        "token_budget": token_budget,
+    }
+    if not ready_confirmed:
+        response_payload["ready_timeout"] = True
+    return _tool_response(response_payload)
 
 
 @tool(
@@ -356,6 +359,7 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
                 "text": text or "(pane no longer exists)",
                 "stuck": False,
                 "exited": True,
+                "cached": True,
             }
             report = _read_subtask_report_for_pane(pane_id)
             if report:
@@ -373,7 +377,8 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
 
         text = _extract_smart_output(text, tail_lines=100)
 
-        output_hash = hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()
+        clean = strip_terminal_noise(text)
+        output_hash = hashlib.md5(clean.encode(), usedforsecurity=False).hexdigest()
         hash_history = runtime.pane_output_hashes.setdefault(pane_id, [])
         hash_history.append(output_hash)
         if len(hash_history) > _STUCK_THRESHOLD:

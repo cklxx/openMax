@@ -94,9 +94,11 @@ Loop: `wait` → `read_pane_output` per running agent → act.
 |---|---|---|
 | Done | Agent returned to prompt, "committed", summary printed, or `exited: true` with success output | **Call `mark_task_done(task_name, notes)`** |
 | Error | "Error", "FAILED", "Traceback", non-zero exit (shown as `[ERROR]` prefix), or `exited: true` with error output | Call `permanent_error(task_name)` |
-| Stuck | Output unchanged, or agent asking unanswered question | `send_text_to_pane` with guidance; 2 retries then re-dispatch |
+| Stuck | `stuck: true` in response, or agent asking unanswered question | `send_text_to_pane` with guidance; 2 retries then re-dispatch |
+| Cached output | `cached: true` in response — pane is dead, output is from last capture | Treat as exited; read report or mark error |
 | Report ready | `exited: true` response includes `report` field | Read report, then call `mark_task_done` |
 | Checkpoint pending | `.openmax/checkpoints/{name}.md` exists | Call `check_checkpoints` → `resolve_checkpoint` |
+| Ready timeout | `ready_timeout: true` in dispatch response — CLI did not show ready signal | Monitor more aggressively; if first read shows no prompt echo, re-dispatch |
 
 **`mark_task_done` is mandatory** — it records the subtask result and enables loop tape tracking. Calling `report_completion` without first calling `mark_task_done` for each completed subtask leaves tasks in RUNNING state permanently.
 

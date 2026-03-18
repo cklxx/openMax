@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -192,6 +193,19 @@ def _extract_smart_output(text: str, tail_lines: int = 100) -> str:
     return "\n".join(tail)
 
 
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\].*?\x07")
+_PROGRESS_RE = re.compile(r"[\u2500-\u257F\u2580-\u259F\u2588\u2591-\u2593━─╸╺]+")
+_SPINNER_RE = re.compile(r"[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷◐◓◑◒]")
+
+
+def strip_terminal_noise(text: str) -> str:
+    """Remove ANSI escapes, progress bars, and spinner chars for clean hashing."""
+    text = _ANSI_RE.sub("", text)
+    text = _PROGRESS_RE.sub("", text)
+    text = _SPINNER_RE.sub("", text)
+    return text
+
+
 def _compress_context(context: str, budget: int) -> str:
     """Compress context text to fit within an approximate token budget.
 
@@ -362,8 +376,9 @@ async def _wait_and_send_prompt(
     pane: SimpleNamespace,
     cmd_spec: Any,
     agent_type: str,
-) -> None:
-    """Wait for CLI ready then send the initial prompt."""
+) -> bool:
+    """Wait for CLI ready then send the initial prompt. Returns True if ready detected."""
+    ready = True
     if cmd_spec.ready_patterns:
         ready = await _wait_for_pane_ready(
             runtime.pane_mgr,
@@ -379,6 +394,7 @@ async def _wait_and_send_prompt(
     else:
         await anyio.sleep(cmd_spec.ready_delay_seconds)
     runtime.pane_mgr.send_text(pane.pane_id, cmd_spec.initial_input)
+    return ready
 
 
 def _read_subtask_report(task_name: str) -> str | None:
