@@ -129,6 +129,35 @@ def _pane_id_for_task(task_name: str) -> int | None:
     return None
 
 
+ROLE_TEMPLATES: dict[str, str] = {
+    "reviewer": (
+        "## Role: Reviewer\n\n"
+        "You are a code reviewer. Your job is to find bugs, logic errors, security "
+        "issues, and style problems. Output a structured critique with severity levels "
+        "(critical/major/minor). Do NOT commit any changes — only report findings."
+    ),
+    "challenger": (
+        "## Role: Challenger\n\n"
+        "You are a technical challenger. Question assumptions, identify overlooked edge "
+        "cases, and propose alternative approaches. Do NOT modify code — only provide "
+        "written analysis and counter-proposals."
+    ),
+    "debugger": (
+        "## Role: Debugger\n\n"
+        "You are a debugger. Diagnose the root cause of failures, trace execution paths, "
+        "and propose targeted fixes. You may commit fixes if instructed to do so."
+    ),
+}
+
+
+def _build_role_context(role: str) -> str:
+    """Return role-specific instructions to inject into an agent prompt.
+
+    Returns empty string for the default 'writer' role.
+    """
+    return ROLE_TEMPLATES.get(role, "")
+
+
 def _build_blackboard_block(cwd: str) -> str:
     content = read_shared_context(cwd)
     if not content:

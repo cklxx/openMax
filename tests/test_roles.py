@@ -1,0 +1,40 @@
+"""Tests for adversarial role context builder."""
+
+from __future__ import annotations
+
+from openmax.lead_agent.tools._helpers import ROLE_TEMPLATES, _build_role_context
+
+
+def test_writer_role_returns_empty():
+    assert _build_role_context("writer") == ""
+
+
+def test_reviewer_role_returns_instructions():
+    result = _build_role_context("reviewer")
+    assert "Reviewer" in result
+    assert "Do NOT commit" in result
+    assert "critique" in result
+
+
+def test_challenger_role_returns_instructions():
+    result = _build_role_context("challenger")
+    assert "Challenger" in result
+    assert "Do NOT modify code" in result
+    assert "alternative" in result
+
+
+def test_debugger_role_returns_instructions():
+    result = _build_role_context("debugger")
+    assert "Debugger" in result
+    assert "root cause" in result
+
+
+def test_unknown_role_returns_empty():
+    assert _build_role_context("unknown") == ""
+
+
+def test_role_templates_cover_all_non_writer_roles():
+    assert "reviewer" in ROLE_TEMPLATES
+    assert "challenger" in ROLE_TEMPLATES
+    assert "debugger" in ROLE_TEMPLATES
+    assert "writer" not in ROLE_TEMPLATES

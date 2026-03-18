@@ -9,10 +9,12 @@ from typing import Any
 import anyio
 from claude_agent_sdk import tool
 
+from openmax.lead_agent.tools._costing import estimate_task_cost
 from openmax.lead_agent.tools._helpers import (
     _CHECKPOINT_PROTOCOL,
     _append_session_event,
     _build_blackboard_block,
+    _build_role_context,
     _build_subagent_context,
     _compress_context,
     _extract_smart_output,
@@ -140,6 +142,7 @@ def _build_full_prompt(
     task_name: str,
     brief_file: Any,
     rep_file: Any,
+    role_context: str = "",
 ) -> str:
     context_block = _build_subagent_context(
         branch_name=branch_name, agent_cwd=agent_cwd, memory_text=memory_text
@@ -149,6 +152,8 @@ def _build_full_prompt(
     blackboard_block = _build_blackboard_block(agent_cwd)
     if blackboard_block:
         prompt = prompt + blackboard_block
+    if role_context:
+        prompt = prompt + "\n\n" + role_context
     prompt = prompt + _CHECKPOINT_PROTOCOL.format(task_name=task_name)
     return prompt + _file_protocol_section(brief_file, rep_file, agent_cwd)
 
@@ -196,6 +201,10 @@ def _dispatch_failure_response(
             "retry_count": {"type": "integer"},
             "context_budget_tokens": {"type": "integer"},
             "token_budget": {"type": "integer"},
+            "role": {
+                "type": "string",
+                "enum": ["writer", "reviewer", "challenger", "debugger"],
+            },
         },
         "required": ["task_name", "agent_type", "prompt"],
     },
@@ -207,6 +216,9 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     prompt = args["prompt"]
     retry_count = args.get("retry_count", 0)
     token_budget = args.get("token_budget")
+    role = args.get("role", "writer")
+    if role not in ("writer", "reviewer", "challenger", "debugger"):
+        role = "writer"
     if not isinstance(retry_count, int) or retry_count < 0:
         retry_count = 0
 
@@ -238,9 +250,19 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         write_brief(runtime.cwd, task_name, prompt)
     rep_file = report_path(agent_cwd, task_name)
 
+    role_context = _build_role_context(role)
     prompt = _build_full_prompt(
-        prompt, branch_name, agent_cwd, memory_text, task_name, brief_file, rep_file
+        prompt,
+        branch_name,
+        agent_cwd,
+        memory_text,
+        task_name,
+        brief_file,
+        rep_file,
+        role_context=role_context,
     )
+
+    cost_estimate = estimate_task_cost(len(prompt), agent_type)
 
     cmd_spec = adapter.get_command(prompt, cwd=agent_cwd)
     launch_env = cmd_spec.env or None
@@ -280,6 +302,8 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         branch_name=branch_name,
         started_at=time.time(),
         token_budget=token_budget,
+        role=role,
+        estimated_cost_usd=cost_estimate.estimated_cost_usd,
     )
     _upsert_subtask(subtask)
     if runtime.dashboard is not None:
@@ -308,6 +332,9 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         "recommended_agent": recommended_agent,
         "retry_count": retry_count,
         "branch_name": branch_name,
+        "role": role,
+        "estimated_cost_usd": cost_estimate.estimated_cost_usd,
+        "estimated_tokens": cost_estimate.estimated_tokens,
     }
     override_reason = args.get("override_reason")
     if override_reason:
@@ -324,6 +351,9 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         "retry_count": retry_count,
         "branch_name": branch_name,
         "token_budget": token_budget,
+        "role": role,
+        "estimated_cost_usd": cost_estimate.estimated_cost_usd,
+        "estimated_tokens": cost_estimate.estimated_tokens,
     }
     if not ready_confirmed:
         response_payload["ready_timeout"] = True
@@ -396,11 +426,14 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
         for st in runtime.plan.subtasks:
             if st.pane_id == pane_id and st.token_budget is not None:
                 warning = _check_budget_warning(st.name, st.tokens_used, st.token_budget)
-                response_data["budget"] = {
+                budget_info: dict[str, Any] = {
                     "token_budget": st.token_budget,
                     "tokens_used": st.tokens_used,
                     "warning": warning,
                 }
+                if warning == "hard_limit":
+                    budget_info["action"] = "stop_agent"
+                response_data["budget"] = budget_info
                 break
 
         _append_session_event(

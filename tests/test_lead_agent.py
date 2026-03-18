@@ -2107,3 +2107,133 @@ def test_dispatch_injects_blackboard(monkeypatch, tmp_path):
     assert "Use SQLite" in sent_prompt
 
     _teardown_session(token)
+
+
+def test_dispatch_with_role_reviewer(monkeypatch, tmp_path):
+    """dispatch_agent with role='reviewer' injects reviewer context into prompt."""
+    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    result = anyio.run(
+        lead_agent_tools.dispatch_agent.handler,
+        {
+            "task_name": "review-api",
+            "agent_type": "generic",
+            "prompt": "Review the API",
+            "role": "reviewer",
+        },
+    )
+
+    st = runtime.plan.subtasks[0]
+    assert st.role == "reviewer"
+    assert "Reviewer" in st.prompt
+    assert "Do NOT commit" in st.prompt
+
+    parsed = json.loads(result["content"][0]["text"])
+    assert parsed["role"] == "reviewer"
+
+    events = store.load_events("lead-test")
+    dispatch_events = [e for e in events if e.event_type == "tool.dispatch_agent"]
+    assert dispatch_events[0].payload["role"] == "reviewer"
+
+    _teardown_session(token)
+
+
+def test_dispatch_with_default_writer_role(monkeypatch, tmp_path):
+    """dispatch_agent without role defaults to 'writer' with no extra context."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    anyio.run(
+        lead_agent_tools.dispatch_agent.handler,
+        {"task_name": "write-api", "agent_type": "generic", "prompt": "Build API"},
+    )
+
+    st = runtime.plan.subtasks[0]
+    assert st.role == "writer"
+    assert "## Role:" not in st.prompt
+
+    _teardown_session(token)
+
+
+def test_dispatch_includes_cost_estimate(monkeypatch, tmp_path):
+    """dispatch_agent response includes estimated cost and tokens."""
+    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    result = anyio.run(
+        lead_agent_tools.dispatch_agent.handler,
+        {"task_name": "api", "agent_type": "generic", "prompt": "Build the API"},
+    )
+
+    parsed = json.loads(result["content"][0]["text"])
+    assert "estimated_cost_usd" in parsed
+    assert "estimated_tokens" in parsed
+    assert parsed["estimated_cost_usd"] > 0
+    assert parsed["estimated_tokens"] > 0
+
+    st = runtime.plan.subtasks[0]
+    assert st.estimated_cost_usd is not None
+    assert st.estimated_cost_usd > 0
+
+    events = store.load_events("lead-test")
+    dispatch_events = [e for e in events if e.event_type == "tool.dispatch_agent"]
+    assert dispatch_events[0].payload["estimated_cost_usd"] > 0
+
+    _teardown_session(token)
+
+
+def test_budget_hard_limit_includes_stop_action(monkeypatch, tmp_path):
+    """read_pane_output with budget at hard limit includes action: stop_agent."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+
+    runtime.plan.subtasks.append(
+        SubTask(
+            name="expensive-task",
+            agent_type="generic",
+            prompt="Do work",
+            status=TaskStatus.RUNNING,
+            pane_id=101,
+            token_budget=1000,
+            tokens_used=1000,
+        )
+    )
+
+    result = anyio.run(
+        lead_agent_tools.read_pane_output.handler,
+        {"pane_id": 101},
+    )
+
+    parsed = json.loads(result["content"][0]["text"])
+    assert parsed["budget"]["warning"] == "hard_limit"
+    assert parsed["budget"]["action"] == "stop_agent"
+
+    _teardown_session(token)
+
+
+def test_budget_soft_limit_no_stop_action(monkeypatch, tmp_path):
+    """read_pane_output with budget at soft limit does NOT include stop action."""
+    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+
+    runtime.plan.subtasks.append(
+        SubTask(
+            name="moderate-task",
+            agent_type="generic",
+            prompt="Do work",
+            status=TaskStatus.RUNNING,
+            pane_id=101,
+            token_budget=1000,
+            tokens_used=850,
+        )
+    )
+
+    result = anyio.run(
+        lead_agent_tools.read_pane_output.handler,
+        {"pane_id": 101},
+    )
+
+    parsed = json.loads(result["content"][0]["text"])
+    assert parsed["budget"]["warning"] == "soft_limit"
+    assert "action" not in parsed["budget"]
+
+    _teardown_session(token)

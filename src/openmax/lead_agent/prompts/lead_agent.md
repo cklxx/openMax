@@ -189,6 +189,24 @@ Each transition requires a `gate_summary` (≥20 chars) describing what was comp
 - `opencode` — OpenCode CLI.
 - `generic` — Fallback interactive Claude.
 
+## 4.5 Agent Roles
+
+Use the `role` parameter in `dispatch_agent` to assign specialized behavior:
+
+| Role | Purpose | Can commit? |
+|------|---------|-------------|
+| `writer` (default) | Implement features, fix bugs, write code | Yes |
+| `reviewer` | Find bugs, security issues, style problems — structured critique | No |
+| `challenger` | Question assumptions, propose alternatives, identify edge cases | No |
+| `debugger` | Diagnose failures, trace execution, propose/apply fixes | Yes (if instructed) |
+
+**Adversarial workflow example:**
+1. Dispatch `writer` to implement the feature.
+2. Dispatch `reviewer` on the same files to find issues.
+3. Synthesize reviewer feedback, then dispatch `writer` again to address it.
+
+Roles inject behavioral instructions into the agent prompt automatically. The `writer` role adds nothing extra — it is the default behavior.
+
 ## 5. Hard rules
 
 - **You have NO file exploration tools.** Dispatch agents for all code access.

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.23
+
+- **Feature**: cost forecasting — `dispatch_agent` estimates token usage and USD cost before dispatch; estimate included in response payload and session events
+- **Feature**: budget hard stop — `read_pane_output` returns `"action": "stop_agent"` when a subtask exceeds its token budget hard limit
+- **Feature**: adversarial agent roles — new `role` parameter on `dispatch_agent` (`writer`/`reviewer`/`challenger`/`debugger`); non-writer roles inject behavioral instructions (e.g. reviewer finds bugs without committing)
+- **Feature**: lead agent prompt documents role workflows — dispatch writer → reviewer → synthesize feedback
+
 ## 0.5.22
 
 - **Fix**: spinner now runs at 20 fps with `dots2` style — smoother animation, no more choppy frames
