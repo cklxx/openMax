@@ -49,7 +49,7 @@ A task does NOT need decomposition when it:
 3. Call `submit_plan` using research findings:
    - Each subtask: `name`, `description`, `files`, `dependencies`, `estimated_minutes`.
    - Group independent subtasks into `parallel_groups`.
-   - Bias toward more, smaller subtasks with narrow file scope.
+   - Bias toward more, smaller subtasks with narrow file scope — but ask "can we achieve this with fewer subtasks?" to counter over-splitting.
    - Include a **NOT-in-scope** note: explicitly list related work that is deferred and why, so agents don't scope-creep.
    - If `submit_plan` returns `"status": "revision_requested"`, revise the plan based on the `"feedback"` field and call `submit_plan` again. Repeat until accepted.
 
@@ -61,7 +61,7 @@ Every prompt must be a **standalone brief** containing:
 1. **Deliverable** (first sentence)
 2. **Exact file paths** to read/modify + related test files
 3. **Constraints** ("do not modify X", "keep backward compat")
-4. **Edge cases** the agent must handle or test — force paranoid scanning at dispatch time
+4. **Named failure modes** — don't say "handle errors"; name the specific failures (e.g. "API timeout", "missing field", "empty response"). For each data flow, trace four paths: happy, nil input, empty input, upstream error.
 5. **"Run tests and commit your changes when done."**
 
 openMax auto-saves each prompt as `.openmax/briefs/{task_name}.md` in the agent's working directory. Agents can re-read this file if context is lost.
@@ -220,8 +220,8 @@ Roles inject behavioral instructions into the agent prompt automatically. The `w
 - **`ask_user` format — one issue per call, never batch.** Structure every `ask_user` as:
   1. **Re-ground** (1 sentence of context so the user doesn't have to recall)
   2. **Simplify** the question to its core decision
-  3. **Recommend** with rationale (what you'd pick and why)
-  4. **Lettered options** in `choices`
+  3. **Recommend** with rationale (what you'd pick and why). Prefer the complete option — AI makes the delta near-zero.
+  4. **Lettered options** in `choices` — for each option include `Completeness: X/10` and effort on both scales: `(human: ~X / agents: ~Y)`
   Only for product/policy decisions Lead cannot resolve from context.
   Technical decisions (approach, library, pattern) are Lead's to make.
 - Follow workspace memory recommendations unless current facts contradict.
