@@ -560,9 +560,8 @@ def manage(
         console.print("[yellow]No existing panes found.[/yellow]")
         return
 
-    _display_panes_table(all_panes)
-
     if not task:
+        _display_panes_table(all_panes)
         return
 
     cwd = _resolve_cwd(cwd)
