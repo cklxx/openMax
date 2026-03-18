@@ -911,3 +911,89 @@ def test_loop_handles_startup_error_gracefully(monkeypatch, tmp_path):
     result = runner.invoke(cli.main, ["loop", "goal", "--max-iterations", "1", "--delay", "0"])
 
     assert result.exit_code == 0  # graceful, not a crash
+
+
+# ── manage command ─────────────────────────────────────────────────────────────
+
+
+def _make_pane_info(pane_id: int, window_id: int, title: str = "", cwd: str = "/tmp"):
+    from openmax.pane_backend import PaneInfo
+
+    return PaneInfo(
+        window_id=window_id,
+        tab_id=1,
+        pane_id=pane_id,
+        workspace="",
+        rows=24,
+        cols=80,
+        title=title,
+        cwd=cwd,
+        is_active=False,
+        is_zoomed=False,
+        cursor_visibility="visible",
+    )
+
+
+def test_manage_no_task_lists_panes(monkeypatch):
+    monkeypatch.setattr(cli, "is_kaku_available", lambda: True)
+    monkeypatch.setattr(cli, "is_tmux_available", lambda: False)
+    monkeypatch.setattr(
+        cli.PaneManager,
+        "list_all_panes",
+        staticmethod(lambda: [_make_pane_info(5, 1, "nvim"), _make_pane_info(6, 1, "zsh")]),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["manage"])
+
+    assert result.exit_code == 0
+    assert "2" in result.output  # table shows 2 total panes
+
+
+def test_manage_no_panes_exits_early(monkeypatch):
+    monkeypatch.setattr(cli, "is_kaku_available", lambda: True)
+    monkeypatch.setattr(cli, "is_tmux_available", lambda: False)
+    monkeypatch.setattr(cli.PaneManager, "list_all_panes", staticmethod(lambda: []))
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["manage"])
+
+    assert result.exit_code == 0
+    assert "No existing panes" in result.output
+
+
+def test_manage_with_task_attaches_panes_and_runs_lead_agent(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "is_kaku_available", lambda: True)
+    monkeypatch.setattr(cli, "is_tmux_available", lambda: False)
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+
+    fake_panes = [_make_pane_info(7, 2, "claude", "/repo")]
+
+    class DummyManagePaneManager(DummyPaneManager):
+        @staticmethod
+        def list_all_panes():
+            return fake_panes
+
+        def attach_pane(self, pane_info, purpose: str):
+            pass  # no-op; attachment is tested in test_pane_manager
+
+    monkeypatch.setattr(cli, "PaneManager", DummyManagePaneManager)
+
+    captured: dict = {}
+
+    def fake_run_lead_agent(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(subtasks=[])
+
+    monkeypatch.setattr(cli, "run_lead_agent", fake_run_lead_agent)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        ["manage", "monitor all panes", "--cwd", str(tmp_path), "--pane-backend", "headless"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["task"] == "monitor all panes"
+    assert "Attached Existing Panes" in captured["loop_context"]
+    assert "pane_id=7" in captured["loop_context"]

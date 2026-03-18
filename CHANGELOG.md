@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.16
+
+- **Feature**: `openmax manage [TASK]` — new command to discover and manage all existing terminal panes/windows
+  - Without TASK: displays a rich table of all running panes grouped by window (title, CWD, active marker)
+  - With TASK: attaches all discovered panes as external managed panes, injects their context into the lead agent prompt, and runs the orchestration loop so the agent can read/send to pre-existing sessions alongside dispatching new ones
+  - External panes are never killed on cleanup — `cleanup_all` skips panes/windows marked `external=True`
+- **`PaneManager.attach_pane(pane_info, purpose)`** — register a pre-existing `PaneInfo` into management without launching anything; uses `external=True` marker on both `ManagedPane` and `ManagedWindow`
+
 ## 0.5.15
 
 - **Test**: `tests/test_stability.py` — 12 stability/recoverability tests: agent crash detection, dead-pane cached output, stuck agent detection, send-to-dead-pane error, dispatch backend failure, mark-done on dead pane, resume stale task reset, verification pass/fail with dispatch_hint, all-panes summary, concurrent dispatch, and task name deduplication

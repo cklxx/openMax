@@ -472,6 +472,172 @@ def panes() -> None:
         )
 
 
+def _display_panes_table(panes_list: list) -> None:
+    """Print a rich table of panes grouped by window."""
+    from collections import defaultdict
+
+    by_window: dict[int, list] = defaultdict(list)
+    for p in panes_list:
+        by_window[p.window_id].append(p)
+
+    t = _make_table(title=f"Existing panes ({len(panes_list)} total)")
+    t.add_column("Window", style="dim")
+    t.add_column("Pane")
+    t.add_column("Title")
+    t.add_column("CWD")
+    t.add_column("")
+
+    for wid in sorted(by_window):
+        for p in by_window[wid]:
+            t.add_row(
+                str(wid),
+                str(p.pane_id),
+                p.title or "(untitled)",
+                p.cwd or "",
+                "[green]★[/green]" if p.is_active else "",
+            )
+    console.print(t)
+
+
+def _attached_panes_context(panes_list: list) -> str:
+    """Build a text block describing existing panes for the lead agent prompt."""
+    from collections import defaultdict
+
+    by_window: dict[int, list] = defaultdict(list)
+    for p in panes_list:
+        by_window[p.window_id].append(p)
+
+    lines = [
+        "## Attached Existing Panes",
+        "These panes were already running when `manage` was invoked.",
+        "Use read_pane_output / send_text_to_pane to interact with them.",
+    ]
+    for wid in sorted(by_window):
+        lines.append(f"\nWindow {wid}:")
+        for p in by_window[wid]:
+            active = " [ACTIVE]" if p.is_active else ""
+            lines.append(
+                f"  pane_id={p.pane_id}  title={p.title or '(untitled)!r'}  cwd={p.cwd}{active}"
+            )
+    return "\n".join(lines)
+
+
+@main.command()
+@click.argument("task", required=False, default=None)
+@click.option("--cwd", default=None, help="Working directory context")
+@click.option("--model", default=None, help="Model for the lead agent")
+@click.option("--max-turns", default=50, type=click.IntRange(min=1), help="Max agent loop turns")
+@click.option("--keep-panes", is_flag=True, default=False, help="Don't close new panes on exit")
+@click.option("--agents", default=None, help="Comma-separated list of allowed agent names")
+@click.option(
+    "--pane-backend",
+    "pane_backend_name",
+    type=click.Choice(["kaku", "tmux", "headless", "auto"], case_sensitive=False),
+    default=None,
+    help="Pane backend to use (defaults to auto-detect)",
+)
+def manage(
+    task: str | None,
+    cwd: str | None,
+    model: str | None,
+    max_turns: int,
+    keep_panes: bool,
+    agents: str | None,
+    pane_backend_name: str | None,
+) -> None:
+    """Discover all existing terminal panes and optionally manage them with TASK.
+
+    Without TASK: show a table of all running panes/windows.
+    With TASK: attach existing panes and run the lead agent so it can interact with them.
+    """
+    if not is_kaku_available() and not is_tmux_available():
+        console.print("[red]No pane backend available.[/red]\nRun inside Kaku (macOS) or tmux.")
+        raise SystemExit(1)
+
+    pane_backend_name = resolve_pane_backend_name(pane_backend_name)
+    all_panes = PaneManager.list_all_panes()
+    if not all_panes:
+        console.print("[yellow]No existing panes found.[/yellow]")
+        return
+
+    _display_panes_table(all_panes)
+
+    if not task:
+        return
+
+    cwd = _resolve_cwd(cwd)
+    try:
+        agent_registry = load_agent_registry(cwd)
+    except AgentConfigError as exc:
+        raise click.UsageError(str(exc)) from exc
+
+    allowed_agents = _parse_allowed_agents(agents, set(agent_registry.names()))
+
+    if pane_backend_name == "kaku" and not ensure_kaku():
+        raise SystemExit(1)
+    if pane_backend_name == "tmux" and not ensure_tmux():
+        raise SystemExit(1)
+
+    pane_mgr = PaneManager(backend_name=pane_backend_name)
+
+    for p in all_panes:
+        pane_mgr.attach_pane(p, purpose=p.title or p.cwd or f"pane-{p.pane_id}")
+
+    _cleaned_up = False
+
+    def _do_cleanup():
+        nonlocal _cleaned_up
+        if _cleaned_up or keep_panes:
+            return
+        _cleaned_up = True
+        try:
+            pane_mgr.cleanup_all()
+        except Exception:
+            pass
+
+    atexit.register(_do_cleanup)
+
+    previous_sigint = signal.getsignal(signal.SIGINT)
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+
+    def _cleanup_and_exit(signum, _frame):
+        console.print("\n[dim]Interrupted — cleaning up...[/dim]")
+        _do_cleanup()
+        sys.exit(130 if signum == signal.SIGINT else 143)
+
+    signal.signal(signal.SIGINT, _cleanup_and_exit)
+    signal.signal(signal.SIGTERM, _cleanup_and_exit)
+
+    try:
+        effective_model = model or get_model()
+        try:
+            plan = run_lead_agent(
+                task=task,
+                pane_mgr=pane_mgr,
+                cwd=cwd,
+                model=effective_model,
+                max_turns=max_turns,
+                allowed_agents=allowed_agents,
+                agent_registry=agent_registry,
+                loop_context=_attached_panes_context(all_panes),
+            )
+        except LeadAgentStartupError as exc:
+            raise SystemExit(1) from exc
+        else:
+            summary = pane_mgr.summary()
+            console.print(
+                f"\n[bold]Done.[/bold] {len(plan.subtasks)} sub-tasks, {summary['done']} done"
+            )
+    finally:
+        signal.signal(signal.SIGINT, previous_sigint)
+        signal.signal(signal.SIGTERM, previous_sigterm)
+        if not keep_panes and not _cleaned_up:
+            console.print("[dim]Closing new panes...[/dim]")
+            _do_cleanup()
+        elif keep_panes:
+            console.print("[dim]Keeping new panes open (--keep-panes).[/dim]")
+
+
 @main.command("read-pane")
 @click.argument("pane_id", type=int)
 def read_pane(pane_id: int) -> None:

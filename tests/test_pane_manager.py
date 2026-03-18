@@ -321,3 +321,53 @@ def test_kaku_backend_list_panes_decodes_file_urls(monkeypatch):
             cursor_visibility="visible",
         )
     ]
+
+
+def test_attach_pane_registers_without_backend_call():
+    backend = FakeBackend()
+    manager = PaneManager(backend=backend)
+
+    pane_info = make_pane_info(pane_id=42, window_id=7)
+    pane = manager.attach_pane(pane_info, purpose="nvim")
+
+    assert pane.pane_id == 42
+    assert pane.window_id == 7
+    assert pane.agent_type == "external"
+    assert pane.external is True
+    assert manager.windows[7].external is True
+    assert 42 in manager.windows[7].pane_ids
+    # attach_pane must NOT call the backend at all
+    assert backend.calls == []
+
+
+def test_attach_pane_reuses_existing_window():
+    backend = FakeBackend()
+    manager = PaneManager(backend=backend)
+
+    p1 = make_pane_info(pane_id=10, window_id=3)
+    p2 = make_pane_info(pane_id=11, window_id=3)
+    manager.attach_pane(p1, purpose="zsh")
+    manager.attach_pane(p2, purpose="vim")
+
+    assert manager.windows[3].pane_ids == [10, 11]
+    assert len(manager.windows) == 1
+
+
+def test_cleanup_all_skips_external_panes():
+    backend = FakeBackend()
+    backend.list_panes_result = [make_pane_info(pane_id=11, window_id=5)]
+    manager = PaneManager(backend=backend)
+
+    # One openmax-created pane
+    manager._windows[5] = ManagedWindow(5, "openMax agents", [11])
+    manager._panes[11] = ManagedPane(11, 5, "API", "codex", PaneState.RUNNING, external=False)
+
+    # One external pane
+    ext_info = make_pane_info(pane_id=99, window_id=9)
+    manager.attach_pane(ext_info, purpose="existing-bash")
+
+    manager.cleanup_all()
+
+    killed = [args[1] for args in backend.calls if args[0] == "kill_pane"]
+    assert 11 in killed
+    assert 99 not in killed

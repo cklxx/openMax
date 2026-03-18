@@ -26,6 +26,7 @@ class ManagedPane:
     agent_type: str
     state: PaneState = PaneState.IDLE
     created_at: float = field(default_factory=time.time)
+    external: bool = False  # True = attached from a pre-existing pane, never killed on cleanup
 
 
 @dataclass
@@ -36,6 +37,7 @@ class ManagedWindow:
     title: str
     pane_ids: list[int] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
+    external: bool = False  # True = pre-existing window, never killed on cleanup
 
 
 # ── Layout strategy ───────────────────────────────────────────────
@@ -125,6 +127,25 @@ class PaneManager:
         if window_id is not None:
             self._focus_and_resize(pane_id, title)
         return self._track_pane(pane_id, effective_wid, purpose, agent_type)
+
+    def attach_pane(self, pane_info: PaneInfo, purpose: str) -> ManagedPane:
+        """Register a pre-existing pane into management without launching it."""
+        wid = pane_info.window_id
+        if wid not in self._windows:
+            self._windows[wid] = ManagedWindow(window_id=wid, title=f"window-{wid}", external=True)
+        win = self._windows[wid]
+        if pane_info.pane_id not in win.pane_ids:
+            win.pane_ids.append(pane_info.pane_id)
+        pane = ManagedPane(
+            pane_id=pane_info.pane_id,
+            window_id=wid,
+            purpose=purpose,
+            agent_type="external",
+            state=PaneState.RUNNING,
+            external=True,
+        )
+        self._panes[pane_info.pane_id] = pane
+        return pane
 
     def _track_window(self, window_id: int, title: str, first_pane_id: int) -> None:
         win = ManagedWindow(window_id=window_id, title=title, pane_ids=[first_pane_id])
@@ -296,9 +317,9 @@ class PaneManager:
     # ── Cleanup ────────────────────────────────────────────────────
 
     def cleanup_all(self) -> None:
-        """Kill all managed panes and ensure managed windows close."""
-        managed_pane_ids = list(self._panes)
-        managed_window_ids = set(self._windows)
+        """Kill all managed panes and ensure managed windows close. Skips external panes."""
+        managed_pane_ids = [pid for pid, p in self._panes.items() if not p.external]
+        managed_window_ids = {wid for wid, w in self._windows.items() if not w.external}
         for pane_id in managed_pane_ids:
             self._kill_pane_process(pane_id)
         self._kill_stragglers(managed_pane_ids)
