@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.18
+
+- **Improve**: lead-agent text output now rendered as markdown via Rich `Markdown` renderer — headers, tables, bold, code blocks all display correctly instead of raw `│`-prefixed plain text
+
 ## 0.5.17
 
 - **Improve**: ANSI stripping for stuck detection — `strip_terminal_noise` removes ANSI escapes, progress bar chars, and spinner symbols before hashing; prevents false negatives where cosmetic output changes mask a stuck agent

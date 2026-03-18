@@ -13,6 +13,7 @@ import time
 
 from rich.console import ConsoleRenderable, Group
 from rich.live import Live
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
@@ -55,11 +56,9 @@ def print_phase_divider(phase: str) -> None:
 
 
 def print_agent_text(text: str) -> None:
-    """Print lead-agent reasoning text with visual distinction."""
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped:
-            console.print(f"  [dim]\u2502[/dim] {stripped}")
+    """Render lead-agent text as markdown."""
+    if text.strip():
+        console.print(Markdown(text))
 
 
 class RunDashboard:
