@@ -8,10 +8,12 @@ user knows the tool is alive.
 
 from __future__ import annotations
 
+import io
+import re
 import sys
 import time
 
-from rich.console import ConsoleRenderable, Group
+from rich.console import Console, ConsoleRenderable, Group
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -56,9 +58,16 @@ def print_phase_divider(phase: str) -> None:
 
 
 def print_agent_text(text: str) -> None:
-    """Render lead-agent text as markdown."""
-    if text.strip():
-        console.print(Markdown(text))
+    """Render lead-agent text as markdown; collapse 3+ consecutive newlines to 2."""
+    stripped = text.strip()
+    if not stripped:
+        return
+    buf = io.StringIO()
+    tmp = Console(file=buf, width=console.width or 80, force_terminal=True, no_color=False)
+    tmp.print(Markdown(stripped), end="")
+    rendered = re.sub(r"\n{3,}", "\n\n", buf.getvalue())
+    console.file.write(rendered.strip() + "\n")
+    console.file.flush()
 
 
 class RunDashboard:
