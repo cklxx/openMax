@@ -4,6 +4,7 @@
 
 * Priority: **correctness > simplicity > speed**.
 * Before ANY code change, run: `git diff --stat` + `git log --oneline -5`. Investigate if diffs touch unrelated files.
+* Before non-trivial tasks, **enter plan mode** to align on full context and approach with the user. Only skip for obviously trivial changes (single-line fix, typo, clear one-file edit).
 * On ANY user correction, codify a preventive rule before resuming.
 
 ---
