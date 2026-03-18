@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.27
+
+- **Feature**: acceleration ratio — compute `wall_clock / critical_path` to show parallelization benefit; displayed in scorecard and report completion panel
+- **Feature**: orchestration overhead breakdown — classify session time into agent/dispatch/monitor/merge/other with percentage display
+- **Improve**: dashboard — bold/dim/strike row styles per subtask status, phase duration rollup, and bold green "ALL DONE" banner when all tasks complete
+
 ## 0.5.26
 
 - **Improve**: lead agent prompt — dispatch briefs require named failure modes and four shadow paths (happy/nil/empty/error); plan phase adds focus-as-subtraction to counter over-splitting; ask_user options include completeness score (X/10) and dual effort scale (human vs agents)
