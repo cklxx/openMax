@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.26
+
+- **Improve**: lead agent prompt — dispatch briefs require named failure modes and four shadow paths (happy/nil/empty/error); plan phase adds focus-as-subtraction to counter over-splitting; ask_user options include completeness score (X/10) and dual effort scale (human vs agents)
+
 ## 0.5.25
 
 - **Improve**: lead agent prompt — add strategic thinking patterns: completeness principle (prefer thoroughness over shortcuts), pre-mortem step in planning, NOT-in-scope discipline, edge case checklist in dispatch briefs, zero silent failures in monitoring, reversibility gate for escalation decisions, structured ask_user format
