@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.28
+
+- **Fix**: dashboard UI overlap — `print_agent_text` now routes through `console.print(Text.from_ansi(...))` instead of writing directly to `console.file`, so Rich's `Live` widget correctly manages cursor position when the status bar is active
+
 ## 0.5.27
 
 - **Feature**: acceleration ratio — compute `wall_clock / critical_path` to show parallelization benefit; displayed in scorecard and report completion panel

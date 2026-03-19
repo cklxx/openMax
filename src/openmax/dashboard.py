@@ -73,8 +73,7 @@ def print_agent_text(text: str) -> None:
     tmp = Console(file=buf, width=console.width or 80, force_terminal=True, no_color=False)
     tmp.print(Markdown(stripped), end="")
     rendered = re.sub(r"\n{3,}", "\n\n", buf.getvalue())
-    console.file.write(rendered.strip() + "\n")
-    console.file.flush()
+    console.print(Text.from_ansi(rendered.strip()))
 
 
 class RunDashboard:
