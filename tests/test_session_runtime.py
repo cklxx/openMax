@@ -617,9 +617,9 @@ def test_acceleration_ratio_parallel_tasks():
             "2026-03-13T12:00:00+00:00",
             {
                 "subtasks": [
-                    {"name": "A", "depends_on": []},
-                    {"name": "B", "depends_on": ["A"]},
-                    {"name": "C", "depends_on": []},
+                    {"name": "A", "dependencies": []},
+                    {"name": "B", "dependencies": ["A"]},
+                    {"name": "C", "dependencies": []},
                 ]
             },
         ),
@@ -667,8 +667,8 @@ def test_acceleration_ratio_no_deps():
             "2026-03-13T12:00:00+00:00",
             {
                 "subtasks": [
-                    {"name": "X", "depends_on": []},
-                    {"name": "Y", "depends_on": []},
+                    {"name": "X", "dependencies": []},
+                    {"name": "Y", "dependencies": []},
                 ]
             },
         ),

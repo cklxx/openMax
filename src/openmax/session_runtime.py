@@ -845,7 +845,7 @@ def _extract_task_deps(events: list[LeadEvent]) -> dict[str, list[str]]:
         if ev.event_type == "tool.submit_plan":
             subtasks = ev.payload.get("subtasks", [])
             return {
-                str(st.get("name", "")): [str(d) for d in st.get("depends_on", [])]
+                str(st.get("name", "")): [str(d) for d in st.get("dependencies", [])]
                 for st in subtasks
                 if isinstance(st, dict)
             }

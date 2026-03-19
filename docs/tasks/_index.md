@@ -1,6 +1,6 @@
 # openMax Task Index
 
-> Each row is a dispatchable task spec. Status: `pending` → `in_progress` → `done`.
+> Each row is a dispatchable task spec. Status: `done` | `removed` | `pending`.
 
 ## Core Problem
 
@@ -29,61 +29,58 @@ No mainstream framework (Claude Teams / Kimi Swarm / LangGraph / CrewAI) has sol
 
 ## Task Pillars
 
-Tasks are organized by the core goal they serve, not by implementation order.
-
 ### Pillar A — Task Decomposition & Scheduling (→ Parallel Acceleration)
 
-| ID | Title | Pri | Deps | Status | Key Files |
-|----|-------|-----|------|--------|-----------|
-| 1.1 | Structured Decomposition | P0 | — | done | `types.py`, `tools.py`, `formatting.py`, `session_runtime.py`, `lead_agent.md` |
-| 1.2 | Dependency Scheduling | P3 | 1.1 | pending | `tools.py`, `types.py` |
-| 2.2 | Load Balancing | P3 | — | pending | `tools.py`, `types.py` |
+| ID | Title | Pri | Status |
+|----|-------|-----|--------|
+| 1.1 | Structured Decomposition | P0 | done |
+| 1.2 | Dependency Scheduling (validation) | P3 | done |
+| 2.2 | Load Balancing | P3 | pending |
 
 ### Pillar B — Context & Knowledge (→ Quality)
 
-| ID | Title | Pri | Deps | Status | Key Files |
-|----|-------|-----|------|--------|-----------|
-| 3.1 | Context Injection | P2 | 1.1 | done | `tools.py` |
-| 7.1 | Memory Eviction | P1 | — | done | `memory/store.py`, `memory/_utils.py` |
-| 2.1 | Recommendation Accuracy | P2 | — | pending | `tools.py`, `memory/rankings.py` |
-| 3.2 | Context Budget | P3 | 3.1 | pending | `tools.py` |
-| 7.2 | Recall Usefulness | P3 | 7.1 | pending | `memory/store.py`, `tools.py`, `lead_agent.md` |
-| 7.3 | Error Pattern Learning | P3 | 7.1 | pending | `tools.py`, `memory/store.py` |
-| 11.2 | Context Compression Protocol | P2 | 3.1 | pending | `tools.py`, `lead_agent/core.py`, `lead_agent.md` |
+| ID | Title | Pri | Status |
+|----|-------|-----|--------|
+| 3.1 | Context Injection | P2 | done |
+| 11.2 | Context Compression Protocol | P2 | done |
+| 3.2 | Context Budget | P3 | done |
+| 7.1 | Memory Eviction | P1 | removed (memory system deleted v0.5.37) |
+| 2.1 | Recommendation Accuracy | P2 | removed (memory system deleted v0.5.37) |
+| 7.2 | Recall Usefulness | P3 | removed (memory system deleted v0.5.37) |
+| 7.3 | Error Pattern Learning | P3 | removed (memory system deleted v0.5.37) |
 
 ### Pillar C — Execution Reliability (→ Error Isolation)
 
-| ID | Title | Pri | Deps | Status | Key Files |
-|----|-------|-----|------|--------|-----------|
-| 4.1 | Stuck Detection | P0 | — | done | `tools.py`, `session_runtime.py` |
-| 10.1 | Failure Auto-Retry | P1 | — | done | `tools.py`, `types.py`, `lead_agent.md`, `pane_manager.py` |
-| 8.1 | Phase Gating | P1 | — | done | `tools.py`, `formatting.py`, `session_runtime.py`, `lead_agent.md`, `dashboard.py` |
-| 8.2 | Research Phase | P3 | 8.1 | pending | `tools.py`, `lead_agent.md` |
-| 8.3 | Verify Phase | P3 | 5.2, 8.1 | pending | `lead_agent.md` |
-| 9.1 | Plan Approval | P3 | 8.1 | pending | `tools.py`, `cli.py`, `lead_agent/core.py` |
-| 9.2 | Acceptance Confirmation | P3 | 8.3 | pending | `lead_agent.md`, `lead_agent/core.py` |
-| 10.2 | Resume Enhancement | P3 | — | pending | `session_runtime.py`, `lead_agent/core.py` |
-| 11.1 | Branch Isolation | P1 | — | done | `tools.py`, `lead_agent.md` |
+| ID | Title | Pri | Status |
+|----|-------|-----|--------|
+| 4.1 | Stuck Detection | P0 | done |
+| 10.1 | Failure Auto-Retry | P1 | done |
+| 8.1 | Phase Gating | P1 | done |
+| 11.1 | Branch Isolation & Auto-Merge | P1 | done |
+| 8.2 | Research Phase | P3 | done (in prompt, not enforced) |
+| 8.3 | Verify Phase | P3 | done |
+| 9.1 | Plan Approval | P3 | done |
+| 9.2 | Acceptance Confirmation | P3 | pending |
+| 10.2 | Resume Enhancement | P3 | done (basic) |
 
 ### Pillar D — Quality Assurance (→ Adversarial Quality)
 
-| ID | Title | Pri | Deps | Status | Key Files |
-|----|-------|-----|------|--------|-----------|
-| 5.2 | Build Verification | P0 | — | done | `tools.py`, `formatting.py`, `session_runtime.py`, `lead_agent.md` |
-| 5.1 | Git Conflict Detection | P2 | — | done | `tools.py`, `formatting.py`, `session_runtime.py`, `lead_agent.md` |
-| 5.3 | Code Consistency | P3 | 5.2 | pending | `tools.py`, `linter_detect.py` (new) |
-| 11.1 | Branch Isolation & Auto-Merge | P1 | 5.1 | pending | `pane_manager.py`, `tools.py`, `lead_agent.md` |
+| ID | Title | Pri | Status |
+|----|-------|-----|--------|
+| 5.2 | Build Verification | P0 | done |
+| 5.1 | Git Conflict Detection | P2 | done |
+| 5.3 | Code Consistency (auto-linter) | P3 | pending |
 
 ### Pillar E — Observability & Cost (→ Cost Controllability)
 
-| ID | Title | Pri | Deps | Status | Key Files |
-|----|-------|-----|------|--------|-----------|
-| 6.3 | Token Tracking | P1 | — | done | `lead_agent/core.py`, `session_runtime.py` |
-| 4.2 | Dashboard Elapsed Time | P2 | — | done | `dashboard.py`, `tools.py`, `types.py` |
-| 4.3 | Progress Readability | P3 | — | pending | `dashboard.py` |
-| 6.1 | Acceleration Ratio | P3 | 6.3 | pending | `types.py`, `tools.py`, `session_runtime.py` |
-| 6.2 | Orchestration Overhead | P3 | 6.3 | pending | `session_runtime.py`, `tools.py` |
-| 11.3 | Cost Convergence & Budget Control | P2 | 6.3 | pending | `lead_agent/core.py`, `tools.py`, `types.py` |
+| ID | Title | Pri | Status |
+|----|-------|-----|--------|
+| 6.3 | Token Tracking | P1 | done |
+| 11.3 | Cost Convergence & Budget Control | P2 | done |
+| 4.2 | Dashboard Elapsed Time | P2 | done |
+| 6.1 | Acceleration Ratio | P3 | done |
+| 6.2 | Orchestration Overhead | P3 | done |
+| 4.3 | Progress Readability | P3 | done |
 
 ---
 
@@ -91,104 +88,42 @@ Tasks are organized by the core goal they serve, not by implementation order.
 
 | Status | Count |
 |--------|-------|
-| done | 10 |
-| pending | 17 |
+| done | 21 |
+| removed | 4 |
+| pending | 2 |
 | **total** | **27** |
 
-### Completed (chronological)
+### Remaining (P3)
 
-1. 4.1 Stuck Detection
-2. 5.2 Build Verification
-3. 1.1 Structured Decomposition
-4. 6.3 Token Tracking
-5. 3.1 Context Injection
-6. 4.2 Dashboard Elapsed Time
-7. 5.1 Git Conflict Detection
-8. 7.1 Memory Eviction
-9. 8.1 Phase Gating
-10. 10.1 Failure Auto-Retry
+| ID | Title | Notes |
+|----|-------|-------|
+| 2.2 | Load Balancing | No queue management or agent load distribution |
+| 5.3 | Code Consistency | Auto-detect project linter config |
+| 9.2 | Acceptance Confirmation | Post-verification user approval gate |
 
 ---
-
-## Dispatch Waves
-
-### Wave 1 — P0 (done)
-
-4.1, 5.2, 1.1 — all completed.
-
-### Wave 2 — P1 (done)
-
-7.1, 10.1, 6.3, 8.1 — all completed.
-
-### Wave 3 — Next Up (P1–P2, ready to dispatch)
-
-| ID | Title | Why now |
-|----|-------|---------|
-| 11.1 | Branch Isolation & Auto-Merge | Unlocks safe multi-agent parallel edits — the #1 unsolved problem |
-| 11.2 | Context Compression Protocol | Directly addresses context cold start — #2 unsolved problem |
-| 11.3 | Cost Convergence & Budget Control | Addresses cost controllability — #3 unsolved problem |
-| 2.1 | Recommendation Accuracy | Independent, improves agent selection quality |
-
-Conflict analysis: 11.1 and 11.3 both touch `tools.py` — dispatch sequentially or partition file sections. 11.2 is independent.
-
-### Wave 4 — P3 (after Wave 3 dependencies met)
-
-Follow dependency chains: 1.2, 2.2, 3.2, 4.3, 5.3, 6.1, 6.2, 7.2, 7.3, 8.2, 8.3, 9.1, 9.2, 10.2.
-
----
-
-## Dependency Graph
-
-```
-Pillar A — Decomposition
-  1.1 Structured Decomposition ✅
-    └── 1.2 Dependency Scheduling
-  2.2 Load Balancing (independent)
-
-Pillar B — Context
-  3.1 Context Injection ✅
-    └── 3.2 Context Budget
-    └── 11.2 Context Compression Protocol
-  7.1 Memory Eviction ✅
-    └── 7.2 Recall Usefulness
-    └── 7.3 Error Pattern Learning
-  2.1 Recommendation Accuracy (independent)
-
-Pillar C — Reliability
-  4.1 Stuck Detection ✅
-  10.1 Failure Auto-Retry ✅
-  8.1 Phase Gating ✅
-    └── 8.2 Research Phase
-    └── 8.3 Verify Phase → 9.2 Acceptance Confirmation
-    └── 9.1 Plan Approval
-  10.2 Resume Enhancement (independent)
-
-Pillar D — Quality
-  5.2 Build Verification ✅
-    └── 5.3 Code Consistency
-    └── 8.3 Verify Phase (cross-pillar)
-  5.1 Git Conflict Detection ✅
-    └── 11.1 Branch Isolation & Auto-Merge
-
-Pillar E — Observability
-  6.3 Token Tracking ✅
-    └── 6.1 Acceleration Ratio
-    └── 6.2 Orchestration Overhead
-    └── 11.3 Cost Convergence & Budget Control
-  4.2 Dashboard Elapsed Time ✅
-  4.3 Progress Readability (independent)
-```
 
 ## Completed (chronological)
 
 1. **4.1** Stuck Detection
 2. **5.2** Build Verification
 3. **1.1** Structured Decomposition
-4. **7.1** Memory Eviction
+4. **7.1** Memory Eviction (later removed)
 5. **10.1** Failure Auto-Retry
 6. **6.3** Token Tracking
 7. **8.1** Phase Gating
 8. **3.1** Context Injection
 9. **4.2** Dashboard Elapsed Time
 10. **5.1** Git Conflict Detection
-11. **11.1** Branch Isolation
+11. **11.1** Branch Isolation & Auto-Merge
+12. **11.2** Context Compression Protocol
+13. **11.3** Cost Convergence & Budget Control
+14. **1.2** Dependency Scheduling (validation in submit_plan)
+15. **8.2** Research Phase (prompt-driven)
+16. **8.3** Verify Phase (run_verification tool)
+17. **9.1** Plan Approval (interactive confirmation)
+18. **10.2** Resume Enhancement (session reconciliation)
+19. **3.2** Context Budget (context_budget_tokens param)
+20. **6.1** Acceleration Ratio (scorecard)
+21. **6.2** Orchestration Overhead (scorecard)
+22. **4.3** Progress Readability (RunDashboard)
