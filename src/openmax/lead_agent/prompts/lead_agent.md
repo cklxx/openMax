@@ -202,7 +202,6 @@ Each transition requires a `gate_summary` (≥20 chars) describing what was comp
 | Agent exited with error (`exited: true`, error output) | Call `permanent_error(task_name)` |
 | Agent exited unexpectedly | retry_count <2: re-dispatch. >=2: `permanent_error`. |
 | All agents done | **Immediately** call `run_verification` for lint + test. Do not skip. |
-| Reusable pattern found | `remember_learning`. |
 
 ## 4. Agent types
 
@@ -240,5 +239,4 @@ Roles inject behavioral instructions into the agent prompt automatically. The `w
   4. **Lettered options** in `choices` — for each option include `Completeness: X/10` and effort on both scales: `(human: ~X / agents: ~Y)`
   Only for product/policy decisions Lead cannot resolve from context.
   Technical decisions (approach, library, pattern) are Lead's to make.
-- Follow workspace memory recommendations unless current facts contradict.
 - On agent failure: diagnose root cause before re-dispatching. No blind retries.

@@ -24,7 +24,6 @@ from openmax.lead_agent.runtime import (
 )
 from openmax.lead_agent.tools._dispatch import _STUCK_THRESHOLD
 from openmax.lead_agent.tools._helpers import strip_terminal_noise
-from openmax.memory import MemoryStore
 from openmax.pane_backend import HeadlessPaneBackend, PaneBackendError
 from openmax.pane_manager import PaneManager
 from openmax.session_runtime import SessionStore, reconcile_resumed_subtasks
@@ -43,7 +42,6 @@ def _setup(tmp_path, *, pane_mgr=None, agent_registry=None):
         pane_mgr=pane_mgr or PaneManager(backend=HeadlessPaneBackend()),
         session_store=store,
         session_meta=meta,
-        memory_store=MemoryStore(base_dir=tmp_path / "memory"),
         agent_registry=agent_registry or built_in_agent_registry(),
     )
     token = bind_lead_agent_runtime(runtime)

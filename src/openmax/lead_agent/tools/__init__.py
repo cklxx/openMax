@@ -15,13 +15,11 @@ from openmax.lead_agent.tools._misc import (
     ask_user,
     check_conflicts,
     read_task_report,
-    remember_learning,
     run_command,
     wait_for_agent_message,
     wait_tool,
 )
 from openmax.lead_agent.tools._misc import find_files_tool as find_files_tool
-from openmax.lead_agent.tools._misc import get_agent_recommendations as get_agent_recommendations
 from openmax.lead_agent.tools._misc import grep_files_tool as grep_files_tool
 from openmax.lead_agent.tools._misc import list_managed_panes as list_managed_panes
 from openmax.lead_agent.tools._misc import read_file_tool as read_file_tool
@@ -53,7 +51,6 @@ ALL_TOOLS = [
     run_verification,
     send_text_to_pane,
     submit_plan,
-    remember_learning,
     report_completion,
     transition_phase,
     update_shared_context,

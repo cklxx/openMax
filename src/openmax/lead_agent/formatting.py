@@ -9,7 +9,6 @@ _TOOL_NAME_PREFIX = "mcp__openmax__"
 
 _TOOL_CATEGORIES: dict[str, str] = {
     "dispatch_agent": "dispatch",
-    "get_agent_recommendations": "system",
     "run_command": "system",
     "submit_plan": "system",
     "run_verification": "system",
@@ -24,7 +23,6 @@ _TOOL_CATEGORIES: dict[str, str] = {
     "mark_task_done": "system",
     "record_phase_anchor": "system",
     "transition_phase": "system",
-    "remember_learning": "system",
     "check_conflicts": "system",
     "report_completion": "system",
     "wait": "system",
@@ -108,14 +106,6 @@ def _format_tool_use(tool_name: str, tool_input: dict[str, Any] | None = None) -
         agent_type = str(tool_input.get("agent_type", "")).strip() or "default agent"
         return f"Starting agent for {task_name} via {agent_type}"
 
-    if normalized == "get_agent_recommendations":
-        task = str(tool_input.get("task", "")).strip()
-        return (
-            f"Checking best agent for {_truncate_text(task)}"
-            if task
-            else "Checking which agent fits best"
-        )
-
     if normalized == "submit_plan":
         subtasks = tool_input.get("subtasks", [])
         count = len(subtasks) if isinstance(subtasks, list) else 0
@@ -189,14 +179,6 @@ def _format_tool_use(tool_name: str, tool_input: dict[str, Any] | None = None) -
         from_p = str(tool_input.get("from_phase", "")).strip()
         to_p = str(tool_input.get("to_phase", "")).strip()
         return f"Transitioning phase: {from_p} \u2192 {to_p}"
-
-    if normalized == "remember_learning":
-        lesson = str(tool_input.get("lesson", "")).strip()
-        return (
-            f"Saving reusable lesson: {_truncate_text(lesson)}"
-            if lesson
-            else "Saving reusable lesson"
-        )
 
     if normalized == "report_completion":
         completion_pct = _coerce_tool_int(tool_input.get("completion_pct"))

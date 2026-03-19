@@ -16,7 +16,6 @@ from openmax.lead_agent.tools._helpers import (
     _build_blackboard_block,
     _build_role_context,
     _build_subagent_context,
-    _compress_context,
     _extract_smart_output,
     _file_protocol_section,
     _read_subtask_report_for_pane,
@@ -105,19 +104,6 @@ def _deduplicate_task_name(runtime: Any, task_name: str, is_retry: bool) -> str:
     return new_name
 
 
-def _gather_memory_text(runtime: Any, task_name: str, context_budget: int) -> str | None:
-    """Fetch and compress memory context for a task."""
-    if runtime.memory_store is None:
-        return None
-    try:
-        memory_context = runtime.memory_store.build_context(cwd=runtime.cwd, task=task_name)
-        if memory_context and memory_context.text:
-            return _compress_context(memory_context.text, context_budget)
-    except Exception:
-        pass
-    return None
-
-
 def _setup_branch_isolation(runtime: Any, task_name: str) -> tuple[str | None, str]:
     """Create per-agent branch + worktree. Returns (branch_name, agent_cwd)."""
     if runtime.integration_branch is None:
@@ -138,15 +124,12 @@ def _build_full_prompt(
     prompt: str,
     branch_name: str | None,
     agent_cwd: str,
-    memory_text: str | None,
     task_name: str,
     brief_file: Any,
     rep_file: Any,
     role_context: str = "",
 ) -> str:
-    context_block = _build_subagent_context(
-        branch_name=branch_name, agent_cwd=agent_cwd, memory_text=memory_text
-    )
+    context_block = _build_subagent_context(branch_name=branch_name, agent_cwd=agent_cwd)
     if context_block:
         prompt = prompt + context_block
     blackboard_block = _build_blackboard_block(agent_cwd)
@@ -226,22 +209,8 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     is_retry = retry_count > 0 and task_name in existing_names
     task_name = _deduplicate_task_name(runtime, task_name, is_retry)
 
-    recommended_agent = None
-    if runtime.memory_store is not None:
-        try:
-            rankings = runtime.memory_store.derive_agent_rankings(cwd=runtime.cwd, task=task_name)
-            if rankings:
-                recommended_agent = rankings[0].agent_type
-        except Exception:
-            pass
-
     agent_type = _resolve_agent_type(runtime, agent_type)
     agent_type, adapter = _resolve_adapter(runtime, agent_type)
-
-    context_budget = args.get("context_budget_tokens", 2000)
-    if not isinstance(context_budget, int) or context_budget < 0:
-        context_budget = 2000
-    memory_text = _gather_memory_text(runtime, task_name, context_budget)
 
     branch_name, agent_cwd = _setup_branch_isolation(runtime, task_name)
 
@@ -255,7 +224,6 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         prompt,
         branch_name,
         agent_cwd,
-        memory_text,
         task_name,
         brief_file,
         rep_file,
@@ -332,7 +300,6 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         "pane_id": pane.pane_id,
         "window_id": runtime.agent_window_id,
         "panes_in_window": pane_count,
-        "recommended_agent": recommended_agent,
         "retry_count": retry_count,
         "branch_name": branch_name,
         "role": role,

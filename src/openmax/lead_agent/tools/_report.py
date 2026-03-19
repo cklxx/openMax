@@ -9,7 +9,6 @@ from claude_agent_sdk import tool
 from openmax.lead_agent.tools._helpers import (
     _append_session_event,
     _record_phase_anchor,
-    _remember_run_summary,
     _tool_response,
 )
 
@@ -32,7 +31,7 @@ def _get_scorecard():
     "report_completion",
     "Report overall goal completion percentage and summary. Call exactly once "
     "when all tasks are done. Describe what was delivered, not what was attempted. "
-    "This saves a run summary to workspace memory.",
+    "This records a phase anchor for session tracking.",
     {"completion_pct": int, "notes": str},
 )
 async def report_completion(args: dict[str, Any]) -> dict[str, Any]:
@@ -63,5 +62,4 @@ async def report_completion(args: dict[str, Any]) -> dict[str, Any]:
         {"completion_pct": pct, "notes": notes},
     )
     _record_phase_anchor("report", notes, pct)
-    _remember_run_summary(notes, pct)
     return _tool_response(f"Reported {pct}% \u2014 {notes}")

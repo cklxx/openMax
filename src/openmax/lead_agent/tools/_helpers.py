@@ -13,7 +13,6 @@ import anyio
 
 from openmax.lead_agent.runtime import LeadAgentRuntime, get_lead_agent_runtime
 from openmax.lead_agent.types import SubTask, TaskStatus
-from openmax.memory import serialize_subtasks
 from openmax.output import P, console
 from openmax.pane_backend import PaneBackendError
 from openmax.pane_manager import PaneManager
@@ -83,6 +82,26 @@ def _upsert_subtask(subtask: SubTask) -> None:
     runtime.plan.subtasks.append(subtask)
 
 
+def _serialize_subtasks(tasks: list[Any]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for task in tasks:
+        status = getattr(task, "status", "")
+        pane_id = getattr(task, "pane_id", None)
+        entry: dict[str, Any] = {
+            "name": getattr(task, "name", ""),
+            "agent_type": getattr(task, "agent_type", ""),
+            "prompt": getattr(task, "prompt", ""),
+            "status": getattr(status, "value", str(status)),
+            "pane_id": pane_id,
+            "pane_history": [pane_id] if pane_id is not None else [],
+        }
+        branch_name = getattr(task, "branch_name", None)
+        if branch_name:
+            entry["branch_name"] = branch_name
+        result.append(entry)
+    return result
+
+
 def _record_phase_anchor(phase: str, summary: str, completion_pct: int | None = None) -> None:
     runtime = _runtime()
     if runtime.plan is None:
@@ -91,7 +110,7 @@ def _record_phase_anchor(phase: str, summary: str, completion_pct: int | None = 
     payload = anchor_payload(
         phase=normalized_phase,
         summary=summary.strip(),
-        tasks=serialize_subtasks(runtime.plan.subtasks),
+        tasks=_serialize_subtasks(runtime.plan.subtasks),
         completion_pct=completion_pct,
     )
     _append_session_event("phase.anchor", payload)
@@ -101,25 +120,6 @@ def _record_phase_anchor(phase: str, summary: str, completion_pct: int | None = 
 def _tool_response(data: Any) -> dict[str, Any]:
     text = json.dumps(data, ensure_ascii=False) if isinstance(data, (dict, list)) else str(data)
     return {"content": [{"type": "text", "text": text}]}
-
-
-def _remember_run_summary(notes: str, completion_pct: int) -> None:
-    runtime = _runtime()
-    if runtime.memory_store is None or runtime.plan is None:
-        return
-    anchors: list[dict[str, Any]] = []
-    if runtime.session_store is not None and runtime.session_meta is not None:
-        for event in runtime.session_store.load_events(runtime.session_meta.session_id):
-            if event.event_type == "phase.anchor":
-                anchors.append(event.payload)
-    runtime.memory_store.record_run_summary(
-        cwd=runtime.cwd,
-        task=runtime.plan.goal,
-        notes=notes,
-        completion_pct=completion_pct,
-        subtasks=serialize_subtasks(runtime.plan.subtasks),
-        anchors=anchors,
-    )
 
 
 def _pane_id_for_task(task_name: str) -> int | None:
@@ -280,7 +280,6 @@ def _build_subagent_context(
     *,
     branch_name: str | None,
     agent_cwd: str | None = None,
-    memory_text: str | None,
 ) -> str:
     """Build a structured context block for sub-agent prompts.
 
@@ -298,9 +297,6 @@ def _build_subagent_context(
         sections.append(
             f"Branch: {branch_name} (isolated worktree — commit here, do not switch branches)"
         )
-
-    if memory_text:
-        sections.append(f"Relevant history:\n{memory_text}")
 
     if not sections:
         return ""

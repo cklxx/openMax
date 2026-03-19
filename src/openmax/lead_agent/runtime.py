@@ -22,7 +22,6 @@ class LeadAgentRuntime:
     agent_window_id: int | None = None
     session_store: SessionStore | None = None
     session_meta: SessionMeta | None = None
-    memory_store: Any | None = None
     allowed_agents: list[str] | None = None
     agent_registry: Any | None = None
     dashboard: Any | None = None

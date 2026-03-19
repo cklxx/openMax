@@ -24,7 +24,6 @@ from openmax.doctor import render_results, run_checks
 from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
 from openmax.lead_agent.types import TaskStatus
 from openmax.loop_session import LoopIteration, LoopSessionStore, build_loop_context
-from openmax.memory import MemoryStore
 from openmax.output import console
 from openmax.pane_backend import resolve_pane_backend_name
 from openmax.pane_manager import PaneManager
@@ -751,118 +750,6 @@ def read_pane(pane_id: int) -> None:
         console.print(text)
     except RuntimeError as e:
         console.print(f"[red]{e}[/red]")
-
-
-@main.command()
-@click.option("--cwd", default=None, help="Workspace to inspect memory for")
-@click.option(
-    "--limit",
-    default=10,
-    type=click.IntRange(min=1),
-    help="Maximum number of memory entries to show",
-)
-def memories(cwd: str | None, limit: int) -> None:
-    """Show learned workspace memory that future runs can reuse."""
-    cwd = _resolve_cwd(cwd)
-
-    store = MemoryStore()
-    lines = store.render_workspace_memories(cwd, limit=limit)
-    if not lines:
-        console.print(f"[yellow]No memory stored yet for {cwd}.[/yellow]")
-        return
-
-    console.print(f"[bold]Memory for {cwd}[/bold]")
-    for line in lines:
-        console.print(line)
-
-
-@main.command("recommend-agents")
-@click.argument("task")
-@click.option("--cwd", default=None, help="Workspace to inspect memory for")
-@click.option(
-    "--limit",
-    default=4,
-    type=click.IntRange(min=1),
-    help="Maximum number of agent recommendations",
-)
-def recommend_agents(task: str, cwd: str | None, limit: int) -> None:
-    """Show ranked agent recommendations for a task in this workspace."""
-    cwd = _resolve_cwd(cwd)
-
-    store = MemoryStore()
-    recommendations = store.derive_agent_rankings(cwd=cwd, task=task, limit=limit)
-    if not recommendations:
-        console.print("[yellow]No agent recommendations available yet.[/yellow]")
-        return
-
-    console.print(f"[bold]Agent recommendations for {task}[/bold]")
-    for item in recommendations:
-        console.print(f"- {item.agent_type}: {item.score}")
-        for reason in item.reasons:
-            console.print(f"  {reason}")
-
-
-@main.command("recommendation-eval")
-@click.option("--cwd", default=None, help="Workspace to inspect memory for")
-def recommendation_eval(cwd: str | None) -> None:
-    """Evaluate structured recommendation quality from workspace memory."""
-    cwd = _resolve_cwd(cwd)
-
-    store = MemoryStore()
-    report = store.evaluate_recommendations_against_baseline(cwd=cwd)
-    if report.strategy.total_runs == 0:
-        console.print("[yellow]No structured run summaries available yet.[/yellow]")
-        return
-
-    console.print(f"[bold]Recommendation eval[/bold]  [dim]{cwd}[/dim]")
-
-    tbl = _make_table()
-    tbl.add_column("", style="bold")
-    tbl.add_column("Runs", justify="right")
-    tbl.add_column("Evaluated", justify="right")
-    tbl.add_column("Covered", justify="right")
-    tbl.add_column("Hits", justify="right")
-    tbl.add_column("Coverage", justify="right")
-    tbl.add_column("Hit rate", justify="right")
-    tbl.add_column("Avg %", justify="right")
-    tbl.add_column("Fail rate", justify="right")
-
-    s = report.strategy
-    b = report.baseline
-    tbl.add_row(
-        "Strategy",
-        str(s.total_runs),
-        str(s.evaluated_runs),
-        str(s.covered_runs),
-        str(s.hit_runs),
-        f"{s.coverage:.0%}",
-        f"{s.hit_rate:.0%}",
-        f"{s.average_completion_pct:.1f}%",
-        f"{s.average_failure_rate:.0%}",
-    )
-    tbl.add_row(
-        f"Baseline ({b.label})",
-        str(b.total_runs),
-        str(b.evaluated_runs),
-        str(b.covered_runs),
-        str(b.hit_runs),
-        f"{b.coverage:.0%}",
-        f"{b.hit_rate:.0%}",
-        f"{b.average_completion_pct:.1f}%",
-        f"{b.average_failure_rate:.0%}",
-    )
-    tbl.add_row(
-        "[dim]Delta[/dim]",
-        "",
-        "",
-        "",
-        "",
-        f"{report.coverage_delta:+.0%}",
-        f"{report.hit_rate_lift:+.0%}",
-        f"{report.completion_pct_delta:+.1f}pts",
-        f"{report.failure_rate_delta:+.0%}",
-    )
-    console.print(tbl)
 
 
 @main.command("list-agents")

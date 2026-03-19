@@ -19,7 +19,6 @@ from openmax.lead_agent.runtime import (
     bind_lead_agent_runtime,
     reset_lead_agent_runtime,
 )
-from openmax.memory import MemoryStore
 from openmax.session_runtime import SessionStore
 from tests.conftest import _fake_monotonic, _no_sleep
 from tests.conftest import patch_time as _patch_time
@@ -65,19 +64,17 @@ async def _fake_run_sync(fn):
 def _setup_session(tmp_path):
     store = SessionStore(base_dir=tmp_path)
     meta = store.create_session("lead-test", "Goal", str(tmp_path))
-    memory_store = MemoryStore(base_dir=tmp_path / "memory")
     runtime = LeadAgentRuntime(
         cwd=str(tmp_path),
         plan=PlanResult(goal="Goal"),
         pane_mgr=DummyPaneManager(),
         session_store=store,
         session_meta=meta,
-        memory_store=memory_store,
         agent_registry=built_in_agent_registry(),
         plan_confirm=False,
     )
     token = bind_lead_agent_runtime(runtime)
-    return runtime, token, store, meta, memory_store
+    return runtime, token, store, meta
 
 
 def _teardown_session(token):
@@ -110,7 +107,7 @@ class FailingClaudeClient:
 
 
 def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
-    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
     anyio.run(
@@ -147,13 +144,6 @@ def test_format_tool_use_humanizes_all_openmax_tools():
     )
     assert (
         _format_tool_use(
-            "mcp__openmax__get_agent_recommendations",
-            {"task": "Refactor API routes"},
-        )
-        == "Checking best agent for Refactor API routes"
-    )
-    assert (
-        _format_tool_use(
             "mcp__openmax__read_pane_output",
             {"pane_id": 12},
         )
@@ -187,13 +177,6 @@ def test_format_tool_use_humanizes_all_openmax_tools():
     )
     assert (
         _format_tool_use(
-            "mcp__openmax__remember_learning",
-            {"lesson": "Prefer codex when editing Python test suites."},
-        )
-        == "Saving reusable lesson: Prefer codex when editing Python test suites."
-    )
-    assert (
-        _format_tool_use(
             "mcp__openmax__report_completion",
             {"completion_pct": 100, "notes": "Everything finished and verified."},
         )
@@ -209,7 +192,7 @@ def test_format_tool_use_humanizes_all_openmax_tools():
 
 
 def test_dispatch_agent_enforces_allowed_agents(monkeypatch, tmp_path):
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
     runtime.allowed_agents = ["codex"]
 
@@ -231,7 +214,7 @@ def test_dispatch_agent_enforces_allowed_agents(monkeypatch, tmp_path):
 
 
 def test_report_completion_writes_report_and_anchor(tmp_path):
-    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
+    runtime, token, store, meta = _setup_session(tmp_path)
     runtime.plan.subtasks.append(
         SubTask(
             name="API",
@@ -254,63 +237,12 @@ def test_report_completion_writes_report_and_anchor(tmp_path):
     ]
     refreshed_meta = store.load_meta(meta.session_id)
     assert refreshed_meta.latest_phase == "report"
-    memories = memory_store.load_entries(str(tmp_path))
-    assert memories
-    assert memories[-1].kind == "run_summary"
-
-    _teardown_session(token)
-
-
-def test_remember_learning_stores_workspace_memory(tmp_path):
-    _runtime, token, _store, _meta, memory_store = _setup_session(tmp_path)
-
-    anyio.run(
-        lead_agent_tools.remember_learning.handler,
-        {
-            "lesson": "Prefer codex for API work.",
-            "rationale": "It converged fastest in the last run.",
-            "confidence": 9,
-        },
-    )
-
-    memories = memory_store.load_entries(str(tmp_path))
-    assert memories
-    assert memories[-1].kind == "lesson"
-    assert memories[-1].summary == "Prefer codex for API work."
-
-    _teardown_session(token)
-
-
-def test_get_agent_recommendations_returns_ranked_json(tmp_path):
-    _runtime, token, _store, _meta, memory_store = _setup_session(tmp_path)
-    memory_store.record_run_summary(
-        cwd=str(tmp_path),
-        task="Build API endpoints",
-        notes="Codex completed the API endpoints cleanly.",
-        completion_pct=100,
-        subtasks=[
-            {
-                "name": "API",
-                "agent_type": "codex",
-                "status": "done",
-                "prompt": "Update src/api/routes.py",
-            }
-        ],
-        anchors=[{"summary": "API work succeeded in src/api/routes.py"}],
-    )
-
-    result = anyio.run(
-        lead_agent_tools.get_agent_recommendations.handler,
-        {"task": "Refactor API endpoints"},
-    )
-
-    assert "codex" in result["content"][0]["text"]
 
     _teardown_session(token)
 
 
 def test_dispatch_agent_uses_configured_custom_agent(monkeypatch, tmp_path):
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
     sleep_calls: list[float] = []
     _conftest._fake_time = 0.0
 
@@ -349,7 +281,7 @@ def test_dispatch_agent_uses_configured_custom_agent(monkeypatch, tmp_path):
 
 
 def test_dispatch_agent_falls_back_when_agent_not_configured(monkeypatch, tmp_path):
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
     runtime.agent_registry = built_in_agent_registry()
 
@@ -365,9 +297,7 @@ def test_dispatch_agent_falls_back_when_agent_not_configured(monkeypatch, tmp_pa
 
 def test_run_lead_agent_records_structured_auth_startup_failure(monkeypatch, tmp_path):
     store = SessionStore(base_dir=tmp_path / "sessions")
-    memory_store = MemoryStore(base_dir=tmp_path / "memory")
     monkeypatch.setattr(lead_agent_core, "SessionStore", lambda: store)
-    monkeypatch.setattr(lead_agent_core, "MemoryStore", lambda: memory_store)
     monkeypatch.setattr(
         lead_agent_core,
         "ClaudeSDKClient",
@@ -402,9 +332,7 @@ def test_run_lead_agent_records_structured_auth_startup_failure(monkeypatch, tmp
 
 def test_run_lead_agent_records_structured_bootstrap_failure(monkeypatch, tmp_path):
     store = SessionStore(base_dir=tmp_path / "sessions")
-    memory_store = MemoryStore(base_dir=tmp_path / "memory")
     monkeypatch.setattr(lead_agent_core, "SessionStore", lambda: store)
-    monkeypatch.setattr(lead_agent_core, "MemoryStore", lambda: memory_store)
     monkeypatch.setattr(
         lead_agent_core,
         "ClaudeSDKClient",
@@ -434,7 +362,7 @@ def test_run_lead_agent_records_structured_bootstrap_failure(monkeypatch, tmp_pa
 
 
 def test_ask_user_returns_answer_and_persists_event(monkeypatch, tmp_path):
-    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, store, _meta = _setup_session(tmp_path)
     monkeypatch.setattr(
         lead_agent_tools.anyio,
         "to_thread",
@@ -458,7 +386,7 @@ def test_ask_user_returns_answer_and_persists_event(monkeypatch, tmp_path):
 
 
 def test_ask_user_pauses_and_resumes_dashboard(monkeypatch, tmp_path):
-    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, store, _meta = _setup_session(tmp_path)
     monkeypatch.setattr(
         lead_agent_tools.anyio,
         "to_thread",
@@ -526,7 +454,7 @@ def test_dashboard_add_tool_event():
 
 def test_run_verification_pass(monkeypatch, tmp_path):
     """run_verification returns pass when exit code is 0."""
-    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
     # Make get_text return output with exit marker
@@ -555,7 +483,7 @@ def test_run_verification_pass(monkeypatch, tmp_path):
 
 def test_run_verification_fail(monkeypatch, tmp_path):
     """run_verification returns fail when exit code is non-zero."""
-    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
     runtime.pane_mgr.get_text = lambda pane_id: (
@@ -578,7 +506,7 @@ def test_run_verification_fail(monkeypatch, tmp_path):
 
 def test_run_verification_timeout(monkeypatch, tmp_path):
     """run_verification returns timeout when no exit marker found."""
-    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
     # get_text never returns exit marker
@@ -611,7 +539,7 @@ def test_format_tool_use_run_verification():
 
 def test_read_pane_output_returns_json_with_stuck_false(monkeypatch, tmp_path):
     """read_pane_output returns JSON with stuck=false on first read."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
 
     result = anyio.run(
         lead_agent_tools.read_pane_output.handler,
@@ -629,7 +557,7 @@ def test_read_pane_output_returns_json_with_stuck_false(monkeypatch, tmp_path):
 
 def test_submit_plan_accepts_valid_plan(monkeypatch, tmp_path):
     """submit_plan accepts a valid plan with no cycles."""
-    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, store, _meta = _setup_session(tmp_path)
 
     result = anyio.run(
         lead_agent_tools.submit_plan.handler,
@@ -668,7 +596,7 @@ def test_submit_plan_accepts_valid_plan(monkeypatch, tmp_path):
 
 def test_submit_plan_rejects_circular_dependency(monkeypatch, tmp_path):
     """submit_plan rejects a plan with circular dependencies."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
 
     result = anyio.run(
         lead_agent_tools.submit_plan.handler,
@@ -694,7 +622,7 @@ def test_submit_plan_rejects_circular_dependency(monkeypatch, tmp_path):
 
 def test_submit_plan_rejects_parallel_group_with_dependency(monkeypatch, tmp_path):
     """submit_plan rejects parallel groups where members depend on each other."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
 
     result = anyio.run(
         lead_agent_tools.submit_plan.handler,
@@ -719,7 +647,7 @@ def test_submit_plan_rejects_parallel_group_with_dependency(monkeypatch, tmp_pat
 
 def test_dispatch_agent_warns_without_submit_plan(monkeypatch, tmp_path, capsys):
     """dispatch_agent prints a warning when called before submit_plan."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
     # plan_submitted is False by default
@@ -748,7 +676,7 @@ def test_format_tool_use_submit_plan():
 
 def test_read_pane_output_detects_stuck_after_three_identical_reads(monkeypatch, tmp_path):
     """Three consecutive identical outputs trigger stuck=true."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
 
     # DummyPaneManager.get_text returns the same text for same pane_id,
     # so 3 reads should trigger stuck detection.
@@ -775,7 +703,7 @@ def test_read_pane_output_detects_stuck_after_three_identical_reads(monkeypatch,
 
 def test_read_pane_output_resets_stuck_on_new_output(monkeypatch, tmp_path):
     """Stuck resets when output changes."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
     call_count = 0
 
     def varying_get_text(pane_id):
@@ -811,7 +739,7 @@ def test_read_pane_output_resets_stuck_on_new_output(monkeypatch, tmp_path):
 
 def test_read_pane_output_returns_exited_when_pane_dead(monkeypatch, tmp_path):
     """read_pane_output returns exited=true when the pane is no longer alive."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
 
     class DeadPaneManager:
         def get_text(self, pane_id):
@@ -842,7 +770,7 @@ def test_read_pane_output_returns_exited_when_pane_dead(monkeypatch, tmp_path):
 
 def test_read_pane_output_returns_exited_false_when_pane_alive(monkeypatch, tmp_path):
     """read_pane_output returns exited=false when pane is alive."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
 
     class AlivePaneManager:
         def get_text(self, pane_id):
@@ -868,7 +796,7 @@ def test_read_pane_output_returns_exited_false_when_pane_alive(monkeypatch, tmp_
 
 
 def test_transition_phase_valid(tmp_path):
-    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
+    runtime, token, store, meta = _setup_session(tmp_path)
     runtime.current_phase = "research"
 
     try:
@@ -904,7 +832,7 @@ def test_transition_phase_valid(tmp_path):
 
 
 def test_transition_phase_short_summary_rejected(tmp_path):
-    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
+    runtime, token, store, meta = _setup_session(tmp_path)
 
     try:
         result = anyio.run(
@@ -924,7 +852,7 @@ def test_transition_phase_short_summary_rejected(tmp_path):
 
 
 def test_transition_phase_mismatched_phase_rejected(tmp_path):
-    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
+    runtime, token, store, meta = _setup_session(tmp_path)
     runtime.current_phase = "research"
 
     try:
@@ -946,7 +874,7 @@ def test_transition_phase_mismatched_phase_rejected(tmp_path):
 
 def test_transition_phase_invalid_to_phase_rejected(tmp_path):
     """Cannot skip phases — research must go to implement, not verify."""
-    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
+    runtime, token, store, meta = _setup_session(tmp_path)
     runtime.current_phase = "research"
 
     try:
@@ -969,7 +897,7 @@ def test_transition_phase_invalid_to_phase_rejected(tmp_path):
 
 def test_transition_phase_verify_to_implement_redispatch(tmp_path):
     """Allow verify → implement for re-dispatch scenarios."""
-    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
+    runtime, token, store, meta = _setup_session(tmp_path)
     runtime.current_phase = "verify"
 
     try:
@@ -985,38 +913,6 @@ def test_transition_phase_verify_to_implement_redispatch(tmp_path):
         text = result["content"][0]["text"]
         assert "Transitioned" in text
         assert runtime.current_phase == "implement"
-    finally:
-        _teardown_session(token)
-
-
-def test_dispatch_agent_injects_memory_context(monkeypatch, tmp_path):
-    """dispatch_agent appends workspace memory context to the prompt."""
-    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
-    _patch_time(monkeypatch)
-
-    # Record a lesson so build_context returns something
-    memory_store.record_lesson(
-        cwd=str(tmp_path),
-        task="test task",
-        lesson="Always use pytest for testing",
-        rationale="Standard practice",
-    )
-
-    try:
-        anyio.run(
-            lead_agent_tools.dispatch_agent.handler,
-            {
-                "task_name": "test-task",
-                "agent_type": "claude-code",
-                "prompt": "Do something",
-            },
-        )
-
-        # The prompt sent to the pane should include memory context
-        assert len(runtime.pane_mgr.sent) > 0
-        sent_text = runtime.pane_mgr.sent[0][1]
-        assert "Context (auto-injected by openMax" in sent_text
-        assert "pytest" in sent_text
     finally:
         _teardown_session(token)
 
@@ -1048,46 +944,9 @@ def test_compress_context_over_budget_truncates():
     assert len(result) < len(long_text)
 
 
-def test_dispatch_agent_context_budget_limits_injection(monkeypatch, tmp_path):
-    """dispatch_agent respects context_budget_tokens to compress memory context."""
-    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
-    _patch_time(monkeypatch)
-
-    # Record many lessons to create a large memory context
-    for i in range(50):
-        memory_store.record_lesson(
-            cwd=str(tmp_path),
-            task=f"task-{i}",
-            lesson=f"Lesson number {i}: " + "x" * 200,
-            rationale="padding",
-        )
-
-    try:
-        anyio.run(
-            lead_agent_tools.dispatch_agent.handler,
-            {
-                "task_name": "budget-test",
-                "agent_type": "claude-code",
-                "prompt": "Do something",
-                "context_budget_tokens": 50,  # Very small budget ~200 chars
-            },
-        )
-
-        assert len(runtime.pane_mgr.sent) > 0
-        sent_text = runtime.pane_mgr.sent[0][1]
-        # Context should be present but compressed
-        if "Context (auto-injected by openMax" in sent_text:
-            ctx_start = sent_text.index("## Context (auto-injected")
-            context_part = sent_text[ctx_start:]
-            # With budget=50 (~200 chars), context should be much smaller than raw
-            assert len(context_part) < 5000
-    finally:
-        _teardown_session(token)
-
-
 def test_mark_task_done_stores_completion_notes(tmp_path):
     """mark_task_done stores completion_notes on the subtask."""
-    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
+    runtime, token, store, meta = _setup_session(tmp_path)
 
     subtask = SubTask(
         name="test-task",
@@ -1115,7 +974,7 @@ def test_mark_task_done_stores_completion_notes(tmp_path):
 
 def test_mark_task_done_no_notes(tmp_path):
     """mark_task_done works without notes (backwards compat)."""
-    runtime, token, store, meta, memory_store = _setup_session(tmp_path)
+    runtime, token, store, meta = _setup_session(tmp_path)
 
     subtask = SubTask(
         name="test-task",
@@ -1140,7 +999,7 @@ def test_mark_task_done_no_notes(tmp_path):
 
 def test_read_pane_output_stuck_event_recorded(monkeypatch, tmp_path):
     """Session event records stuck=true when detected."""
-    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, store, _meta = _setup_session(tmp_path)
 
     for _ in range(3):
         anyio.run(
@@ -1158,51 +1017,9 @@ def test_read_pane_output_stuck_event_recorded(monkeypatch, tmp_path):
     _teardown_session(token)
 
 
-def test_dispatch_agent_event_contains_recommended_agent(monkeypatch, tmp_path):
-    """dispatch_agent event payload includes recommended_agent from memory rankings."""
-    runtime, token, store, _meta, memory_store = _setup_session(tmp_path)
-    _patch_time(monkeypatch)
-
-    # Record agent completions so derive_agent_rankings returns results
-    memory_store.record_run_summary(
-        cwd=str(tmp_path),
-        task="Build API endpoints",
-        notes="Codex completed the API endpoints cleanly.",
-        completion_pct=100,
-        subtasks=[
-            {
-                "name": "API",
-                "agent_type": "codex",
-                "status": "done",
-                "prompt": "Update src/api/routes.py",
-            }
-        ],
-        anchors=[{"summary": "API work succeeded"}],
-    )
-
-    try:
-        anyio.run(
-            lead_agent_tools.dispatch_agent.handler,
-            {
-                "task_name": "Refactor API",
-                "agent_type": "codex",
-                "prompt": "Refactor API endpoints",
-            },
-        )
-
-        events = store.load_events("lead-test")
-        dispatch_events = [e for e in events if e.event_type == "tool.dispatch_agent"]
-        assert len(dispatch_events) == 1
-        payload = dispatch_events[0].payload
-        assert "recommended_agent" in payload
-        assert payload["recommended_agent"] is not None
-    finally:
-        _teardown_session(token)
-
-
 def test_dispatch_agent_event_contains_override_reason(monkeypatch, tmp_path):
     """dispatch_agent event payload includes override_reason when provided."""
-    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
     try:
@@ -1227,7 +1044,7 @@ def test_dispatch_agent_event_contains_override_reason(monkeypatch, tmp_path):
 
 def test_dispatch_agent_sets_started_at(monkeypatch, tmp_path):
     """dispatch_agent sets started_at on the subtask."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
     try:
@@ -1251,7 +1068,7 @@ def test_dispatch_agent_sets_started_at(monkeypatch, tmp_path):
 
 def test_check_conflicts_clean_state(monkeypatch, tmp_path):
     """check_conflicts returns no conflicts for a clean repo."""
-    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, store, _meta = _setup_session(tmp_path)
 
     import subprocess as _subprocess
 
@@ -1286,7 +1103,7 @@ def test_check_conflicts_clean_state(monkeypatch, tmp_path):
 
 def test_check_conflicts_with_conflicts(monkeypatch, tmp_path):
     """check_conflicts detects conflict markers."""
-    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, store, _meta = _setup_session(tmp_path)
 
     import subprocess as _subprocess
 
@@ -1326,7 +1143,7 @@ def test_format_tool_use_check_conflicts():
 
 def test_mark_task_done_sets_finished_at(tmp_path):
     """mark_task_done sets finished_at on the subtask."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
 
     subtask = SubTask(
         name="test-task",
@@ -1354,7 +1171,7 @@ def test_mark_task_done_sets_finished_at(tmp_path):
 
 def test_read_pane_output_includes_retry_info_on_exit(monkeypatch, tmp_path):
     """When pane has exited, read_pane_output includes retry_count and can_retry."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
 
     class DeadPaneManager:
         def get_text(self, pane_id):
@@ -1396,7 +1213,7 @@ def test_read_pane_output_includes_retry_info_on_exit(monkeypatch, tmp_path):
 
 def test_read_pane_output_can_retry_false_at_max(monkeypatch, tmp_path):
     """When retry_count >= max_retries, can_retry is False."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
 
     class DeadPaneManager:
         def get_text(self, pane_id):
@@ -1435,7 +1252,7 @@ def test_read_pane_output_can_retry_false_at_max(monkeypatch, tmp_path):
 
 def test_dispatch_agent_carries_retry_count(monkeypatch, tmp_path):
     """dispatch_agent with retry_count>0 updates the existing subtask."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
     # Pre-populate a failed subtask
@@ -1511,7 +1328,7 @@ def _init_git_repo(path):
 def test_dispatch_creates_branch_and_worktree(monkeypatch, tmp_path):
     """dispatch_agent creates an isolated branch + worktree in a git repo."""
     _init_git_repo(tmp_path)
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
     try:
@@ -1546,7 +1363,7 @@ def test_dispatch_creates_branch_and_worktree(monkeypatch, tmp_path):
 def test_dispatch_fallback_when_no_git(monkeypatch, tmp_path):
     """dispatch_agent gracefully falls back when not in a git repo."""
     # tmp_path is not a git repo, so branch creation should fail gracefully
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
     try:
@@ -1568,7 +1385,7 @@ def test_dispatch_fallback_when_no_git(monkeypatch, tmp_path):
 def test_merge_agent_branch_success(monkeypatch, tmp_path):
     """merge_agent_branch merges a branch with non-conflicting changes."""
     _init_git_repo(tmp_path)
-    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, store, _meta = _setup_session(tmp_path)
     runtime.integration_branch = "main"
     _patch_time(monkeypatch)
 
@@ -1617,7 +1434,7 @@ def test_merge_agent_branch_success(monkeypatch, tmp_path):
 def test_merge_agent_branch_conflict(monkeypatch, tmp_path):
     """merge_agent_branch detects and reports conflicts."""
     _init_git_repo(tmp_path)
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
     runtime.integration_branch = "main"
     _patch_time(monkeypatch)
 
@@ -1665,7 +1482,7 @@ def test_merge_agent_branch_conflict(monkeypatch, tmp_path):
 
 def test_merge_agent_branch_no_branch(monkeypatch, tmp_path):
     """merge_agent_branch returns skipped when task has no branch."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
     # Add a subtask without branch_name
@@ -1685,7 +1502,7 @@ def test_merge_agent_branch_no_branch(monkeypatch, tmp_path):
 
 def test_merge_agent_branch_task_not_found(monkeypatch, tmp_path):
     """merge_agent_branch returns error for unknown task name."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
     try:
@@ -1701,7 +1518,7 @@ def test_merge_agent_branch_task_not_found(monkeypatch, tmp_path):
 
 def test_submit_plan_file_overlap_warning(monkeypatch, tmp_path):
     """submit_plan warns about file overlaps in parallel groups."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
 
     try:
         result = anyio.run(
@@ -1736,7 +1553,7 @@ def test_submit_plan_file_overlap_warning(monkeypatch, tmp_path):
 
 def test_submit_plan_no_file_overlap(monkeypatch, tmp_path):
     """submit_plan does not warn when parallel group files are disjoint."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
 
     try:
         result = anyio.run(
@@ -1841,7 +1658,7 @@ def test_check_budget_warning_hard_limit():
 
 def test_dispatch_agent_accepts_token_budget(monkeypatch, tmp_path):
     """dispatch_agent accepts token_budget and stores it on the subtask."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
     try:
@@ -1867,7 +1684,7 @@ def test_dispatch_agent_accepts_token_budget(monkeypatch, tmp_path):
 
 def test_dispatch_agent_no_budget_defaults_none(monkeypatch, tmp_path):
     """dispatch_agent without token_budget leaves it as None."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
     try:
@@ -1890,7 +1707,7 @@ def test_dispatch_agent_no_budget_defaults_none(monkeypatch, tmp_path):
 
 def test_read_pane_output_includes_budget_status(monkeypatch, tmp_path):
     """read_pane_output includes budget info when subtask has a token_budget."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
 
     subtask = SubTask(
         name="budgeted",
@@ -1919,7 +1736,7 @@ def test_read_pane_output_includes_budget_status(monkeypatch, tmp_path):
 
 def test_read_pane_output_budget_hard_limit(monkeypatch, tmp_path):
     """read_pane_output shows hard_limit when tokens_used >= token_budget."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
 
     subtask = SubTask(
         name="over-budget",
@@ -1945,7 +1762,7 @@ def test_read_pane_output_budget_hard_limit(monkeypatch, tmp_path):
 
 def test_read_pane_output_no_budget_no_field(monkeypatch, tmp_path):
     """read_pane_output omits budget field when no token_budget is set."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
 
     subtask = SubTask(
         name="unbounded",
@@ -1989,7 +1806,7 @@ def test_plan_submission_total_budget():
 
 
 def test_update_and_read_shared_context(tmp_path):
-    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, store, _meta = _setup_session(tmp_path)
 
     anyio.run(
         lead_agent_tools.update_shared_context.handler,
@@ -2010,7 +1827,7 @@ def test_update_and_read_shared_context(tmp_path):
 
 
 def test_check_checkpoints_empty(tmp_path):
-    _runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    _runtime, token, _store, _meta = _setup_session(tmp_path)
 
     result = anyio.run(lead_agent_tools.check_checkpoints.handler, {})
     data = json.loads(result["content"][0]["text"])
@@ -2021,7 +1838,7 @@ def test_check_checkpoints_empty(tmp_path):
 
 
 def test_check_checkpoints_with_pending(tmp_path):
-    _runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    _runtime, token, _store, _meta = _setup_session(tmp_path)
 
     from openmax.task_file import write_checkpoint
 
@@ -2037,7 +1854,7 @@ def test_check_checkpoints_with_pending(tmp_path):
 
 
 def test_resolve_checkpoint_sends_to_pane(tmp_path):
-    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, store, _meta = _setup_session(tmp_path)
 
     # Add subtask with a known pane_id
     runtime.plan.subtasks.append(
@@ -2075,7 +1892,7 @@ def test_resolve_checkpoint_sends_to_pane(tmp_path):
 
 
 def test_dispatch_injects_checkpoint_protocol(monkeypatch, tmp_path):
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
     anyio.run(
@@ -2090,7 +1907,7 @@ def test_dispatch_injects_checkpoint_protocol(monkeypatch, tmp_path):
 
 
 def test_dispatch_injects_blackboard(monkeypatch, tmp_path):
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
     from openmax.task_file import append_shared_context
@@ -2111,7 +1928,7 @@ def test_dispatch_injects_blackboard(monkeypatch, tmp_path):
 
 def test_dispatch_with_role_reviewer(monkeypatch, tmp_path):
     """dispatch_agent with role='reviewer' injects reviewer context into prompt."""
-    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
     result = anyio.run(
@@ -2141,7 +1958,7 @@ def test_dispatch_with_role_reviewer(monkeypatch, tmp_path):
 
 def test_dispatch_with_default_writer_role(monkeypatch, tmp_path):
     """dispatch_agent without role defaults to 'writer' with no extra context."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
     anyio.run(
@@ -2158,7 +1975,7 @@ def test_dispatch_with_default_writer_role(monkeypatch, tmp_path):
 
 def test_dispatch_includes_cost_estimate(monkeypatch, tmp_path):
     """dispatch_agent response includes estimated cost and tokens."""
-    runtime, token, store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
     result = anyio.run(
@@ -2185,7 +2002,7 @@ def test_dispatch_includes_cost_estimate(monkeypatch, tmp_path):
 
 def test_budget_hard_limit_includes_stop_action(monkeypatch, tmp_path):
     """read_pane_output with budget at hard limit includes action: stop_agent."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
 
     runtime.plan.subtasks.append(
         SubTask(
@@ -2213,7 +2030,7 @@ def test_budget_hard_limit_includes_stop_action(monkeypatch, tmp_path):
 
 def test_budget_soft_limit_no_stop_action(monkeypatch, tmp_path):
     """read_pane_output with budget at soft limit does NOT include stop action."""
-    runtime, token, _store, _meta, _memory_store = _setup_session(tmp_path)
+    runtime, token, _store, _meta = _setup_session(tmp_path)
 
     runtime.plan.subtasks.append(
         SubTask(

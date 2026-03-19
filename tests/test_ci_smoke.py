@@ -15,7 +15,6 @@ from openmax.lead_agent.runtime import (
     bind_lead_agent_runtime,
     reset_lead_agent_runtime,
 )
-from openmax.memory import MemoryStore
 from openmax.pane_manager import PaneManager
 from openmax.session_runtime import SessionStore
 from tests.conftest import wait_until
@@ -42,7 +41,6 @@ def test_ci_smoke_exercises_headless_noninteractive_dispatch_and_session_cli(
         pane_mgr=pane_mgr,
         session_store=session_store,
         session_meta=session_meta,
-        memory_store=MemoryStore(base_dir=tmp_path / "memory"),
         agent_registry=AgentRegistry(
             [
                 AgentDefinition(

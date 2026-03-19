@@ -37,7 +37,6 @@ from openmax.lead_agent.types import (
     TaskStatus,
     _classify_startup_failure,
 )
-from openmax.memory import MemoryStore
 from openmax.output import P, console
 from openmax.pane_manager import PaneManager
 from openmax.session_runtime import (
@@ -173,7 +172,6 @@ def _build_lead_prompt(
     cwd: str,
     session_id: str | None,
     resume_context: str | None,
-    memory_context: str | None,
     allowed_agents: list[str] | None = None,
     loop_context: str | None = None,
 ) -> str:
@@ -196,8 +194,6 @@ def _build_lead_prompt(
         parts.append(loop_context)
     if resume_context:
         parts.append("## Prior Session State (resume)\n" + resume_context)
-    if memory_context:
-        parts.append("## Workspace Memory\n" + memory_context)
     parts.append("Execute now. Follow the workflow in your system prompt.")
     return "\n\n".join(parts)
 
@@ -261,7 +257,6 @@ async def _run_lead_agent_async(
         cwd=cwd,
         plan=PlanResult(goal=task),
         pane_mgr=pane_mgr,
-        memory_store=MemoryStore(),
         allowed_agents=allowed_agents,
         agent_registry=agent_registry or built_in_agent_registry(),
         dashboard=dashboard,
@@ -274,7 +269,6 @@ async def _run_lead_agent_async(
     try:
         dashboard.start()
         resume_context: str | None = None
-        memory_context = runtime.memory_store.build_context(cwd=cwd, task=task)
         if session_id:
             runtime.session_store = SessionStore()
             if resume:
@@ -382,7 +376,6 @@ async def _run_lead_agent_async(
             cwd,
             session_id,
             resume_context,
-            memory_context.text if memory_context else None,
             allowed_agents=allowed_agents,
             loop_context=loop_context,
         )

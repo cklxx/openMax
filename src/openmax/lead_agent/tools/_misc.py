@@ -161,28 +161,6 @@ async def run_command(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
-    "remember_learning",
-    "Store a reusable lesson so future runs in this workspace can improve automatically.",
-    {"lesson": str, "rationale": str, "confidence": int},
-)
-async def remember_learning(args: dict[str, Any]) -> dict[str, Any]:
-    runtime = _runtime()
-    lesson = args["lesson"]
-    rationale = args.get("rationale", "")
-    confidence = args.get("confidence")
-    if runtime.memory_store is None:
-        return _tool_response("Memory store unavailable")
-    runtime.memory_store.record_lesson(
-        cwd=runtime.cwd,
-        task=runtime.plan.goal,
-        lesson=lesson,
-        rationale=rationale,
-        confidence=confidence,
-    )
-    return _tool_response("Stored reusable lesson")
-
-
-@tool(
     "check_conflicts",
     "Check for git conflicts and untracked files in the working directory.",
     {},
@@ -244,24 +222,6 @@ async def check_conflicts(args: dict[str, Any]) -> dict[str, Any]:
         console.print("  [bold green]\u2713[/bold green]  no conflicts")
     _append_session_event("tool.check_conflicts", result)
     return _tool_response(result)
-
-
-@tool(
-    "get_agent_recommendations",
-    "Get ranked agent recommendations for a task based on workspace memory and similar code work.",
-    {"task": str},
-)
-async def get_agent_recommendations(args: dict[str, Any]) -> dict[str, Any]:
-    runtime = _runtime()
-    task = args["task"]
-    if runtime.memory_store is None:
-        return _tool_response("[]")
-    rankings = runtime.memory_store.derive_agent_rankings(cwd=runtime.cwd, task=task)
-    payload = [
-        {"agent_type": item.agent_type, "score": item.score, "reasons": item.reasons}
-        for item in rankings
-    ]
-    return _tool_response(payload)
 
 
 @tool(
