@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.29
+
+- **Feature**: Session Mailbox — sub-agents push `done`/`progress`/`question`/`blocked`/`decision` messages to the lead agent via Unix socket, eliminating polling latency
+- **Feature**: `wait_for_agent_message` MCP tool — replaces `wait` as the primary monitoring primitive; returns immediately on message arrival; auto-synthesizes `done` for panes that exit without messaging
+- **Feature**: `openmax msg` CLI — sub-agents call `openmax msg --session <id> '<json>'` to notify the lead agent; reads `OPENMAX_SESSION_ID` env var
+- **Feature**: `openmax tail` / `openmax replay` CLI — stream live messages or replay completed session message log
+- **Improve**: sub-agent prompts include `OPENMAX_SESSION_ID` and mailbox instructions via `_build_subagent_context`
+- **Improve**: lead agent prompt — new Mailbox section with action table before Monitor loop
+
 ## 0.5.28
 
 - **Fix**: dashboard UI overlap — `print_agent_text` now routes through `console.print(Text.from_ansi(...))` instead of writing directly to `console.file`, so Rich's `Live` widget correctly manages cursor position when the status bar is active
