@@ -634,7 +634,9 @@ class TmuxPaneBackend:
             args.extend(["-c", cwd])
         args.extend(_wrap_command_with_env(command, env))
         result = self._run_tmux(args)
-        return _tmux_id(result.stdout.strip())
+        pane_id = _tmux_id(result.stdout.strip())
+        self._run_tmux(["select-layout", "-t", f"%{pane_id}", "tiled"], check=False)
+        return pane_id
 
     def send_text(self, pane_id: int, text: str) -> None:
         if len(text.encode()) > _SEND_TEXT_ARG_LIMIT:
