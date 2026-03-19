@@ -97,7 +97,7 @@ When `wait_for_agent_message` returns a message, act on it immediately:
 
 | `type`      | Action |
 |-------------|--------|
-| `done`      | **First**: call `read_pane_output` to cross-validate (pane must be idle/exited). **Then**: `mark_task_done(task, notes)`. **Then**: immediately call `merge_agent_branch(task_name=...)` for that task — do not wait for other agents. |
+| `done`      | **First**: call `read_pane_output` to cross-validate (pane must be idle/exited). **Then**: `mark_task_done(task, notes)`. **Then**: call `merge_agent_branch(task_name=...)` to merge the agent's branch. |
 | `question`  | Decide. Call `send_text_to_pane` with your answer. |
 | `blocked`   | Send guidance via `send_text_to_pane`. If unresolvable, `permanent_error`. |
 | `progress`  | Dashboard updated automatically. No action needed unless pct=100. |
@@ -113,7 +113,7 @@ Loop: `wait_for_agent_message(timeout=30)` → act on message or fall through to
 
 | Signal | Indicators | Required action |
 |---|---|---|
-| Done | Agent returned to prompt, "committed", summary printed, or `exited: true` with success output | **Call `mark_task_done(task_name, notes)`**, then immediately **call `merge_agent_branch(task_name=...)`** |
+| Done | Agent returned to prompt, "committed", summary printed, or `exited: true` with success output | **Call `mark_task_done(task_name, notes)`**, then **call `merge_agent_branch(task_name=...)`** |
 | Error | "Error", "FAILED", "Traceback", non-zero exit (shown as `[ERROR]` prefix), or `exited: true` with error output | Call `permanent_error(task_name)` |
 | Silent exit | Agent exited with no clear success or error signal | **Treat as failure** — never assume success from silence. Read report if exists, otherwise `permanent_error(task_name)` |
 | Stuck | `stuck: true` in response, or agent asking unanswered question | `send_text_to_pane` with guidance; 2 retries then re-dispatch |
@@ -165,9 +165,9 @@ Max 2 debug cycles. If still failing after 2 rounds, `report_completion` with pa
 
 **Required order — do not skip steps:**
 
-0. **Mark done**: `mark_task_done(task_name, notes)` for every completed subtask. This must happen before `report_completion` — calling `report_completion` without marking tasks done leaves them in RUNNING state permanently and breaks loop tape tracking.
-   - Note: branches are merged inline during Monitor (on each `done` message). By this point all merges are already done.
-   - If any `merge_agent_branch` returned `"conflict"` during monitoring, resolve it now: the response includes `files` (conflicting paths) and `diff`. Write a precise prompt telling the agent *exactly* which files conflict, *what each side changed*, and *what the correct resolution should be*. After the agent completes, call `merge_agent_branch` again to confirm.
+0. **Mark done + merge**: For every completed subtask, call `mark_task_done(task_name, notes)` then `merge_agent_branch(task_name=...)`. This must happen before `report_completion`.
+   - If `merge_agent_branch` returned `"conflict"`, dispatch a sub-agent to resolve: include `files` and `diff` from the response. After the agent fixes conflicts, call `merge_agent_branch` again.
+   - If `merge_agent_branch` returned `"no-op"` (no new commits), that's fine — the branch is cleaned up automatically.
 1. **Verify — you MUST call `run_verification` for both lint and test. No exceptions.**
    - `run_verification(check_type="lint", command="ruff check src/ tests/ && ruff format --check src/ tests/", timeout=60)`
    - `run_verification(check_type="test", command="pytest tests/ -v", timeout=300)`

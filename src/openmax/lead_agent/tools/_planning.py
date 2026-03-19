@@ -19,7 +19,6 @@ from openmax.lead_agent.tools._helpers import (
     _synthesize_report_from_pane,
     _tool_response,
 )
-from openmax.lead_agent.tools._verify import _auto_merge_branch
 from openmax.lead_agent.types import TaskStatus
 from openmax.output import P, console
 from openmax.task_file import (
@@ -356,12 +355,9 @@ async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:
                     finished_at=st.finished_at,
                 )
             _append_session_event("tool.mark_task_done", {"task_name": task_name})
-            merge_note = ""
-            if st.branch_name:
-                merge_note = _auto_merge_branch(runtime, st)
             msg = f"Marked '{task_name}' as done"
-            if merge_note:
-                msg += f". {merge_note}"
+            if st.branch_name:
+                msg += f". Branch '{st.branch_name}' ready — call merge_agent_branch to merge."
             return _tool_response(msg)
     return _tool_response(f"Task '{task_name}' not found")
 

@@ -381,12 +381,30 @@ async def read_file_tool(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _auto_done_for_exited_panes(runtime: Any) -> dict[str, Any] | None:
+    import time as _time
+
     for st in runtime.plan.subtasks:
         if st.status != TaskStatus.RUNNING or st.pane_id is None:
             continue
         if st.name in runtime.mailbox_messaged_tasks:
             continue
         if not runtime.pane_mgr.is_pane_alive(st.pane_id):
+            if st.agent_type == "command":
+                st.status = TaskStatus.DONE
+                st.finished_at = _time.time()
+                console.print(
+                    f"  [bold green]\u2713[/bold green]  [bold]{st.name}[/bold]"
+                    " done (command exited)"
+                )
+                if runtime.dashboard is not None:
+                    runtime.dashboard.update_subtask(
+                        st.name,
+                        st.agent_type,
+                        st.pane_id,
+                        "done",
+                        started_at=st.started_at,
+                        finished_at=st.finished_at,
+                    )
             return {
                 "type": "done",
                 "task": st.name,

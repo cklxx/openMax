@@ -182,7 +182,9 @@ def _merge_and_handle_conflicts(
     """Merge branch into target. Returns (status, hash, conflict_files, diff, commit_count)."""
     commit_count = _count_new_commits(cwd, target, branch)
     if commit_count == 0:
-        console.print(f"  [yellow]![/yellow]  Branch {branch} has no commits to merge (no-op)")
+        console.print(f"  [dim]  Branch {branch} has no new commits — skipping merge[/dim]")
+        head = _git_run(["git", "rev-parse", "HEAD"], cwd, timeout=10)
+        return ("no-op", head.stdout.strip(), [], "", 0)
     _git_run(["git", "checkout", target], cwd)
     merge = _git_run(["git", "merge", "--no-edit", branch], cwd, timeout=60)
     if merge.returncode == 0:
@@ -191,50 +193,6 @@ def _merge_and_handle_conflicts(
     diff = _git_run(["git", "diff", f"{target}...{branch}"], cwd, timeout=30)
     _git_run(["git", "merge", "--abort"], cwd)
     return ("conflict", None, _parse_conflict_files(merge.stderr), diff.stdout[:8000], commit_count)
-
-
-def _report_merge_success(branch: str, integration: str, short_hash: str, commit_count: int) -> str:
-    suffix = f"[{commit_count} commits]" if commit_count > 0 else "[0 commits - no-op]"
-    console.print(
-        f"  [bold green]✓[/bold green]  Merged {branch} → {integration} ({short_hash}) {suffix}"
-    )
-    _append_session_event(
-        "tool.auto_merge",
-        {"branch": branch, "status": "merged", "commit": short_hash, "commit_count": commit_count},
-    )
-    return f"Merged {branch} → {integration} ({short_hash}) {suffix}"
-
-
-def _report_merge_conflict(branch: str, conflict_files: list[str]) -> str:
-    console.print(
-        f"  [bold red]✗[/bold red]  Merge conflict for {branch}: {len(conflict_files)} file(s)"
-    )
-    _append_session_event(
-        "tool.auto_merge",
-        {"branch": branch, "status": "conflict", "files": conflict_files},
-    )
-    return (
-        f"Merge conflict for {branch}: {', '.join(conflict_files)}. "
-        "Use merge_agent_branch tool to resolve."
-    )
-
-
-def _auto_merge_branch(runtime: Any, subtask: SubTask) -> str:
-    branch = subtask.branch_name
-    if not branch:
-        return ""
-    integration = runtime.integration_branch or "main"
-    try:
-        status, commit_hash, files, _diff, commit_count = _merge_and_handle_conflicts(
-            runtime.cwd, branch, integration
-        )
-    except (OSError, subprocess.TimeoutExpired) as e:
-        console.print(f"  [bold red]✗[/bold red]  Auto-merge error: {e}")
-        return f"Auto-merge error: {e}"
-    if status == "merged":
-        _cleanup_agent_branch(runtime.cwd, branch)
-        return _report_merge_success(branch, integration, (commit_hash or "")[:8], commit_count)
-    return _report_merge_conflict(branch, files)
 
 
 def _find_subtask_by_name(task_name: str) -> SubTask | None:
@@ -255,13 +213,20 @@ def _merge_branch_result(
     integration: str,
     commit_count: int,
 ) -> dict[str, Any]:
-    if status == "merged":
-        short = commit_hash[:8] if commit_hash else ""
-        suffix = f"[{commit_count} commits]" if commit_count > 0 else "[0 commits - no-op]"
-        console.print(
-            f"  [bold green]✓[/bold green]  Merged {branch} → {integration} ({short}) {suffix}"
-        )
+    if status == "no-op":
+        console.print(f"  [dim]  {branch} — no new commits, skipped[/dim]")
         data: dict[str, Any] = {
+            "status": "no-op",
+            "task_name": task_name,
+            "commit_count": 0,
+        }
+    elif status == "merged":
+        short = commit_hash[:8] if commit_hash else ""
+        console.print(
+            f"  [bold green]✓[/bold green]  Merged {branch} → {integration}"
+            f" ({short}) [{commit_count} commits]"
+        )
+        data = {
             "status": "merged",
             "commit": commit_hash,
             "task_name": task_name,
@@ -427,7 +392,7 @@ async def merge_agent_branch(args: dict[str, Any]) -> dict[str, Any]:
         )
     except (OSError, subprocess.TimeoutExpired) as e:
         return _merge_error_response(task_name, e)
-    if status == "merged":
+    if status in ("merged", "no-op"):
         _cleanup_agent_branch(runtime.cwd, target.branch_name)
     return _tool_response(
         _merge_branch_result(
