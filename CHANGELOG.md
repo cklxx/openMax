@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.35
+
+- **Fix**: `_launch_pane` now falls back to opening a new terminal window when kaku reports `Error: No space for split!` — previously `dispatch_agent` and `run_command` would fail with a hard error when the current window was full; now they seamlessly overflow into a new window
+
 ## 0.5.34
 
 - **Fix**: `merge_agent_branch` now detects empty branches (no new commits) and logs a `[yellow]!` warning with `[0 commits - no-op]` in the output — surfaces the hash bug where agents committed to main instead of their worktree branch
