@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.38
+
+- **Fix**: no-op merge skipping — branches with 0 new commits now skip `git merge` entirely and clean up silently, instead of creating pointless merge commits
+- **Fix**: decoupled merge from `mark_task_done` — removed auto-merge; the lead agent now explicitly calls `merge_agent_branch` after marking tasks done, giving it control over conflict resolution via sub-agents
+- **Fix**: command panes (`run_command`) now auto-mark as done when the pane exits, instead of staying stuck in RUNNING state
+
 ## 0.5.37
 
 - **Refactor**: removed workspace memory system entirely — lessons, run summaries, agent rankings, predictive context, and all related CLI commands (`memories`, `recommend-agents`, `recommendation-eval`) and lead agent tools (`remember_learning`, `get_agent_recommendations`) deleted; ~4100 lines removed
