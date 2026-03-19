@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.37
+
+- **Refactor**: removed workspace memory system entirely — lessons, run summaries, agent rankings, predictive context, and all related CLI commands (`memories`, `recommend-agents`, `recommendation-eval`) and lead agent tools (`remember_learning`, `get_agent_recommendations`) deleted; ~4100 lines removed
+
 ## 0.5.36
 
 - **Feature**: add Ghostty terminal backend — GPU-accelerated macOS terminal support via AppleScript API; auto-detected between kaku and tmux in priority order `kaku > ghostty > tmux`
