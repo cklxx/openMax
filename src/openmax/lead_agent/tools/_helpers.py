@@ -302,23 +302,6 @@ def _build_subagent_context(
     if memory_text:
         sections.append(f"Relevant history:\n{memory_text}")
 
-    session_id: str | None = None
-    try:
-        rt = _runtime()
-        if rt.session_meta:
-            session_id = rt.session_meta.session_id
-    except RuntimeError:
-        pass
-
-    if session_id:
-        sections.append(
-            f"Session ID: {session_id}\n"
-            f"When you finish your task (or need guidance), run:\n"
-            f"  openmax msg --session {session_id} "
-            f'\'{{"type":"done","task":"TASK_NAME","summary":"..."}}\'  \n'
-            f"Message types: done | progress | question | blocked | decision"
-        )
-
     if not sections:
         return ""
 
@@ -506,6 +489,27 @@ def _file_protocol_section(brief_file: Path, rep_file: Path, cwd: str) -> str:
     """Build the file protocol instructions to append to agent prompts."""
     brief_rel = brief_file.relative_to(cwd)
     report_rel = rep_file.relative_to(cwd)
+
+    session_id: str | None = None
+    try:
+        rt = _runtime()
+        if rt.session_meta:
+            session_id = rt.session_meta.session_id
+    except RuntimeError:
+        pass
+
+    mailbox_line = ""
+    if session_id:
+        done_cmd = '\'{"type":"done","task":"TASK_NAME","summary":"<one line>"}\''
+        prog_cmd = '\'{"type":"progress","task":"TASK_NAME","pct":50,"msg":"..."}\''
+        mailbox_line = (
+            "\n\nAlso notify the lead agent when done"
+            " (REQUIRED — do this after writing the report):\n"
+            f"```\nopenmax msg {done_cmd}\n```\n"
+            "(`$OPENMAX_SESSION_ID` is set in your env — no `--session` flag needed)\n"
+            f"Mid-task progress: `openmax msg {prog_cmd}`"
+        )
+
     return (
         f"\n\n## File Protocol (openMax)\n\n"
         f"Your full task brief is saved at: `{brief_rel}`\n\n"
@@ -522,4 +526,5 @@ def _file_protocol_section(brief_file: Path, rep_file: Path, cwd: str) -> str:
         f"## Test Results\n"
         f"<pass/fail details>\n"
         f"```"
+        f"{mailbox_line}"
     )

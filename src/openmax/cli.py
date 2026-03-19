@@ -162,7 +162,9 @@ def main() -> None:
 @click.argument("task")
 @click.option("--cwd", default=None, help="Working directory for agents")
 @click.option("--model", default=None, help="Model for the lead agent")
-@click.option("--max-turns", default=50, type=click.IntRange(min=1), help="Max agent loop turns")
+@click.option(
+    "--max-turns", default=None, type=click.IntRange(min=1), help="Max turns (default: unlimited)"
+)
 @click.option("--keep-panes", is_flag=True, default=False, help="Don't close panes on exit")
 @click.option("--session-id", default=None, help="Persistent lead-agent session identifier")
 @click.option(
@@ -274,10 +276,8 @@ def run(
             raise SystemExit(1) from exc
         else:
             # Session complete — show final summary before cleanup
-            summary = pane_mgr.summary()
-            console.print(
-                f"\n[bold]Done.[/bold] {len(plan.subtasks)} sub-tasks, {summary['done']} done"
-            )
+            done_count = sum(1 for t in plan.subtasks if t.status == TaskStatus.DONE)
+            console.print(f"\n[bold]Done.[/bold] {len(plan.subtasks)} sub-tasks, {done_count} done")
     finally:
         signal.signal(signal.SIGINT, previous_sigint)
         signal.signal(signal.SIGTERM, previous_sigterm)
@@ -555,7 +555,9 @@ def _attached_panes_context(panes_list: list, contents: dict[int, str] | None = 
 @click.argument("task", required=False, default=None)
 @click.option("--cwd", default=None, help="Working directory context")
 @click.option("--model", default=None, help="Model for the lead agent")
-@click.option("--max-turns", default=50, type=click.IntRange(min=1), help="Max agent loop turns")
+@click.option(
+    "--max-turns", default=None, type=click.IntRange(min=1), help="Max turns (default: unlimited)"
+)
 @click.option("--keep-panes", is_flag=True, default=False, help="Don't close new panes on exit")
 @click.option("--agents", default=None, help="Comma-separated list of allowed agent names")
 @click.option(
@@ -661,10 +663,8 @@ def manage(
         except LeadAgentStartupError as exc:
             raise SystemExit(1) from exc
         else:
-            summary = pane_mgr.summary()
-            console.print(
-                f"\n[bold]Done.[/bold] {len(plan.subtasks)} sub-tasks, {summary['done']} done"
-            )
+            done_count = sum(1 for t in plan.subtasks if t.status == TaskStatus.DONE)
+            console.print(f"\n[bold]Done.[/bold] {len(plan.subtasks)} sub-tasks, {done_count} done")
     finally:
         signal.signal(signal.SIGINT, previous_sigint)
         signal.signal(signal.SIGTERM, previous_sigterm)
