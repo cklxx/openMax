@@ -61,8 +61,10 @@ class SessionMailbox:
         while not self._stop.is_set():
             try:
                 conn, _ = self._server_sock.accept()
+            except TimeoutError:
+                continue  # poll _stop and retry
             except OSError:
-                break
+                break  # socket closed or fatal error
             threading.Thread(target=self._handle, args=(conn,), daemon=True).start()
 
     def _handle(self, conn: socket.socket) -> None:
