@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.39
+
+- **Fix**: acceleration ratio calculation read `depends_on` but `submit_plan` stores `dependencies` — critical path was always treating all tasks as independent, inflating the ratio
+- **Chore**: cleaned up stale task index — 21 done, 4 removed (memory system), 3 pending (all P3)
+
 ## 0.5.38
 
 - **Fix**: no-op merge skipping — branches with 0 new commits now skip `git merge` entirely and clean up silently, instead of creating pointless merge commits
