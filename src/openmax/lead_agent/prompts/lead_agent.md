@@ -97,7 +97,7 @@ When `wait_for_agent_message` returns a message, act on it immediately:
 
 | `type`      | Action |
 |-------------|--------|
-| `done`      | **First**: call `read_pane_output` to cross-validate (pane must be idle/exited). **Then**: `mark_task_done(task, notes)`. |
+| `done`      | **First**: call `read_pane_output` to cross-validate (pane must be idle/exited). **Then**: `mark_task_done(task, notes)`. **Then**: immediately call `merge_agent_branch(task_name=...)` for that task — do not wait for other agents. |
 | `question`  | Decide. Call `send_text_to_pane` with your answer. |
 | `blocked`   | Send guidance via `send_text_to_pane`. If unresolvable, `permanent_error`. |
 | `progress`  | Dashboard updated automatically. No action needed unless pct=100. |
@@ -113,7 +113,7 @@ Loop: `wait_for_agent_message(timeout=30)` → act on message or fall through to
 
 | Signal | Indicators | Required action |
 |---|---|---|
-| Done | Agent returned to prompt, "committed", summary printed, or `exited: true` with success output | **Call `mark_task_done(task_name, notes)`** |
+| Done | Agent returned to prompt, "committed", summary printed, or `exited: true` with success output | **Call `mark_task_done(task_name, notes)`**, then immediately **call `merge_agent_branch(task_name=...)`** |
 | Error | "Error", "FAILED", "Traceback", non-zero exit (shown as `[ERROR]` prefix), or `exited: true` with error output | Call `permanent_error(task_name)` |
 | Silent exit | Agent exited with no clear success or error signal | **Treat as failure** — never assume success from silence. Read report if exists, otherwise `permanent_error(task_name)` |
 | Stuck | `stuck: true` in response, or agent asking unanswered question | `send_text_to_pane` with guidance; 2 retries then re-dispatch |
@@ -166,14 +166,14 @@ Max 2 debug cycles. If still failing after 2 rounds, `report_completion` with pa
 **Required order — do not skip steps:**
 
 0. **Mark done**: `mark_task_done(task_name, notes)` for every completed subtask. This must happen before `report_completion` — calling `report_completion` without marking tasks done leaves them in RUNNING state permanently and breaks loop tape tracking.
-1. **Merge branches** sequentially via `merge_agent_branch(task_name=...)`.
-   - `"conflict"` → the response includes `files` (conflicting paths) and `diff` (full diff between branches). Use these to write a precise, context-aware prompt: tell the agent *exactly* which files conflict, *what each side changed*, and *what the correct semantic resolution should be*. The agent runs `git merge <branch>`, reads the conflict markers, resolves based on your guidance, then commits. After the agent completes, call `merge_agent_branch` again to confirm.
-2. **Verify — you MUST call `run_verification` for both lint and test. No exceptions.**
+   - Note: branches are merged inline during Monitor (on each `done` message). By this point all merges are already done.
+   - If any `merge_agent_branch` returned `"conflict"` during monitoring, resolve it now: the response includes `files` (conflicting paths) and `diff`. Write a precise prompt telling the agent *exactly* which files conflict, *what each side changed*, and *what the correct resolution should be*. After the agent completes, call `merge_agent_branch` again to confirm.
+1. **Verify — you MUST call `run_verification` for both lint and test. No exceptions.**
    - `run_verification(check_type="lint", command="ruff check src/ tests/ && ruff format --check src/ tests/", timeout=60)`
    - `run_verification(check_type="test", command="pytest tests/ -v", timeout=300)`
    - On failure: dispatch debug agent (see Layer 3 above), then re-run `run_verification`.
-3. **Check**: `check_conflicts` to ensure no git conflicts remain.
-4. **Report**: `report_completion` with what was actually delivered.
+2. **Check**: `check_conflicts` to ensure no git conflicts remain.
+3. **Report**: `report_completion` with what was actually delivered.
 
 ### Phase Transitions
 
@@ -198,7 +198,7 @@ Each transition requires a `gate_summary` (≥20 chars) describing what was comp
 | Multi-file/multi-module | `submit_plan`, split into parallel subtasks. |
 | Need deeper context mid-task | Dispatch another research agent to investigate and report. |
 | Agent stuck >60s | `send_text_to_pane` with guidance. 2 retries max, then re-dispatch. |
-| Agent exited successfully (`exited: true`, success output or `report` field) | Call `mark_task_done(task_name, notes)` **immediately** |
+| Agent exited successfully (`exited: true`, success output or `report` field) | Call `mark_task_done(task_name, notes)` **immediately**, then call `merge_agent_branch(task_name=...)` |
 | Agent exited with error (`exited: true`, error output) | Call `permanent_error(task_name)` |
 | Agent exited unexpectedly | retry_count <2: re-dispatch. >=2: `permanent_error`. |
 | All agents done | **Immediately** call `run_verification` for lint + test. Do not skip. |

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.34
+
+- **Fix**: `merge_agent_branch` now detects empty branches (no new commits) and logs a `[yellow]!` warning with `[0 commits - no-op]` in the output — surfaces the hash bug where agents committed to main instead of their worktree branch
+- **Feature**: merge-on-done workflow — lead agent now calls `merge_agent_branch` immediately when each agent reports `done`, instead of batching all merges at the end; Finish section reduced to verify + check_conflicts + report
+
 ## 0.5.33
 
 - **Feature**: tmux backend now applies `select-layout tiled` after every `split_pane` — all managed panes auto-tile into an even grid whenever a new sub-agent is dispatched

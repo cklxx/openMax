@@ -169,29 +169,40 @@ def _parse_conflict_files(merge_stderr: str) -> list[str]:
     ]
 
 
+def _count_new_commits(cwd: str, target: str, branch: str) -> int:
+    log = _git_run(["git", "log", f"{target}..{branch}", "--oneline"], cwd, timeout=10)
+    return len([line for line in log.stdout.splitlines() if line.strip()])
+
+
 def _merge_and_handle_conflicts(
     cwd: str,
     branch: str,
     target: str,
-) -> tuple[str, str | None, list[str], str]:
-    """Merge branch into target. Returns (status, commit_hash, conflict_files, diff)."""
+) -> tuple[str, str | None, list[str], str, int]:
+    """Merge branch into target. Returns (status, hash, conflict_files, diff, commit_count)."""
+    commit_count = _count_new_commits(cwd, target, branch)
+    if commit_count == 0:
+        console.print(f"  [yellow]![/yellow]  Branch {branch} has no commits to merge (no-op)")
     _git_run(["git", "checkout", target], cwd)
     merge = _git_run(["git", "merge", "--no-edit", branch], cwd, timeout=60)
     if merge.returncode == 0:
         head = _git_run(["git", "rev-parse", "HEAD"], cwd, timeout=10)
-        return ("merged", head.stdout.strip(), [], "")
+        return ("merged", head.stdout.strip(), [], "", commit_count)
     diff = _git_run(["git", "diff", f"{target}...{branch}"], cwd, timeout=30)
     _git_run(["git", "merge", "--abort"], cwd)
-    return ("conflict", None, _parse_conflict_files(merge.stderr), diff.stdout[:8000])
+    return ("conflict", None, _parse_conflict_files(merge.stderr), diff.stdout[:8000], commit_count)
 
 
-def _report_merge_success(branch: str, integration: str, short_hash: str) -> str:
-    console.print(f"  [bold green]✓[/bold green]  Merged {branch} → {integration} ({short_hash})")
+def _report_merge_success(branch: str, integration: str, short_hash: str, commit_count: int) -> str:
+    suffix = f"[{commit_count} commits]" if commit_count > 0 else "[0 commits - no-op]"
+    console.print(
+        f"  [bold green]✓[/bold green]  Merged {branch} → {integration} ({short_hash}) {suffix}"
+    )
     _append_session_event(
         "tool.auto_merge",
-        {"branch": branch, "status": "merged", "commit": short_hash},
+        {"branch": branch, "status": "merged", "commit": short_hash, "commit_count": commit_count},
     )
-    return f"Merged {branch} → {integration} ({short_hash})"
+    return f"Merged {branch} → {integration} ({short_hash}) {suffix}"
 
 
 def _report_merge_conflict(branch: str, conflict_files: list[str]) -> str:
@@ -214,7 +225,7 @@ def _auto_merge_branch(runtime: Any, subtask: SubTask) -> str:
         return ""
     integration = runtime.integration_branch or "main"
     try:
-        status, commit_hash, files, _diff = _merge_and_handle_conflicts(
+        status, commit_hash, files, _diff, commit_count = _merge_and_handle_conflicts(
             runtime.cwd, branch, integration
         )
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -222,7 +233,7 @@ def _auto_merge_branch(runtime: Any, subtask: SubTask) -> str:
         return f"Auto-merge error: {e}"
     if status == "merged":
         _cleanup_agent_branch(runtime.cwd, branch)
-        return _report_merge_success(branch, integration, (commit_hash or "")[:8])
+        return _report_merge_success(branch, integration, (commit_hash or "")[:8], commit_count)
     return _report_merge_conflict(branch, files)
 
 
@@ -242,11 +253,20 @@ def _merge_branch_result(
     diff: str,
     branch: str,
     integration: str,
+    commit_count: int,
 ) -> dict[str, Any]:
     if status == "merged":
         short = commit_hash[:8] if commit_hash else ""
-        console.print(f"  [bold green]✓[/bold green]  Merged {branch} → {integration} ({short})")
-        data: dict[str, Any] = {"status": "merged", "commit": commit_hash, "task_name": task_name}
+        suffix = f"[{commit_count} commits]" if commit_count > 0 else "[0 commits - no-op]"
+        console.print(
+            f"  [bold green]✓[/bold green]  Merged {branch} → {integration} ({short}) {suffix}"
+        )
+        data: dict[str, Any] = {
+            "status": "merged",
+            "commit": commit_hash,
+            "task_name": task_name,
+            "commit_count": commit_count,
+        }
     else:
         console.print(
             f"  [bold red]✗[/bold red]  Merge conflict for {branch}: {len(conflict_files)} file(s)"
@@ -402,7 +422,7 @@ async def merge_agent_branch(args: dict[str, Any]) -> dict[str, Any]:
         return _tool_response({"status": "skipped", "reason": "No branch for this task"})
     integration = runtime.integration_branch or "main"
     try:
-        status, hash_, files, diff = _merge_and_handle_conflicts(
+        status, hash_, files, diff, commit_count = _merge_and_handle_conflicts(
             runtime.cwd, target.branch_name, integration
         )
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -410,5 +430,7 @@ async def merge_agent_branch(args: dict[str, Any]) -> dict[str, Any]:
     if status == "merged":
         _cleanup_agent_branch(runtime.cwd, target.branch_name)
     return _tool_response(
-        _merge_branch_result(task_name, status, hash_, files, diff, target.branch_name, integration)
+        _merge_branch_result(
+            task_name, status, hash_, files, diff, target.branch_name, integration, commit_count
+        )
     )
