@@ -309,6 +309,29 @@ def _build_subagent_context(
     return "\n\n" + header + "\n\n" + "\n\n".join(sections)
 
 
+def _open_new_agent_window(
+    runtime: LeadAgentRuntime,
+    command: list[str] | str,
+    purpose: str,
+    agent_type: str,
+    title: str | None,
+    cwd: str,
+    env: dict[str, str] | None,
+) -> SimpleNamespace:
+    """Create a new window when the current one is full, and update agent_window_id."""
+    console.print("  [yellow]![/yellow]  Terminal full — opening new window for overflow panes")
+    pane = runtime.pane_mgr.create_window(
+        command=command,
+        purpose=purpose,
+        agent_type=agent_type,
+        title=title,
+        cwd=cwd,
+        env=env,
+    )
+    runtime.agent_window_id = pane.window_id
+    return pane
+
+
 def _launch_pane(
     runtime: LeadAgentRuntime,
     command: list[str] | str,
@@ -318,27 +341,34 @@ def _launch_pane(
     cwd: str | None = None,
     env: dict[str, str] | None = None,
 ) -> SimpleNamespace:
+    effective_cwd = cwd or runtime.cwd
     if runtime.agent_window_id is None:
         pane = runtime.pane_mgr.create_window(
             command=command,
             purpose=purpose,
             agent_type=agent_type,
             title=title,
-            cwd=cwd or runtime.cwd,
+            cwd=effective_cwd,
             env=env,
         )
         runtime.agent_window_id = pane.window_id
-    else:
-        pane = runtime.pane_mgr.add_pane(
+        return pane
+    try:
+        return runtime.pane_mgr.add_pane(
             window_id=runtime.agent_window_id,
             command=command,
             purpose=purpose,
             agent_type=agent_type,
             title=title,
-            cwd=cwd or runtime.cwd,
+            cwd=effective_cwd,
             env=env,
         )
-    return pane
+    except PaneBackendError as e:
+        if "No space" not in str(e):
+            raise
+        return _open_new_agent_window(
+            runtime, command, purpose, agent_type, title, effective_cwd, env
+        )
 
 
 def _safe_launch_pane(

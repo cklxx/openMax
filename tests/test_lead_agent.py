@@ -2237,3 +2237,53 @@ def test_budget_soft_limit_no_stop_action(monkeypatch, tmp_path):
     assert "action" not in parsed["budget"]
 
     _teardown_session(token)
+
+
+# ── _launch_pane fallback tests ────────────────────────────────────────────
+
+
+def test_launch_pane_falls_back_to_new_window_on_no_space(tmp_path):
+    """When add_pane raises 'No space for split!', _launch_pane creates a new window."""
+    from openmax.lead_agent.tools._helpers import _launch_pane
+    from openmax.pane_backend import PaneBackendError
+
+    runtime, token, *_ = _setup_session(tmp_path)
+    runtime.agent_window_id = 7  # existing window already set
+
+    new_window_pane = SimpleNamespace(pane_id=999, window_id=42)
+
+    def add_pane_no_space(**kwargs):
+        raise PaneBackendError("kaku split-pane failed: Error: No space for split!")
+
+    runtime.pane_mgr.add_pane = add_pane_no_space
+    runtime.pane_mgr.create_window = lambda **kw: new_window_pane
+
+    try:
+        pane = _launch_pane(runtime, ["bash"], "test-task", "command")
+    finally:
+        reset_lead_agent_runtime(token)
+
+    assert pane.pane_id == 999
+    assert runtime.agent_window_id == 42  # updated to new window
+
+
+def test_launch_pane_reraises_unrelated_pane_backend_error(tmp_path):
+    """PaneBackendError not about space must propagate — not silently swallowed."""
+    import pytest
+
+    from openmax.lead_agent.tools._helpers import _launch_pane
+    from openmax.pane_backend import PaneBackendError
+
+    runtime, token, *_ = _setup_session(tmp_path)
+    runtime.agent_window_id = 7
+
+    def add_pane_broken(**kwargs):
+        raise PaneBackendError("kaku split-pane failed: timeout")
+
+    runtime.pane_mgr.add_pane = add_pane_broken
+
+    try:
+        with pytest.raises(PaneBackendError, match="timeout"):
+            _launch_pane(runtime, ["bash"], "test-task", "command")
+    finally:
+        reset_lead_agent_runtime(token)
