@@ -28,6 +28,7 @@ classifiers = [
 dependencies = [
     "claude-agent-sdk>=0.1.48,<0.2.0",
     "click>=8.0",
+    "mcp>=1.26.0,<2.0.0",
     "rich>=13.0",
     "tomli>=2.0; python_version < '3.11'",
 ]
@@ -39,6 +40,7 @@ Changelog = "https://github.com/cklxx/openMax/blob/main/CHANGELOG.md"
 
 [project.scripts]
 openmax = "openmax.cli:main"
+openmax-mcp = "openmax.mcp_server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/openmax"]

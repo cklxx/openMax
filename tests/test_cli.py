@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 from click.testing import CliRunner
@@ -295,6 +296,48 @@ def test_run_exits_non_zero_on_lead_agent_startup_failure(monkeypatch, tmp_path)
     assert result.exit_code == 1
     assert "Done." not in result.output
     assert "Closing panes" in result.output
+
+
+def test_setup_registers_openmax_mcp_server_and_merges_existing_config(monkeypatch, tmp_path):
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    monkeypatch.setattr(cli, "has_claude_auth", lambda: (True, "token present"))
+    monkeypatch.setattr(
+        cli,
+        "run_claude_setup_token",
+        lambda: (_ for _ in ()).throw(AssertionError("setup-token should not run")),
+    )
+
+    config_path = home_dir / ".claude.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "theme": "dark",
+                "mcpServers": {
+                    "existing": {
+                        "type": "stdio",
+                        "command": "existing-mcp",
+                        "args": ["--flag"],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["setup"])
+
+    assert result.exit_code == 0
+    data = json.loads(config_path.read_text(encoding="utf-8"))
+    assert data["theme"] == "dark"
+    assert data["mcpServers"]["existing"]["command"] == "existing-mcp"
+    assert data["mcpServers"]["openmax"] == {
+        "type": "stdio",
+        "command": "openmax-mcp",
+        "args": [],
+    }
 
 
 def test_memories_command_prints_workspace_memory(monkeypatch, tmp_path):

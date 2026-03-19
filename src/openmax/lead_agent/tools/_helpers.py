@@ -530,14 +530,14 @@ def _file_protocol_section(brief_file: Path, rep_file: Path, cwd: str) -> str:
 
     mailbox_line = ""
     if session_id:
-        done_cmd = '\'{"type":"done","task":"TASK_NAME","summary":"<one line>"}\''
-        prog_cmd = '\'{"type":"progress","task":"TASK_NAME","pct":50,"msg":"..."}\''
         mailbox_line = (
             "\n\nAlso notify the lead agent when done"
             " (REQUIRED — do this after writing the report):\n"
-            f"```\nopenmax msg {done_cmd}\n```\n"
-            "(`$OPENMAX_SESSION_ID` is set in your env — no `--session` flag needed)\n"
-            f"Mid-task progress: `openmax msg {prog_cmd}`"
+            "Use the MCP tool `report_done` with your task name and a one-line summary.\n"
+            "For mid-task progress, use the MCP tool `report_progress` with `task`, "
+            "`pct`, and `msg`.\n"
+            "(`$OPENMAX_SESSION_ID` is already set in your env, and the MCP tool reads it "
+            "automatically. No JSON crafting or Bash command is needed.)"
         )
 
     return (

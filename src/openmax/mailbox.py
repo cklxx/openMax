@@ -13,6 +13,26 @@ from typing import Any
 
 _SOCKET_DIR = Path("/tmp")
 _MAX_MSG_BYTES = 64_000
+_SOCKET_TIMEOUT_SECONDS = 5.0
+
+
+def mailbox_socket_path(session_id: str) -> Path:
+    return _SOCKET_DIR / f"openmax-{session_id}.sock"
+
+
+def send_mailbox_message(session_id: str, message: str) -> None:
+    sock_path = mailbox_socket_path(session_id)
+    if not sock_path.exists():
+        raise FileNotFoundError(f"no active session socket: {sock_path}")
+
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        sock.settimeout(_SOCKET_TIMEOUT_SECONDS)
+        sock.connect(str(sock_path))
+        sock.sendall(message.encode("utf-8"))
+
+
+def send_mailbox_payload(session_id: str, payload: dict[str, Any]) -> None:
+    send_mailbox_message(session_id, json.dumps(payload, ensure_ascii=False))
 
 
 @dataclass
@@ -26,7 +46,7 @@ class MailboxMessage:
 class SessionMailbox:
     def __init__(self, session_id: str, log_dir: Path) -> None:
         self.session_id = session_id
-        self.socket_path = _SOCKET_DIR / f"openmax-{session_id}.sock"
+        self.socket_path = mailbox_socket_path(session_id)
         self.log_path = log_dir / f"messages-{session_id}.jsonl"
         self._queue: queue.Queue[MailboxMessage] = queue.Queue()
         self._server_sock: socket.socket | None = None

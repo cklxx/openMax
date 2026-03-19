@@ -10,6 +10,7 @@ import sys
 import time
 from collections import Counter
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import click
@@ -48,6 +49,13 @@ _SUBTASK_STATUS_STYLES: dict[str, str] = {
     "pending": "dim",
 }
 
+_OPENMAX_MCP_SERVER_NAME = "openmax"
+_OPENMAX_MCP_SERVER_CONFIG = {
+    "type": "stdio",
+    "command": "openmax-mcp",
+    "args": [],
+}
+
 
 def _make_table(**overrides: Any) -> Table:
     defaults = dict(
@@ -63,6 +71,53 @@ def _make_table(**overrides: Any) -> Table:
 
 def _resolve_cwd(cwd: str | None) -> str:
     return os.path.realpath(cwd or os.getcwd())
+
+
+def _claude_config_path() -> Path:
+    return Path.home() / ".claude.json"
+
+
+def _load_claude_config(config_path: Path) -> dict[str, Any]:
+    if not config_path.exists():
+        return {}
+
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise click.ClickException(f"Invalid Claude config at {config_path}: {exc}") from exc
+
+    if not isinstance(data, dict):
+        raise click.ClickException(
+            f"Invalid Claude config at {config_path}: top-level JSON must be an object"
+        )
+    return data
+
+
+def _register_openmax_mcp_server(config_path: Path | None = None) -> bool:
+    config_path = config_path or _claude_config_path()
+    config = _load_claude_config(config_path)
+
+    servers = config.get("mcpServers")
+    if servers is None:
+        servers = {}
+    elif not isinstance(servers, dict):
+        raise click.ClickException(
+            f"Invalid Claude config at {config_path}: `mcpServers` must be an object"
+        )
+
+    if servers.get(_OPENMAX_MCP_SERVER_NAME) == _OPENMAX_MCP_SERVER_CONFIG:
+        return False
+
+    config["mcpServers"] = {
+        **servers,
+        _OPENMAX_MCP_SERVER_NAME: dict(_OPENMAX_MCP_SERVER_CONFIG),
+    }
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        json.dumps(config, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return True
 
 
 def _parse_allowed_agents(agents: str | None, available_agents: set[str]) -> list[str] | None:
@@ -1393,27 +1448,33 @@ def setup(status: bool) -> None:
     already_ok, detail = has_claude_auth()
     if already_ok:
         console.print(f"[green]Already authenticated:[/green] {detail}")
-        console.print("No setup needed.")
-        return
-
-    import shutil
-
-    if not shutil.which("claude"):
-        console.print("[red]claude CLI not found.[/red]")
-        console.print("Install it first: https://docs.anthropic.com/en/docs/claude-code")
-        raise SystemExit(1)
-
-    console.print("[bold]openMax Setup[/bold]\n")
-    console.print(
-        "This will run [bold]claude setup-token[/bold] to configure a long-lived token.\n"
-    )
-
-    ok = run_claude_setup_token()
-    if ok:
-        console.print("\n[green]Setup complete.[/green]")
     else:
-        console.print("\n[red]Setup failed.[/red]")
-        raise SystemExit(1)
+        import shutil
+
+        if not shutil.which("claude"):
+            console.print("[red]claude CLI not found.[/red]")
+            console.print("Install it first: https://docs.anthropic.com/en/docs/claude-code")
+            raise SystemExit(1)
+
+        console.print("[bold]openMax Setup[/bold]\n")
+        console.print(
+            "This will run [bold]claude setup-token[/bold] to configure a long-lived token.\n"
+        )
+
+        ok = run_claude_setup_token()
+        if not ok:
+            console.print("\n[red]Setup failed.[/red]")
+            raise SystemExit(1)
+
+    mcp_registered = _register_openmax_mcp_server()
+    if mcp_registered:
+        console.print(
+            f"[green]Registered MCP server:[/green] {_claude_config_path()} "
+            f"({_OPENMAX_MCP_SERVER_NAME})"
+        )
+    else:
+        console.print(f"[dim]MCP server already registered:[/dim] {_claude_config_path()}")
+    console.print("\n[green]Setup complete.[/green]")
 
 
 @main.command("install-skill")
@@ -1472,24 +1533,18 @@ def models() -> None:
 @click.option("--session", required=True, envvar="OPENMAX_SESSION_ID", help="Session ID")
 def msg(message: str, session: str) -> None:
     """Send a JSON message to the lead agent mailbox."""
-    import socket as _socket
-    from pathlib import Path as _Path
+    from openmax.mailbox import send_mailbox_message
 
     try:
         json.loads(message)
     except json.JSONDecodeError as exc:
         raise click.UsageError(f"MESSAGE must be valid JSON: {exc}") from exc
 
-    sock_path = _Path(f"/tmp/openmax-{session}.sock")
-    if not sock_path.exists():
-        click.echo(f"Error: no active session socket: {sock_path}", err=True)
-        sys.exit(1)
-
     try:
-        with _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM) as s:
-            s.settimeout(5.0)
-            s.connect(str(sock_path))
-            s.sendall(message.encode("utf-8"))
+        send_mailbox_message(session, message)
+    except FileNotFoundError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
     except ConnectionRefusedError:
         click.echo("Error: lead agent not running (connection refused)", err=True)
         sys.exit(1)
