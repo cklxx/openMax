@@ -30,7 +30,14 @@ from openmax.pane_backend import resolve_pane_backend_name
 from openmax.pane_manager import PaneManager
 from openmax.provider_usage import ProviderStatus, probe_all
 from openmax.session_runtime import SessionSnapshot, SessionStore
-from openmax.terminal import ensure_kaku, ensure_tmux, is_kaku_available, is_tmux_available
+from openmax.terminal import (
+    ensure_ghostty,
+    ensure_kaku,
+    ensure_tmux,
+    is_ghostty_available,
+    is_kaku_available,
+    is_tmux_available,
+)
 from openmax.usage import UsageStore
 
 _ANCHOR_PREVIEW_LIMIT = 5
@@ -236,7 +243,7 @@ def main() -> None:
 @click.option(
     "--pane-backend",
     "pane_backend_name",
-    type=click.Choice(["kaku", "tmux", "headless", "auto"], case_sensitive=False),
+    type=click.Choice(["kaku", "ghostty", "tmux", "headless", "auto"], case_sensitive=False),
     default=None,
     help="Pane backend to use (defaults to auto-detect: kaku > tmux)",
 )
@@ -280,6 +287,8 @@ def run(
     allowed_agents = _parse_allowed_agents(agents, available_agents)
 
     if pane_backend_name == "kaku" and not ensure_kaku():
+        raise SystemExit(1)
+    if pane_backend_name == "ghostty" and not ensure_ghostty():
         raise SystemExit(1)
     if pane_backend_name == "tmux" and not ensure_tmux():
         raise SystemExit(1)
@@ -368,7 +377,7 @@ def run(
 @click.option(
     "--pane-backend",
     "pane_backend_name",
-    type=click.Choice(["kaku", "tmux", "headless", "auto"], case_sensitive=False),
+    type=click.Choice(["kaku", "ghostty", "tmux", "headless", "auto"], case_sensitive=False),
     default=None,
     help="Pane backend to use",
 )
@@ -522,9 +531,9 @@ def _make_loop_iteration(iteration: int, started_at: str, plan: Any) -> LoopIter
 
 @main.command()
 def panes() -> None:
-    """List all terminal panes (kaku or tmux)."""
-    if not is_kaku_available() and not is_tmux_available():
-        console.print("[red]No pane backend available.[/red]\nRun inside Kaku (macOS) or tmux.")
+    """List all terminal panes (kaku, ghostty, or tmux)."""
+    if not is_kaku_available() and not is_ghostty_available() and not is_tmux_available():
+        console.print("[red]No pane backend available.[/red]\nRun inside Kaku, Ghostty, or tmux.")
         raise SystemExit(1)
 
     all_panes = PaneManager.list_all_panes()
@@ -618,7 +627,7 @@ def _attached_panes_context(panes_list: list, contents: dict[int, str] | None = 
 @click.option(
     "--pane-backend",
     "pane_backend_name",
-    type=click.Choice(["kaku", "tmux", "headless", "auto"], case_sensitive=False),
+    type=click.Choice(["kaku", "ghostty", "tmux", "headless", "auto"], case_sensitive=False),
     default=None,
     help="Pane backend to use (defaults to auto-detect)",
 )
@@ -643,8 +652,8 @@ def manage(
     Without TASK: show a table of all running panes/windows.
     With TASK: attach existing panes and run the lead agent so it can interact with them.
     """
-    if not is_kaku_available() and not is_tmux_available():
-        console.print("[red]No pane backend available.[/red]\nRun inside Kaku (macOS) or tmux.")
+    if not is_kaku_available() and not is_ghostty_available() and not is_tmux_available():
+        console.print("[red]No pane backend available.[/red]\nRun inside Kaku, Ghostty, or tmux.")
         raise SystemExit(1)
 
     pane_backend_name = resolve_pane_backend_name(pane_backend_name)
@@ -666,6 +675,8 @@ def manage(
     allowed_agents = _parse_allowed_agents(agents, set(agent_registry.names()))
 
     if pane_backend_name == "kaku" and not ensure_kaku():
+        raise SystemExit(1)
+    if pane_backend_name == "ghostty" and not ensure_ghostty():
         raise SystemExit(1)
     if pane_backend_name == "tmux" and not ensure_tmux():
         raise SystemExit(1)

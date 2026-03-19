@@ -6,6 +6,7 @@ import time
 import pytest
 
 from openmax.pane_backend import (
+    GhosttyPaneBackend,
     HeadlessPaneBackend,
     KakuPaneBackend,
     PaneBackendError,
@@ -99,9 +100,9 @@ def test_resolve_pane_backend_name_auto_detects_when_no_env(monkeypatch):
     monkeypatch.delenv("OPENMAX_PANE_BACKEND", raising=False)
     monkeypatch.delenv("TMUX", raising=False)
 
-    # With neither kaku nor tmux available, auto-detect falls back to "kaku"
+    # Auto-detect picks the first available backend (kaku > ghostty > tmux)
     resolved = resolve_pane_backend_name()
-    assert resolved in ("kaku", "tmux")
+    assert resolved in ("kaku", "ghostty", "tmux")
 
 
 def test_resolve_pane_backend_name_uses_env_and_normalizes_case(monkeypatch):
@@ -233,3 +234,157 @@ def test_kaku_retry_does_not_sleep_on_first_success(monkeypatch):
     backend.spawn_window(["echo"])
 
     assert sleep_calls == []  # no sleep when first attempt succeeds
+
+
+# ── GhosttyPaneBackend ────────────────────────────────────────────────────────
+
+
+def test_ghostty_list_panes_parses_output(monkeypatch):
+    backend = GhosttyPaneBackend()
+    tsv = "1\t10\t100\tmy-shell\t/home/user\t120\t40\n2\t20\t200\tzsh\t/tmp\t80\t24\n"
+    fake_result = type("R", (), {"returncode": 0, "stdout": tsv, "stderr": ""})()
+    monkeypatch.setattr(backend, "_run_applescript", lambda *a, **kw: fake_result)
+
+    panes = backend.list_panes()
+
+    assert len(panes) == 2
+    assert panes[0].pane_id == 100
+    assert panes[0].window_id == 1
+    assert panes[0].title == "my-shell"
+    assert panes[0].cwd == "/home/user"
+    assert panes[0].cols == 120
+    assert panes[0].rows == 40
+    assert panes[1].pane_id == 200
+
+
+def test_ghostty_spawn_window_builds_script(monkeypatch):
+    backend = GhosttyPaneBackend()
+    scripts: list[str] = []
+
+    def fake_run(script, **kwargs):
+        scripts.append(script)
+        return type("R", (), {"stdout": "42\n", "stderr": "", "returncode": 0})()
+
+    monkeypatch.setattr(backend, "_run_applescript", fake_run)
+    monkeypatch.setattr("openmax.pane_backend.time.sleep", lambda _: None)
+
+    pane_id = backend.spawn_window(["echo", "hello"], cwd="/repo")
+
+    assert pane_id == 42
+    assert len(scripts) == 1
+    assert "new window with configuration" in scripts[0]
+    assert "working directory" in scripts[0]
+    assert "/repo" in scripts[0]
+
+
+def test_ghostty_split_direction_mapping(monkeypatch):
+    backend = GhosttyPaneBackend()
+    scripts: list[str] = []
+
+    def fake_run(script, **kwargs):
+        scripts.append(script)
+        return type("R", (), {"stdout": "99\n", "stderr": "", "returncode": 0})()
+
+    monkeypatch.setattr(backend, "_run_applescript", fake_run)
+    monkeypatch.setattr("openmax.pane_backend.time.sleep", lambda _: None)
+
+    backend.split_pane(10, "bottom", ["echo"])
+    assert "direction down" in scripts[0]
+
+    scripts.clear()
+    backend.split_pane(10, "top", ["echo"])
+    assert "direction up" in scripts[0]
+
+    scripts.clear()
+    backend.split_pane(10, "right", ["echo"])
+    assert "direction right" in scripts[0]
+
+    scripts.clear()
+    backend.split_pane(10, "left", ["echo"])
+    assert "direction left" in scripts[0]
+
+
+def test_ghostty_send_text_escapes_quotes(monkeypatch):
+    backend = GhosttyPaneBackend()
+    scripts: list[str] = []
+
+    def fake_run(script, **kwargs):
+        scripts.append(script)
+        return type("R", (), {"stdout": "", "stderr": "", "returncode": 0})()
+
+    monkeypatch.setattr(backend, "_run_applescript", fake_run)
+
+    backend.send_text(5, 'echo "hello world"')
+
+    assert len(scripts) == 1
+    assert r"\"hello world\"" in scripts[0]
+    assert "terminal id 5" in scripts[0]
+
+
+def test_ghostty_get_text_clipboard_cycle(monkeypatch):
+    backend = GhosttyPaneBackend()
+    clipboard_state = {"value": "original-clipboard"}
+    scripts: list[str] = []
+
+    def fake_run(script, **kwargs):
+        scripts.append(script)
+        if "write_scrollback_file" in script:
+            clipboard_state["value"] = "line1\nline2\nline3"
+        return type("R", (), {"stdout": "", "stderr": "", "returncode": 0})()
+
+    def fake_pbpaste(*args, **kwargs):
+        return type("R", (), {"stdout": clipboard_state["value"], "returncode": 0})()
+
+    pbcopy_inputs: list[str] = []
+
+    def fake_pbcopy(*args, **kwargs):
+        pbcopy_inputs.append(kwargs.get("input", ""))
+        return type("R", (), {"returncode": 0})()
+
+    monkeypatch.setattr(backend, "_run_applescript", fake_run)
+    monkeypatch.setattr(
+        "openmax.pane_backend.subprocess.run",
+        lambda cmd, **kw: (
+            fake_pbpaste(cmd, **kw)
+            if cmd == ["pbpaste"]
+            else fake_pbcopy(cmd, **kw)
+            if cmd == ["pbcopy"]
+            else type("R", (), {"stdout": "", "returncode": 0})()
+        ),
+    )
+    monkeypatch.setattr("openmax.pane_backend.time.sleep", lambda _: None)
+
+    text = backend.get_text(7)
+
+    assert text == "line1\nline2\nline3"
+    assert pbcopy_inputs[-1] == "original-clipboard"
+
+
+def test_ghostty_get_text_with_start_line(monkeypatch):
+    backend = GhosttyPaneBackend()
+
+    def fake_run(script, **kwargs):
+        return type("R", (), {"stdout": "", "stderr": "", "returncode": 0})()
+
+    def fake_subprocess_run(cmd, **kwargs):
+        if cmd == ["pbpaste"]:
+            return type("R", (), {"stdout": "line0\nline1\nline2\nline3", "returncode": 0})()
+        return type("R", (), {"stdout": "", "returncode": 0})()
+
+    monkeypatch.setattr(backend, "_run_applescript", fake_run)
+    monkeypatch.setattr("openmax.pane_backend.subprocess.run", fake_subprocess_run)
+    monkeypatch.setattr("openmax.pane_backend.time.sleep", lambda _: None)
+
+    text = backend.get_text(7, start_line=2)
+
+    assert text == "line2\nline3"
+
+
+def test_resolve_backend_accepts_ghostty(monkeypatch):
+    monkeypatch.setenv("OPENMAX_PANE_BACKEND", "ghostty")
+
+    assert resolve_pane_backend_name() == "ghostty"
+
+
+def test_create_backend_builds_ghostty():
+    assert isinstance(create_pane_backend("ghostty"), GhosttyPaneBackend)

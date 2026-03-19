@@ -1,6 +1,6 @@
 """Terminal backend detection, installation, and utilities.
 
-Supports Kaku (macOS) and tmux (cross-platform).
+Supports Kaku (macOS), Ghostty (macOS), and tmux (cross-platform).
 """
 
 from __future__ import annotations
@@ -30,6 +30,24 @@ def get_current_pane_id() -> int | None:
         return int(pane)
     except ValueError:
         return None
+
+
+def is_ghostty_available() -> bool:
+    """Check if Ghostty is installed and its AppleScript interface responds."""
+    if platform.system() != "Darwin":
+        return False
+    if shutil.which("ghostty") is None:
+        return False
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", 'tell application "Ghostty" to get name'],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
 
 
 def is_kaku_available() -> bool:
@@ -163,6 +181,43 @@ def ensure_kaku() -> bool:
         "Then open Kaku and run openmax from inside it.\n"
         "\n"
         "[dim]Alternatively, install tmux and run openmax inside a tmux session.[/dim]"
+    )
+    return False
+
+
+def ensure_ghostty() -> bool:
+    """Ensure Ghostty is available. Guide install if not.
+
+    Returns True if Ghostty is ready to use, False otherwise.
+    macOS-only — returns False immediately on other platforms.
+    """
+    if is_ghostty_available():
+        return True
+
+    from rich.console import Console
+
+    console = Console()
+
+    if platform.system() != "Darwin":
+        console.print(
+            "[yellow]Ghostty backend is macOS-only.[/yellow] Use [bold]tmux[/bold] instead."
+        )
+        return False
+
+    if shutil.which("ghostty") is not None:
+        console.print(
+            "[yellow]Ghostty is installed but not running.[/yellow]\n"
+            "[yellow]Please launch Ghostty and try again.[/yellow]"
+        )
+        return False
+
+    console.print(
+        "[red]Ghostty is not installed.[/red]\n"
+        "\n"
+        "[bold]Install:[/bold]\n"
+        "  brew install --cask ghostty\n"
+        "\n"
+        "Then launch Ghostty and run openmax from inside it.\n"
     )
     return False
 

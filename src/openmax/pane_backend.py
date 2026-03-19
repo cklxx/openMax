@@ -17,8 +17,8 @@ _KAKU_CLI_PREFIX = ["kaku", "cli"]
 _SEND_TEXT_ARG_LIMIT = 100_000  # bytes; switch to stdin above this
 
 SplitDirection = Literal["right", "bottom", "left", "top"]
-PaneBackendName = Literal["kaku", "tmux", "headless"]
-_VALID_BACKEND_NAMES = {"kaku", "tmux", "headless"}
+PaneBackendName = Literal["kaku", "ghostty", "tmux", "headless"]
+_VALID_BACKEND_NAMES = {"kaku", "ghostty", "tmux", "headless"}
 
 
 class PaneBackendError(RuntimeError):
@@ -92,14 +92,16 @@ def resolve_pane_backend_name(name: str | None = None) -> PaneBackendName:
 def _auto_detect_backend() -> PaneBackendName:
     """Auto-detect the best available pane backend.
 
-    macOS: kaku (if running inside kaku) > tmux > kaku fallback.
+    macOS: kaku > ghostty > tmux > kaku fallback.
     Non-macOS: tmux.
     """
-    from openmax.terminal import is_kaku_available, is_tmux_available
+    from openmax.terminal import is_ghostty_available, is_kaku_available, is_tmux_available
 
     if platform.system() == "Darwin":
         if is_kaku_available():
             return "kaku"
+        if is_ghostty_available():
+            return "ghostty"
         if is_tmux_available():
             return "tmux"
         return "kaku"  # fall through — ensure_kaku will guide install
@@ -114,6 +116,8 @@ def create_pane_backend(name: str | None = None) -> PaneBackend:
         return HeadlessPaneBackend()
     if resolved == "tmux":
         return TmuxPaneBackend()
+    if resolved == "ghostty":
+        return GhosttyPaneBackend()
     return KakuPaneBackend()
 
 
@@ -508,6 +512,269 @@ class KakuPaneBackend:
         if check and result.returncode != 0:
             command_name = " ".join(args[:2]).strip()
             raise PaneBackendError(f"kaku {command_name} failed: {result.stderr}")
+        return result
+
+
+class GhosttyPaneBackend:
+    """Ghostty-backed pane backend using AppleScript (macOS-only)."""
+
+    _DIRECTION_MAP: dict[SplitDirection, str] = {
+        "right": "right",
+        "bottom": "down",
+        "left": "left",
+        "top": "up",
+    }
+
+    def list_panes(self) -> list[PaneInfo]:
+        script = (
+            'tell application "Ghostty"\n'
+            "  set out to {}\n"
+            "  repeat with w in windows\n"
+            "    set wid to id of w\n"
+            "    repeat with t in tabs of w\n"
+            "      set tid to id of t\n"
+            "      repeat with term in terminals of t\n"
+            "        set pid to id of term\n"
+            "        set tTitle to title of term\n"
+            "        set tCwd to current directory of term\n"
+            "        set tCols to columns of term\n"
+            "        set tRows to rows of term\n"
+            '        set end of out to ("" & wid & "\t" & tid & "\t"'
+            ' & pid & "\t" & tTitle & "\t" & tCwd & "\t"'
+            ' & tCols & "\t" & tRows)\n'
+            "      end repeat\n"
+            "    end repeat\n"
+            "  end repeat\n"
+            "  return (items of out) as text\n"
+            "end tell"
+        )
+        result = self._run_applescript(script, check=False)
+        if result.returncode != 0 or not result.stdout.strip():
+            return []
+        return self._parse_pane_list(result.stdout)
+
+    @staticmethod
+    def _parse_pane_list(raw: str) -> list[PaneInfo]:
+        panes: list[PaneInfo] = []
+        for line in raw.strip().splitlines():
+            parts = line.split("\t")
+            if len(parts) < 7:
+                continue
+            panes.append(
+                PaneInfo(
+                    window_id=int(parts[0]),
+                    tab_id=int(parts[1]),
+                    pane_id=int(parts[2]),
+                    workspace="ghostty",
+                    cols=int(parts[5]),
+                    rows=int(parts[6]),
+                    title=parts[3],
+                    cwd=parts[4],
+                    is_active=False,
+                    is_zoomed=False,
+                    cursor_visibility="visible",
+                )
+            )
+        return panes
+
+    def spawn_window(
+        self,
+        command: list[str],
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+    ) -> int:
+        return self._retry(lambda: self._spawn_window_once(command, cwd, env))
+
+    def _spawn_window_once(
+        self,
+        command: list[str],
+        cwd: str | None,
+        env: dict[str, str] | None,
+    ) -> int:
+        wrapped = _wrap_command_with_env(command, env)
+        cmd_str = self._shell_join(wrapped)
+        cfg_lines = [f'set command of cfg to "{self._escape(cmd_str)}"']
+        if cwd:
+            cfg_lines.append(f'set working directory of cfg to "{self._escape(cwd)}"')
+        cfg_block = "\n    ".join(cfg_lines)
+        script = (
+            'tell application "Ghostty"\n'
+            "  set cfg to new surface configuration\n"
+            f"    {cfg_block}\n"
+            "  set w to new window with configuration cfg\n"
+            "  set tid to id of terminal 1 of tab 1 of w\n"
+            "  return tid\n"
+            "end tell"
+        )
+        result = self._run_applescript(script)
+        return int(result.stdout.strip())
+
+    def split_pane(
+        self,
+        target_pane_id: int,
+        direction: SplitDirection,
+        command: list[str],
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+    ) -> int:
+        return self._retry(
+            lambda: self._split_pane_once(target_pane_id, direction, command, cwd, env)
+        )
+
+    def _split_pane_once(
+        self,
+        target_pane_id: int,
+        direction: SplitDirection,
+        command: list[str],
+        cwd: str | None,
+        env: dict[str, str] | None,
+    ) -> int:
+        ghostty_dir = self._DIRECTION_MAP[direction]
+        wrapped = _wrap_command_with_env(command, env)
+        cmd_str = self._shell_join(wrapped)
+        cfg_lines = [f'set command of cfg to "{self._escape(cmd_str)}"']
+        if cwd:
+            cfg_lines.append(f'set working directory of cfg to "{self._escape(cwd)}"')
+        cfg_block = "\n    ".join(cfg_lines)
+        script = (
+            'tell application "Ghostty"\n'
+            "  set cfg to new surface configuration\n"
+            f"    {cfg_block}\n"
+            f"  set newTerm to split (terminal id {target_pane_id})"
+            f" direction {ghostty_dir} with configuration cfg\n"
+            "  return id of newTerm\n"
+            "end tell"
+        )
+        result = self._run_applescript(script)
+        return int(result.stdout.strip())
+
+    def send_text(self, pane_id: int, text: str) -> None:
+        escaped = self._escape(text)
+        script = (
+            'tell application "Ghostty"\n'
+            f'  input text "{escaped}" to (terminal id {pane_id})\n'
+            "end tell"
+        )
+        self._run_applescript(script)
+
+    def send_enter(self, pane_id: int) -> None:
+        script = (
+            f'tell application "Ghostty"\n  send key "enter" to (terminal id {pane_id})\nend tell'
+        )
+        self._run_applescript(script)
+
+    def get_text(self, pane_id: int, start_line: int | None = None) -> str:
+        # Save clipboard, use write_scrollback_file action, read via pbpaste
+        save_clip = subprocess.run(["pbpaste"], capture_output=True, text=True, timeout=5)
+        saved = save_clip.stdout
+        try:
+            action_script = (
+                'tell application "Ghostty"\n'
+                f'  perform action "write_scrollback_file:copy"'
+                f" on (terminal id {pane_id})\n"
+                "end tell"
+            )
+            self._run_applescript(action_script)
+            time.sleep(0.1)
+            clip = subprocess.run(["pbpaste"], capture_output=True, text=True, timeout=5)
+            text = clip.stdout
+        finally:
+            subprocess.run(["pbcopy"], input=saved, text=True, timeout=5)
+        if start_line is not None:
+            lines = text.splitlines()
+            return "\n".join(lines[start_line:])
+        return text
+
+    def activate_pane(self, pane_id: int) -> None:
+        script = f'tell application "Ghostty"\n  focus (terminal id {pane_id})\nend tell'
+        self._run_applescript(script, check=False)
+
+    def set_window_title(self, pane_id: int, title: str) -> None:
+        escaped = self._escape(title)
+        script = (
+            'tell application "Ghostty"\n'
+            f"  set targetTerm to (terminal id {pane_id})\n"
+            "  repeat with w in windows\n"
+            "    repeat with t in tabs of w\n"
+            "      repeat with term in terminals of t\n"
+            "        if id of term = id of targetTerm then\n"
+            f'          set name of w to "{escaped}"\n'
+            "          return\n"
+            "        end if\n"
+            "      end repeat\n"
+            "    end repeat\n"
+            "  end repeat\n"
+            "end tell"
+        )
+        self._run_applescript(script, check=False)
+
+    def kill_pane(self, pane_id: int) -> None:
+        script = f'tell application "Ghostty"\n  close (terminal id {pane_id})\nend tell'
+        self._run_applescript(script, check=False)
+
+    def resize_frontmost_window(self) -> None:
+        if platform.system() != "Darwin":
+            return
+        script = (
+            'tell application "Finder"\n'
+            "  set {_x, _y, sw, sh} to bounds of window of desktop\n"
+            "end tell\n"
+            "set w to round (sw * 0.5)\n"
+            "set h to round (sh * 0.5)\n"
+            "set xOff to round ((sw - w) / 2)\n"
+            "set yOff to round ((sh - h) / 2)\n"
+            'tell application "System Events"\n'
+            '  tell process "Ghostty"\n'
+            "    set position of window 1 to {xOff, yOff}\n"
+            "    set size of window 1 to {w, h}\n"
+            "  end tell\n"
+            "end tell"
+        )
+        subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+
+    @staticmethod
+    def _retry(fn, *, retries: int = 2, delay: float = 0.5):
+        """Call fn(), retrying up to `retries` times on PaneBackendError."""
+        for attempt in range(retries + 1):
+            try:
+                return fn()
+            except PaneBackendError:
+                if attempt >= retries:
+                    raise
+                time.sleep(delay)
+
+    @staticmethod
+    def _escape(text: str) -> str:
+        """Escape a string for embedding in AppleScript double-quoted literals."""
+        return text.replace("\\", "\\\\").replace('"', '\\"')
+
+    @staticmethod
+    def _shell_join(args: list[str]) -> str:
+        """Join command args into a shell-safe string."""
+        import shlex
+
+        return shlex.join(args)
+
+    @staticmethod
+    def _run_applescript(
+        script: str,
+        *,
+        check: bool = True,
+        timeout: float = 10,
+    ) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if check and result.returncode != 0:
+            raise PaneBackendError(f"ghostty applescript failed: {result.stderr}")
         return result
 
 

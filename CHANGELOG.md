@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.36
+
+- **Feature**: add Ghostty terminal backend — GPU-accelerated macOS terminal support via AppleScript API; auto-detected between kaku and tmux in priority order `kaku > ghostty > tmux`
+- **Feature**: `openmax doctor` now checks for Ghostty alongside kaku and tmux
+- **Feature**: `--pane-backend ghostty` option available on `run`, `manage`, and `loop` commands
+
 ## 0.5.35
 
 - **Fix**: `_launch_pane` now falls back to opening a new terminal window when kaku reports `Error: No space for split!` — previously `dispatch_agent` and `run_command` would fail with a hard error when the current window was full; now they seamlessly overflow into a new window

@@ -44,3 +44,4 @@ htmlcov/
 .openmax-worktrees/
 .openmax/
 .claude/worktrees/
+.gstack/

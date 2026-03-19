@@ -46,9 +46,11 @@ def _check_python() -> CheckResult:
 
 
 def _check_terminal_backends() -> list[CheckResult]:
-    """Check kaku and tmux — only flag an issue if neither is available."""
+    """Check kaku, ghostty, and tmux — only flag an issue if none is available."""
     has_kaku = shutil.which("kaku") is not None
+    has_ghostty = shutil.which("ghostty") is not None
     has_tmux = shutil.which("tmux") is not None
+    has_any = has_kaku or has_ghostty or has_tmux
     results: list[CheckResult] = []
 
     if has_kaku:
@@ -58,9 +60,22 @@ def _check_terminal_backends() -> list[CheckResult]:
         results.append(
             CheckResult(
                 name="Kaku CLI",
-                ok=has_tmux,  # not a problem if tmux is available
-                detail="not installed" if has_tmux else None,
-                fix_hint=None if has_tmux else "brew install --cask kaku",
+                ok=has_any,
+                detail="not installed" if has_any else None,
+                fix_hint=None if has_any else "brew install --cask kaku",
+            )
+        )
+
+    if has_ghostty:
+        v = _get_version("ghostty")
+        results.append(CheckResult(name="Ghostty", ok=True, version=v))
+    else:
+        results.append(
+            CheckResult(
+                name="Ghostty",
+                ok=has_any,
+                detail="not installed" if has_any else None,
+                fix_hint=None if has_any else "brew install --cask ghostty",
             )
         )
 
@@ -73,9 +88,9 @@ def _check_terminal_backends() -> list[CheckResult]:
         results.append(
             CheckResult(
                 name="tmux",
-                ok=has_kaku,  # not a problem if kaku is available
-                detail="not installed" if has_kaku else None,
-                fix_hint=None if has_kaku else "brew install tmux  (or apt install tmux)",
+                ok=has_any,
+                detail="not installed" if has_any else None,
+                fix_hint=None if has_any else "brew install tmux  (or apt install tmux)",
             )
         )
 
