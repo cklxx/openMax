@@ -21,6 +21,10 @@ from openmax.lead_agent.tools._helpers import (
 from openmax.lead_agent.types import SubTask
 from openmax.output import P, console
 
+# Serializes all state-modifying git operations (checkout, merge, branch, worktree)
+# to prevent race conditions when multiple agents finish concurrently.
+_git_lock = anyio.Lock()
+
 
 def _sanitize_branch_name(task_name: str) -> str:
     """Convert task name to a valid git branch name."""
@@ -370,6 +374,18 @@ async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
     return _tool_response(result)
 
 
+def _do_merge_and_cleanup(
+    cwd: str,
+    branch: str,
+    integration: str,
+) -> tuple[str, str | None, list[str], str, int]:
+    """Run merge + cleanup synchronously (meant to run in a worker thread)."""
+    status, hash_, files, diff, commit_count = _merge_and_handle_conflicts(cwd, branch, integration)
+    if status in ("merged", "no-op"):
+        _cleanup_agent_branch(cwd, branch)
+    return status, hash_, files, diff, commit_count
+
+
 @tool(
     "merge_agent_branch",
     "Merge an agent's branch back to the integration branch. "
@@ -386,16 +402,16 @@ async def merge_agent_branch(args: dict[str, Any]) -> dict[str, Any]:
     if not target.branch_name:
         return _tool_response({"status": "skipped", "reason": "No branch for this task"})
     integration = runtime.integration_branch or "main"
+    branch = target.branch_name
     try:
-        status, hash_, files, diff, commit_count = _merge_and_handle_conflicts(
-            runtime.cwd, target.branch_name, integration
-        )
+        async with _git_lock:
+            status, hash_, files, diff, commit_count = await anyio.to_thread.run_sync(
+                lambda: _do_merge_and_cleanup(runtime.cwd, branch, integration)
+            )
     except (OSError, subprocess.TimeoutExpired) as e:
         return _merge_error_response(task_name, e)
-    if status in ("merged", "no-op"):
-        _cleanup_agent_branch(runtime.cwd, target.branch_name)
     return _tool_response(
         _merge_branch_result(
-            task_name, status, hash_, files, diff, target.branch_name, integration, commit_count
+            task_name, status, hash_, files, diff, branch, integration, commit_count
         )
     )

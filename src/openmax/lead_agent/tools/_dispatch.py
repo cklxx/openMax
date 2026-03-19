@@ -30,6 +30,7 @@ from openmax.lead_agent.tools._helpers import (
 from openmax.lead_agent.tools._verify import (
     _create_agent_branch,
     _get_integration_branch,
+    _git_lock,
     _sanitize_branch_name,
 )
 from openmax.lead_agent.types import SubTask, TaskStatus
@@ -104,19 +105,35 @@ def _deduplicate_task_name(runtime: Any, task_name: str, is_retry: bool) -> str:
     return new_name
 
 
-def _setup_branch_isolation(runtime: Any, task_name: str) -> tuple[str | None, str]:
+def _setup_branch_isolation_sync(cwd: str, task_name: str) -> tuple[str | None, str | None, str]:
+    """Create per-agent branch + worktree (sync, for worker thread).
+
+    Returns (branch_name, error, worktree_path_or_empty).
+    """
+    branch_name_candidate = _sanitize_branch_name(task_name)
+    worktree_path, branch_err = _create_agent_branch(cwd, branch_name_candidate)
+    if worktree_path is not None:
+        return branch_name_candidate, None, worktree_path
+    return None, branch_err, ""
+
+
+async def _setup_branch_isolation(runtime: Any, task_name: str) -> tuple[str | None, str]:
     """Create per-agent branch + worktree. Returns (branch_name, agent_cwd)."""
     if runtime.integration_branch is None:
-        runtime.integration_branch = _get_integration_branch(runtime.cwd)
+        runtime.integration_branch = await anyio.to_thread.run_sync(
+            lambda: _get_integration_branch(runtime.cwd)
+        )
 
-    branch_name_candidate = _sanitize_branch_name(task_name)
-    worktree_path, branch_err = _create_agent_branch(runtime.cwd, branch_name_candidate)
-    if worktree_path is not None:
-        inject_claude_md(worktree_path, task_name)
-        console.print(f"  [dim]{P}  branch {branch_name_candidate} → {worktree_path}[/dim]")
-        return branch_name_candidate, worktree_path
-    if branch_err:
-        console.print(f"  [yellow]![/yellow]  Branch isolation skipped: {branch_err}")
+    async with _git_lock:
+        branch_name, err, wt_path = await anyio.to_thread.run_sync(
+            lambda: _setup_branch_isolation_sync(runtime.cwd, task_name)
+        )
+    if branch_name and wt_path:
+        inject_claude_md(wt_path, task_name)
+        console.print(f"  [dim]{P}  branch {branch_name} → {wt_path}[/dim]")
+        return branch_name, wt_path
+    if err:
+        console.print(f"  [yellow]![/yellow]  Branch isolation skipped: {err}")
     return None, runtime.cwd
 
 
@@ -212,7 +229,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     agent_type = _resolve_agent_type(runtime, agent_type)
     agent_type, adapter = _resolve_adapter(runtime, agent_type)
 
-    branch_name, agent_cwd = _setup_branch_isolation(runtime, task_name)
+    branch_name, agent_cwd = await _setup_branch_isolation(runtime, task_name)
 
     brief_file = write_brief(agent_cwd, task_name, prompt)
     if agent_cwd != runtime.cwd:

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.40
+
+- **Fix**: git merge race condition — added `anyio.Lock` to serialize all state-modifying git operations (checkout, merge, branch create/delete, worktree add/remove), preventing repo corruption when multiple agents finish concurrently
+- **Fix**: blocking `subprocess.run` calls in async context — git operations in `merge_agent_branch` and `_setup_branch_isolation` now run in worker threads via `anyio.to_thread.run_sync`, unblocking the event loop during git I/O
+
 ## 0.5.39
 
 - **Fix**: acceleration ratio calculation read `depends_on` but `submit_plan` stores `dependencies` — critical path was always treating all tasks as independent, inflating the ratio
