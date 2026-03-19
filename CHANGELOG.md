@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.31
+
+- **Fix**: `dispatch_agent` now injects `OPENMAX_SESSION_ID` into the pane's env vars, so sub-agents can run `openmax msg --session "$OPENMAX_SESSION_ID"` without parsing the prompt text
+
 ## 0.5.30
 
 - **Fix**: `SessionMailbox._serve` loop was exiting immediately after the first 1s accept timeout because `socket.timeout` is a subclass of `OSError` — changed to `except TimeoutError: continue` so the server stays alive and polls `_stop` each second
