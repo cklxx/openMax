@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.32
+
+- **Fix**: final "X done" summary now counts `plan.subtasks` with `DONE` status instead of `pane_mgr.summary()['done']` — pane states are never refreshed at session end so the old count always showed 0
+- **Fix**: mailbox notify instruction moved into File Protocol section (alongside report-write step) so sub-agents cannot miss it; removed from optional context block
+- **Fix**: `max_turns` default changed from 50 to unlimited (`None`) for `run` and `manage` commands — `loop` keeps 50 per iteration
+
 ## 0.5.31
 
 - **Fix**: `dispatch_agent` now injects `OPENMAX_SESSION_ID` into the pane's env vars, so sub-agents can run `openmax msg --session "$OPENMAX_SESSION_ID"` without parsing the prompt text
