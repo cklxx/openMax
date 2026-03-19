@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.30
+
+- **Fix**: `SessionMailbox._serve` loop was exiting immediately after the first 1s accept timeout because `socket.timeout` is a subclass of `OSError` — changed to `except TimeoutError: continue` so the server stays alive and polls `_stop` each second
+
 ## 0.5.29
 
 - **Feature**: Session Mailbox — sub-agents push `done`/`progress`/`question`/`blocked`/`decision` messages to the lead agent via Unix socket, eliminating polling latency
