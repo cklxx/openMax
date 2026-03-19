@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openmax"
-version = "0.5.32"
+version = "0.5.33"
 description = "Multi AI Agent orchestration hub — dispatch interactive AI agents across terminal panes"
 readme = "README.md"
 license = "MIT"
@@ -26,7 +26,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 dependencies = [
-    "claude-agent-sdk>=0.1.49,<0.2.0",
+    "claude-agent-sdk>=0.1.48,<0.2.0",
     "click>=8.0",
     "rich>=13.0",
     "tomli>=2.0; python_version < '3.11'",
@@ -50,5 +50,9 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 
+[project.optional-dependencies]
+dev = ["pytest-asyncio>=0.23"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"

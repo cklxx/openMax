@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.33
+
+- **Feature**: tmux backend now applies `select-layout tiled` after every `split_pane` — all managed panes auto-tile into an even grid whenever a new sub-agent is dispatched
+- **Fix**: lower `claude-agent-sdk` lower bound to `>=0.1.48` (latest published version); CI was failing with "no matching distribution" for `>=0.1.49`
+- **Fix**: add `pytest-asyncio>=0.23` as dev dependency and set `asyncio_mode = "auto"` — CI `test_planning.py` async tests were failing with "async def functions are not natively supported"
+
 ## 0.5.32
 
 - **Fix**: final "X done" summary now counts `plan.subtasks` with `DONE` status instead of `pane_mgr.summary()['done']` — pane states are never refreshed at session end so the old count always showed 0
