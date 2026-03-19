@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import atexit
+import json
 import os
 import signal
 import sys
@@ -1464,3 +1465,98 @@ def models() -> None:
     set_model(chosen)
     console.print(f"\n[green]Model set:[/green] [bold]{chosen}[/bold]")
     console.print("[dim]Used by future `openmax run` calls (override with --model).[/dim]")
+
+
+@main.command()
+@click.argument("message")
+@click.option("--session", required=True, envvar="OPENMAX_SESSION_ID", help="Session ID")
+def msg(message: str, session: str) -> None:
+    """Send a JSON message to the lead agent mailbox."""
+    import socket as _socket
+    from pathlib import Path as _Path
+
+    try:
+        json.loads(message)
+    except json.JSONDecodeError as exc:
+        raise click.UsageError(f"MESSAGE must be valid JSON: {exc}") from exc
+
+    sock_path = _Path(f"/tmp/openmax-{session}.sock")
+    if not sock_path.exists():
+        click.echo(f"Error: no active session socket: {sock_path}", err=True)
+        sys.exit(1)
+
+    try:
+        with _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM) as s:
+            s.settimeout(5.0)
+            s.connect(str(sock_path))
+            s.sendall(message.encode("utf-8"))
+    except ConnectionRefusedError:
+        click.echo("Error: lead agent not running (connection refused)", err=True)
+        sys.exit(1)
+    except OSError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+
+@main.command()
+@click.option("--session", required=True, help="Session ID")
+@click.option("--cwd", default=None, help="Working directory (default: current)")
+def tail(session: str, cwd: str | None) -> None:
+    """Stream messages from a session in follow mode."""
+    from pathlib import Path as _Path
+
+    cwd_path = _Path(cwd).resolve() if cwd else _Path.cwd()
+    log_path = cwd_path / ".openmax" / f"messages-{session}.jsonl"
+    if not log_path.exists():
+        click.echo(f"No message log found: {log_path}", err=True)
+        sys.exit(1)
+
+    with log_path.open(encoding="utf-8") as f:
+        f.seek(0, 2)
+        while True:
+            line = f.readline()
+            if line:
+                try:
+                    ev = json.loads(line)
+                    ts = ev.pop("_ts", None)
+                    ts_str = f"{ts:.1f}" if ts else ""
+                    click.echo(f"[{ts_str}] {json.dumps(ev, ensure_ascii=False)}")
+                except json.JSONDecodeError:
+                    click.echo(line.rstrip())
+            else:
+                time.sleep(0.1)
+
+
+@main.command()
+@click.option("--session", required=True, help="Session ID")
+@click.option("--cwd", default=None, help="Working directory (default: current)")
+def replay(session: str, cwd: str | None) -> None:
+    """Replay all messages from a completed session."""
+    from pathlib import Path as _Path
+
+    cwd_path = _Path(cwd).resolve() if cwd else _Path.cwd()
+    log_path = cwd_path / ".openmax" / f"messages-{session}.jsonl"
+    if not log_path.exists():
+        click.echo(f"No message log found: {log_path}", err=True)
+        sys.exit(1)
+
+    start_ts: float | None = None
+    for line in log_path.read_text(encoding="utf-8").splitlines():
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        ts = ev.pop("_ts", None)
+        if ts is not None:
+            if start_ts is None:
+                start_ts = ts
+            rel = ts - start_ts
+            m, s = divmod(int(rel), 60)
+            ts_str = f"{m:02d}:{s:02d}.{int((rel % 1) * 10)}"
+        else:
+            ts_str = "??:??.?"
+        msg_type = ev.get("type", "?")
+        task = ev.get("task", "?")
+        detail = ev.get("summary") or ev.get("msg") or ""
+        pct = f" {ev['pct']}%" if "pct" in ev else ""
+        console.print(f"  [dim]{ts_str}[/dim]  [bold]{task}[/bold]  [{msg_type}]{pct}  {detail}")

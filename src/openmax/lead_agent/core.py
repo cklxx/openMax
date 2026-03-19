@@ -334,6 +334,16 @@ async def _run_lead_agent_async(
                 _append_session_event("session.started", {"task": task, "cwd": cwd})
                 _append_session_event("user.goal_received", {"task": task})
 
+        if session_id:
+            from openmax.mailbox import SessionMailbox
+
+            mailbox = SessionMailbox(
+                session_id=session_id,
+                log_dir=Path(cwd) / ".openmax",
+            )
+            mailbox.start()
+            runtime.mailbox = mailbox
+
         # Create SDK MCP server with our tools
         server = create_sdk_mcp_server(
             name="openmax",
@@ -487,5 +497,7 @@ async def _run_lead_agent_async(
             raise startup_failure from exc
         raise
     finally:
+        if runtime.mailbox is not None:
+            runtime.mailbox.stop()
         dashboard.stop()
         reset_lead_agent_runtime(token)

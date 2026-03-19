@@ -91,9 +91,25 @@ When `dispatch_agent` fails:
 - Try alternative pane IDs or workarounds
 - Manually bootstrap agents outside of `dispatch_agent`
 
+### Mailbox (primary signal — check before polling)
+
+When `wait_for_agent_message` returns a message, act on it immediately:
+
+| `type`      | Action |
+|-------------|--------|
+| `done`      | **First**: call `read_pane_output` to cross-validate (pane must be idle/exited). **Then**: `mark_task_done(task, notes)`. |
+| `question`  | Decide. Call `send_text_to_pane` with your answer. |
+| `blocked`   | Send guidance via `send_text_to_pane`. If unresolvable, `permanent_error`. |
+| `progress`  | Dashboard updated automatically. No action needed unless pct=100. |
+| `decision`  | Same as `question` — pick an option, send via `send_text_to_pane`. |
+| `null` (timeout) | Auto-done check already ran. Fall through to normal Monitor loop. |
+
+**Replace `wait` with `wait_for_agent_message(timeout=30)` in all monitoring loops.**
+`wait` remains available as a fallback for non-session contexts.
+
 ### Monitor
 
-Loop: `wait` → `read_pane_output` per running agent → act.
+Loop: `wait_for_agent_message(timeout=30)` → act on message or fall through to `read_pane_output` per running agent → act.
 
 | Signal | Indicators | Required action |
 |---|---|---|

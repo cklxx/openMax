@@ -302,6 +302,23 @@ def _build_subagent_context(
     if memory_text:
         sections.append(f"Relevant history:\n{memory_text}")
 
+    session_id: str | None = None
+    try:
+        rt = _runtime()
+        if rt.session_meta:
+            session_id = rt.session_meta.session_id
+    except RuntimeError:
+        pass
+
+    if session_id:
+        sections.append(
+            f"Session ID: {session_id}\n"
+            f"When you finish your task (or need guidance), run:\n"
+            f"  openmax msg --session {session_id} "
+            f'\'{{"type":"done","task":"TASK_NAME","summary":"..."}}\'  \n'
+            f"Message types: done | progress | question | blocked | decision"
+        )
+
     if not sections:
         return ""
 

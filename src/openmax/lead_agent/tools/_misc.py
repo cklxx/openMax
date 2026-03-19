@@ -12,6 +12,7 @@ from claude_agent_sdk import tool
 
 from openmax.lead_agent.tools._helpers import (
     _append_session_event,
+    _pane_id_for_task,
     _read_subtask_report,
     _runtime,
     _safe_launch_pane,
@@ -417,3 +418,65 @@ async def read_file_tool(args: dict[str, Any]) -> dict[str, Any]:
 
     console.print(f"  [dim]{P}  read {rel_path} ({len(selected)}/{total} lines)[/dim]")
     return _tool_response(result)
+
+
+def _auto_done_for_exited_panes(runtime: Any) -> dict[str, Any] | None:
+    for st in runtime.plan.subtasks:
+        if st.status != TaskStatus.RUNNING or st.pane_id is None:
+            continue
+        if st.name in runtime.mailbox_messaged_tasks:
+            continue
+        if not runtime.pane_mgr.is_pane_alive(st.pane_id):
+            return {
+                "type": "done",
+                "task": st.name,
+                "summary": "(auto-detected: pane exited without message)",
+                "_auto": True,
+            }
+    return None
+
+
+@tool(
+    "wait_for_agent_message",
+    "Wait for a message from a sub-agent via the session mailbox. "
+    "Returns immediately when a message arrives, or after timeout. "
+    "On timeout, checks for panes that exited without sending a message "
+    "and synthesizes a done signal for them. "
+    "Use this instead of wait() as the primary monitoring primitive.",
+    {"timeout": int},
+)
+async def wait_for_agent_message(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
+    timeout = min(max(args.get("timeout", 30), 5), 120)
+
+    if runtime.mailbox is None:
+        await anyio.sleep(timeout)
+        return _tool_response({"message": None, "timeout": True, "reason": "no_mailbox"})
+
+    msg = await anyio.to_thread.run_sync(
+        lambda: runtime.mailbox.receive(timeout=timeout),
+        abandon_on_cancel=True,
+    )
+
+    if msg is not None:
+        runtime.mailbox_messaged_tasks.add(msg.task)
+        _append_session_event("mailbox.message_received", {"type": msg.type, "task": msg.task})
+
+        if msg.type == "progress" and runtime.dashboard is not None:
+            pct = msg.raw.get("pct", 0)
+            text = msg.raw.get("msg", "")
+            runtime.dashboard.update_pane_activity(
+                _pane_id_for_task(msg.task) or -1,
+                f"{pct}% — {text}",
+            )
+
+        detail = msg.raw.get("msg") or msg.raw.get("summary") or ""
+        suffix = f": {detail[:60]}" if msg.type != "done" and detail else ""
+        console.print(f"  [bold green]\u2709[/bold green]  [{msg.type}] {msg.task}{suffix}")
+        return _tool_response({"message": msg.raw, "received": True})
+
+    auto = _auto_done_for_exited_panes(runtime)
+    if auto:
+        return _tool_response({"message": auto, "received": True, "source": "auto-detect"})
+
+    return _tool_response({"message": None, "timeout": True})

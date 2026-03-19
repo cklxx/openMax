@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from openmax.session_runtime import SessionMeta, SessionStore
+
+if TYPE_CHECKING:
+    from openmax.mailbox import SessionMailbox
 
 
 @dataclass
@@ -29,6 +32,8 @@ class LeadAgentRuntime:
     current_phase: str = "research"
     integration_branch: str | None = None
     token_usage: dict[str, int] = field(default_factory=dict)
+    mailbox: SessionMailbox | None = None
+    mailbox_messaged_tasks: set[str] = field(default_factory=set)
 
 
 _lead_agent_runtime: ContextVar[LeadAgentRuntime | None] = ContextVar(

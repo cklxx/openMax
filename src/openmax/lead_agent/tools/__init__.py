@@ -17,6 +17,7 @@ from openmax.lead_agent.tools._misc import (
     read_task_report,
     remember_learning,
     run_command,
+    wait_for_agent_message,
     wait_tool,
 )
 from openmax.lead_agent.tools._misc import find_files_tool as find_files_tool
@@ -56,5 +57,6 @@ ALL_TOOLS = [
     report_completion,
     transition_phase,
     update_shared_context,
+    wait_for_agent_message,
     wait_tool,
 ]
