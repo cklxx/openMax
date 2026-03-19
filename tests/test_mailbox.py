@@ -401,3 +401,33 @@ def test_tool_fallback_sleep_when_no_mailbox(tmp_path: Path) -> None:
         assert elapsed >= 5.0
     finally:
         reset_lead_agent_runtime(token)
+
+
+# ---------------------------------------------------------------------------
+# Integration — OPENMAX_SESSION_ID injected into pane env (dispatch_agent fix)
+# ---------------------------------------------------------------------------
+
+
+def test_session_id_env_var_injected_into_pane(tmp_path: Path) -> None:
+    """Sub-agent can send messages using $OPENMAX_SESSION_ID from env var."""
+    import os
+    import subprocess
+
+    mb = SessionMailbox("env-inject", tmp_path)
+    mb.start()
+    try:
+        pane_env = {**os.environ, "OPENMAX_SESSION_ID": "env-inject"}
+        payload = '{"type":"done","task":"build","summary":"ok"}'
+        result = subprocess.run(
+            ["openmax", "msg", payload],  # no --session flag, reads from env
+            env=pane_env,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+        msg = mb.receive(timeout=3.0)
+        assert msg is not None
+        assert msg.type == "done"
+        assert msg.task == "build"
+    finally:
+        mb.stop()

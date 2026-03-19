@@ -265,7 +265,10 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     cost_estimate = estimate_task_cost(len(prompt), agent_type)
 
     cmd_spec = adapter.get_command(prompt, cwd=agent_cwd)
-    launch_env = cmd_spec.env or None
+    session_env: dict[str, str] = {}
+    if runtime.session_meta:
+        session_env["OPENMAX_SESSION_ID"] = runtime.session_meta.session_id
+    launch_env = {**(cmd_spec.env or {}), **session_env} or None
 
     has_worktree = agent_cwd != runtime.cwd
     reused_pane = None if has_worktree else _try_reuse_done_pane(runtime, agent_type, task_name)
