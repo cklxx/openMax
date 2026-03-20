@@ -8,11 +8,31 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class ProjectTooling:
-    """Detected lint and test commands for a project."""
+    """Detected lint and test commands for a single language."""
 
     lint_cmd: str | None = None
     test_cmd: str | None = None
     language: str | None = None
+
+
+@dataclass(frozen=True)
+class MultiProjectTooling:
+    """Detected tooling for all languages in a project."""
+
+    toolings: tuple[ProjectTooling, ...] = ()
+    primary: ProjectTooling | None = None
+
+    @property
+    def lint_cmd(self) -> str | None:
+        return self.primary.lint_cmd if self.primary else None
+
+    @property
+    def test_cmd(self) -> str | None:
+        return self.primary.test_cmd if self.primary else None
+
+    @property
+    def language(self) -> str | None:
+        return self.primary.language if self.primary else None
 
 
 _PYTHON_LINTERS = {
@@ -32,6 +52,20 @@ _JS_LINTERS = {
     "biome.jsonc": "npx biome check .",
 }
 
+_JS_LOCK_FILES: tuple[tuple[str, str], ...] = (
+    ("pnpm-lock.yaml", "pnpm"),
+    ("yarn.lock", "yarn"),
+    ("bun.lockb", "bun"),
+    ("package-lock.json", "npm"),
+)
+
+
+def _detect_js_package_manager(root: Path) -> str:
+    for lockfile, manager in _JS_LOCK_FILES:
+        if (root / lockfile).exists():
+            return manager
+    return "npm"
+
 
 def _detect_python(root: Path) -> ProjectTooling | None:
     pyproject = root / "pyproject.toml"
@@ -41,7 +75,6 @@ def _detect_python(root: Path) -> ProjectTooling | None:
     lint_cmd = None
     test_cmd = None
 
-    # Check pyproject.toml for tool config
     if pyproject.exists():
         try:
             text = pyproject.read_text(encoding="utf-8", errors="replace")
@@ -54,14 +87,12 @@ def _detect_python(root: Path) -> ProjectTooling | None:
         except OSError:
             pass
 
-    # Standalone linter configs
     if lint_cmd is None:
         for filename, cmd in _PYTHON_LINTERS.items():
             if (root / filename).exists():
                 lint_cmd = cmd
                 break
 
-    # Test runner fallback
     if test_cmd is None:
         if (root / "pytest.ini").exists() or (root / "setup.cfg").exists():
             test_cmd = "pytest"
@@ -78,30 +109,29 @@ def _detect_javascript(root: Path) -> ProjectTooling | None:
     if not pkg_json.exists():
         return None
 
+    pm = _detect_js_package_manager(root)
+    run_prefix = f"{pm} run" if pm != "bun" else "bun run"
     lint_cmd = None
     test_cmd = None
 
-    # Check package.json scripts
     try:
         import json
 
         data = json.loads(pkg_json.read_text(encoding="utf-8"))
         scripts = data.get("scripts", {})
         if "lint" in scripts:
-            lint_cmd = "npm run lint"
+            lint_cmd = f"{run_prefix} lint"
         if "test" in scripts:
-            test_cmd = "npm run test"
+            test_cmd = f"{run_prefix} test"
     except (OSError, json.JSONDecodeError, KeyError):
         pass
 
-    # Standalone linter configs
     if lint_cmd is None:
         for filename, cmd in _JS_LINTERS.items():
             if (root / filename).exists():
                 lint_cmd = cmd
                 break
 
-    # Prettier as format check
     if (root / ".prettierrc").exists() or (root / ".prettierrc.json").exists():
         prettier_cmd = "npx prettier --check ."
         lint_cmd = f"{lint_cmd} && {prettier_cmd}" if lint_cmd else prettier_cmd
@@ -131,25 +161,73 @@ def _detect_rust(root: Path) -> ProjectTooling | None:
     )
 
 
+def _detect_makefile(root: Path) -> ProjectTooling | None:
+    makefile = root / "Makefile"
+    if not makefile.exists():
+        return None
+    try:
+        text = makefile.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    lint_cmd = "make lint" if "\nlint:" in text or text.startswith("lint:") else None
+    test_cmd = "make test" if "\ntest:" in text or text.startswith("test:") else None
+    if lint_cmd is None and test_cmd is None:
+        return None
+    return ProjectTooling(lint_cmd=lint_cmd, test_cmd=test_cmd, language=None)
+
+
 def _any_exists(root: Path, *names: str) -> bool:
     return any((root / n).exists() for n in names)
 
 
-_DETECTORS = [_detect_python, _detect_javascript, _detect_go, _detect_rust]
+_DETECTORS = [
+    _detect_python,
+    _detect_javascript,
+    _detect_go,
+    _detect_rust,
+    _detect_makefile,
+]
+
+_LANG_PRIORITY = {"python": 0, "typescript": 1, "javascript": 1, "go": 2, "rust": 3}
 
 
-def detect_project_tooling(cwd: str) -> ProjectTooling | None:
-    """Scan project root for config files and return lint/test commands."""
+def _pick_primary(toolings: list[ProjectTooling]) -> ProjectTooling:
+    return min(toolings, key=lambda t: _LANG_PRIORITY.get(t.language or "", 99))
+
+
+def detect_all_tooling(cwd: str) -> MultiProjectTooling:
+    """Scan project root and return tooling for all detected languages."""
     root = Path(cwd)
+    found: list[ProjectTooling] = []
     for detector in _DETECTORS:
         result = detector(root)
         if result is not None:
-            return result
-    return None
+            found.append(result)
+    if not found:
+        return MultiProjectTooling()
+    return MultiProjectTooling(
+        toolings=tuple(found),
+        primary=_pick_primary(found),
+    )
 
 
-def format_tooling_block(tooling: ProjectTooling) -> str:
+def detect_project_tooling(cwd: str) -> ProjectTooling | None:
+    """Scan project root for config files and return lint/test commands.
+
+    Backward-compatible: returns only the primary detected language.
+    """
+    multi = detect_all_tooling(cwd)
+    return multi.primary
+
+
+def format_tooling_block(tooling: ProjectTooling | MultiProjectTooling) -> str:
     """Format detected tooling as a compact text block for prompt injection."""
+    if isinstance(tooling, MultiProjectTooling):
+        return _format_multi_tooling(tooling)
+    return _format_single_tooling(tooling)
+
+
+def _format_single_tooling(tooling: ProjectTooling) -> str:
     parts: list[str] = []
     if tooling.language:
         parts.append(f"Language: {tooling.language}")
@@ -158,3 +236,22 @@ def format_tooling_block(tooling: ProjectTooling) -> str:
     if tooling.test_cmd:
         parts.append(f"Test: `{tooling.test_cmd}`")
     return "\n".join(parts)
+
+
+def _format_multi_tooling(multi: MultiProjectTooling) -> str:
+    if not multi.toolings:
+        return ""
+    if len(multi.toolings) == 1:
+        return _format_single_tooling(multi.toolings[0])
+    sections: list[str] = []
+    for t in multi.toolings:
+        label = f"[{t.language}]" if t.language else "[unknown]"
+        if t is multi.primary:
+            label += " (primary)"
+        parts = [label]
+        if t.lint_cmd:
+            parts.append(f"  Lint: `{t.lint_cmd}`")
+        if t.test_cmd:
+            parts.append(f"  Test: `{t.test_cmd}`")
+        sections.append("\n".join(parts))
+    return "\n".join(sections)
