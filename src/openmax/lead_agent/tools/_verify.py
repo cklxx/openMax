@@ -18,8 +18,14 @@ from openmax.lead_agent.tools._helpers import (
     _safe_launch_pane,
     _tool_response,
 )
+from openmax.lead_agent.tools._merge import (
+    choose_merge_strategy,
+    do_rebase,
+    try_auto_resolve_conflicts,
+)
 from openmax.lead_agent.types import SubTask
 from openmax.output import P, console
+from openmax.stats import load_stats, save_stats, update_stats
 from openmax.test_parsing import parse_test_output
 
 # Serializes all state-modifying git operations (checkout, merge, branch, worktree)
@@ -179,25 +185,65 @@ def _count_new_commits(cwd: str, target: str, branch: str) -> int:
     return len([line for line in log.stdout.splitlines() if line.strip()])
 
 
-def _merge_and_handle_conflicts(
+def _try_rebase_strategy(
     cwd: str,
     branch: str,
     target: str,
+    commit_count: int,
 ) -> tuple[str, str | None, list[str], str, int]:
-    """Merge branch into target. Returns (status, hash, conflict_files, diff, commit_count)."""
-    commit_count = _count_new_commits(cwd, target, branch)
-    if commit_count == 0:
-        console.print(f"  [dim]  Branch {branch} has no new commits — skipping merge[/dim]")
-        head = _git_run(["git", "rev-parse", "HEAD"], cwd, timeout=10)
-        return ("no-op", head.stdout.strip(), [], "", 0)
+    """Attempt rebase strategy. Falls back to merge on failure."""
+    success, err = do_rebase(cwd, branch, target)
+    if success:
+        _git_run(["git", "checkout", target], cwd)
+        ff = _git_run(["git", "merge", "--ff-only", branch], cwd, timeout=60)
+        if ff.returncode == 0:
+            head = _git_run(["git", "rev-parse", "HEAD"], cwd, timeout=10)
+            console.print(f"  [dim]  Rebased {branch} onto {target} (linear)[/dim]")
+            return ("merged", head.stdout.strip(), [], "", commit_count)
+    return _try_merge_strategy(cwd, branch, target, commit_count)
+
+
+def _try_merge_strategy(
+    cwd: str,
+    branch: str,
+    target: str,
+    commit_count: int,
+) -> tuple[str, str | None, list[str], str, int]:
+    """Standard merge with auto-resolve for trivial conflicts."""
     _git_run(["git", "checkout", target], cwd)
     merge = _git_run(["git", "merge", "--no-edit", branch], cwd, timeout=60)
     if merge.returncode == 0:
         head = _git_run(["git", "rev-parse", "HEAD"], cwd, timeout=10)
         return ("merged", head.stdout.strip(), [], "", commit_count)
+    resolved, unresolved = try_auto_resolve_conflicts(cwd)
+    if resolved and not unresolved:
+        _git_run(["git", "commit", "--no-edit"], cwd, timeout=30)
+        head = _git_run(["git", "rev-parse", "HEAD"], cwd, timeout=10)
+        console.print(f"  [dim]  Auto-resolved {len(resolved)} trivial conflict(s)[/dim]")
+        return ("merged", head.stdout.strip(), [], "", commit_count)
     diff = _git_run(["git", "diff", f"{target}...{branch}"], cwd, timeout=30)
     _git_run(["git", "merge", "--abort"], cwd)
     return ("conflict", None, _parse_conflict_files(merge.stderr), diff.stdout[:8000], commit_count)
+
+
+def _merge_and_handle_conflicts(
+    cwd: str,
+    branch: str,
+    target: str,
+) -> tuple[str, str | None, list[str], str, int]:
+    """Merge branch into target using intelligent strategy selection.
+
+    Returns (status, hash, conflict_files, diff, commit_count).
+    """
+    commit_count = _count_new_commits(cwd, target, branch)
+    if commit_count == 0:
+        console.print(f"  [dim]  Branch {branch} has no new commits — skipping merge[/dim]")
+        head = _git_run(["git", "rev-parse", "HEAD"], cwd, timeout=10)
+        return ("no-op", head.stdout.strip(), [], "", 0)
+    strategy = choose_merge_strategy(branch, target, cwd)
+    if strategy == "rebase":
+        return _try_rebase_strategy(cwd, branch, target, commit_count)
+    return _try_merge_strategy(cwd, branch, target, commit_count)
 
 
 def _find_subtask_by_name(task_name: str) -> SubTask | None:
@@ -206,6 +252,21 @@ def _find_subtask_by_name(task_name: str) -> SubTask | None:
         if st.name == task_name:
             return st
     return None
+
+
+def _update_merge_stats(cwd: str, conflict_files: list[str], had_conflict: bool) -> None:
+    """Record merge outcome in SessionStats."""
+    try:
+        stats = load_stats(cwd)
+        dirs_rates: dict[str, float] = {}
+        if had_conflict:
+            for f in conflict_files:
+                d = str(Path(f).parent) if "/" in f else "."
+                dirs_rates[d] = 1.0
+        updated = update_stats(stats, {"merge_conflict_rate_by_dir": dirs_rates})
+        save_stats(updated, cwd)
+    except Exception:
+        pass
 
 
 def _merge_branch_result(
@@ -217,6 +278,7 @@ def _merge_branch_result(
     branch: str,
     integration: str,
     commit_count: int,
+    cwd: str = "",
 ) -> dict[str, Any]:
     if status == "no-op":
         console.print(f"  [dim]  {branch} — no new commits, skipped[/dim]")
@@ -237,6 +299,8 @@ def _merge_branch_result(
             "task_name": task_name,
             "commit_count": commit_count,
         }
+        if cwd:
+            _update_merge_stats(cwd, [], had_conflict=False)
     else:
         console.print(
             f"  [bold red]✗[/bold red]  Merge conflict for {branch}: {len(conflict_files)} file(s)"
@@ -253,6 +317,8 @@ def _merge_branch_result(
                 f"resolve intelligently, then `git add` and `git commit`."
             ),
         }
+        if cwd:
+            _update_merge_stats(cwd, conflict_files, had_conflict=True)
     _append_session_event("tool.merge_agent_branch", data)
     return data
 
@@ -429,6 +495,14 @@ async def merge_agent_branch(args: dict[str, Any]) -> dict[str, Any]:
         return _merge_error_response(task_name, e)
     return _tool_response(
         _merge_branch_result(
-            task_name, status, hash_, files, diff, branch, integration, commit_count
+            task_name,
+            status,
+            hash_,
+            files,
+            diff,
+            branch,
+            integration,
+            commit_count,
+            cwd=runtime.cwd,
         )
     )
