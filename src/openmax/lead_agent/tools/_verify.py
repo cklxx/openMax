@@ -25,6 +25,7 @@ from openmax.lead_agent.tools._merge import (
 )
 from openmax.lead_agent.types import SubTask
 from openmax.output import P, console
+from openmax.project_tools import ProjectTooling, detect_all_tooling
 from openmax.stats import load_stats, save_stats, update_stats
 from openmax.test_parsing import parse_test_output
 
@@ -331,51 +332,61 @@ def _merge_error_response(task_name: str, error: Exception) -> dict[str, Any]:
     return _tool_response(data)
 
 
-@tool(
-    "run_verification",
-    "Run a verification command (lint, test, build) and return structured pass/fail. "
-    "On failure, includes a dispatch_hint field with error context — use it directly "
-    "as the prompt when dispatching a debug agent. Returns {status, exit_code, output, "
-    "duration_s, dispatch_hint?}.",
-    {
-        "check_type": str,
-        "command": str,
-        "timeout": int,
-    },
-)
-async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
-    runtime = _runtime()
-    check_type = args.get("check_type", "custom")
-    command_str = args["command"]
-    timeout = min(max(args.get("timeout", 120), 10), 600)
+def _cmd_for_check_type(tooling: ProjectTooling, check_type: str) -> str | None:
+    """Extract the command from a ProjectTooling based on check_type."""
+    if check_type in ("lint", "format"):
+        return tooling.lint_cmd
+    if check_type == "test":
+        return tooling.test_cmd
+    return tooling.lint_cmd or tooling.test_cmd
 
-    import shlex
 
-    try:
-        cmd_list = shlex.split(command_str)
-    except ValueError:
-        cmd_list = [command_str]
-    if not cmd_list:
-        return _tool_response("Error: empty command")
+def _resolve_commands(
+    cwd: str,
+    check_type: str,
+    command: str | None,
+) -> list[tuple[str, str | None]]:
+    """Resolve verification commands. Returns list of (command, language) pairs."""
+    if command:
+        return [(command, None)]
+    multi = detect_all_tooling(cwd)
+    if not multi.toolings:
+        return []
+    pairs: list[tuple[str, str | None]] = []
+    for tooling in multi.toolings:
+        cmd = _cmd_for_check_type(tooling, check_type)
+        if cmd:
+            pairs.append((cmd, tooling.language))
+    return pairs
+
+
+async def _run_single_check(
+    runtime: Any,
+    check_type: str,
+    command_str: str,
+    timeout: int,
+    language: str | None,
+) -> dict[str, Any]:
+    """Execute one verification command and return its result dict."""
+    label = f"{language}:{check_type}" if language else check_type
 
     wrapped_cmd = f'{command_str}; echo "__OPENMAX_EXIT_$?__"'
     shell_cmd = ["bash", "-c", wrapped_cmd]
 
-    task_name = f"verify-{check_type}"
+    task_name = f"verify-{label}"
     pane, launch_err = _safe_launch_pane(
         runtime,
         command=shell_cmd,
         purpose=task_name,
         agent_type="command",
-        title=f"openMax: verify {check_type}",
+        title=f"openMax: verify {label}",
     )
     if pane is None:
         console.print(f"  [bold red]✗[/bold red]  verification launch failed: {launch_err}")
-        return _tool_response({"status": "error", "error": launch_err, "check_type": check_type})
+        return {"status": "error", "error": launch_err, "check_type": label}
 
     console.print(
-        f"  [bold cyan]{P}[/bold cyan]  verify {check_type}:"
-        f" {command_str[:60]} → pane {pane.pane_id}"
+        f"  [bold cyan]{P}[/bold cyan]  verify {label}: {command_str[:60]} → pane {pane.pane_id}"
     )
 
     start_ts = time.monotonic()
@@ -428,18 +439,20 @@ async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
 
     result: dict[str, Any] = {
         "status": status,
-        "check_type": check_type,
+        "check_type": label,
         "exit_code": exit_code,
         "output": capped_output,
         "duration_s": duration_s,
         "command": command_str,
     }
+    if language:
+        result["language"] = language
     if test_results is not None:
         result["test_results"] = test_results
 
     if status != "pass":
         result["dispatch_hint"] = (
-            f"The {check_type} check failed (exit code {exit_code}).\n"
+            f"The {label} check failed (exit code {exit_code}).\n"
             f"Command: {command_str}\n"
             f"Error output:\n{capped_output}\n\n"
             f"Investigate the root cause, fix the issue, re-run `{command_str}` "
@@ -447,14 +460,64 @@ async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
         )
 
     if status == "pass":
-        console.print(
-            f"  [bold green]✓[/bold green]  {check_type}: pass [dim]({duration_s}s)[/dim]"
-        )
+        console.print(f"  [bold green]✓[/bold green]  {label}: pass [dim]({duration_s}s)[/dim]")
     else:
-        console.print(f"  [bold red]✗[/bold red]  {check_type}: FAIL [dim]({duration_s}s)[/dim]")
+        console.print(f"  [bold red]✗[/bold red]  {label}: FAIL [dim]({duration_s}s)[/dim]")
 
     _append_session_event("tool.run_verification", result)
-    return _tool_response(result)
+    return result
+
+
+@tool(
+    "run_verification",
+    "Run a verification command (lint, test, build) and return structured pass/fail. "
+    "If command is omitted, auto-detects from project tooling (supports multi-language). "
+    "On failure, includes a dispatch_hint field with error context — use it directly "
+    "as the prompt when dispatching a debug agent. Returns {status, exit_code, output, "
+    "duration_s, dispatch_hint?}. Multi-language returns {status, results: [...]}.",
+    {
+        "check_type": str,
+        "command": str,
+        "timeout": int,
+    },
+)
+async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
+    runtime = _runtime()
+    check_type = args.get("check_type", "custom")
+    command_str = args.get("command")
+    timeout = min(max(args.get("timeout", 120), 10), 600)
+
+    commands = _resolve_commands(runtime.cwd, check_type, command_str)
+    if not commands:
+        return _tool_response(
+            {"status": "error", "error": "No verification command and no tooling detected"}
+        )
+
+    if len(commands) == 1:
+        cmd, lang = commands[0]
+        result = await _run_single_check(runtime, check_type, cmd, timeout, lang)
+        return _tool_response(result)
+
+    results: list[dict[str, Any]] = []
+    for cmd, lang in commands:
+        r = await _run_single_check(runtime, check_type, cmd, timeout, lang)
+        results.append(r)
+
+    overall = "pass" if all(r["status"] == "pass" for r in results) else "fail"
+    total_duration = sum(r.get("duration_s", 0) for r in results)
+    combined: dict[str, Any] = {
+        "status": overall,
+        "check_type": check_type,
+        "duration_s": total_duration,
+        "languages": [r.get("language", "unknown") for r in results],
+        "results": results,
+    }
+    if overall != "pass":
+        failed = [r for r in results if r["status"] != "pass"]
+        hints = [r["dispatch_hint"] for r in failed if "dispatch_hint" in r]
+        combined["dispatch_hint"] = "\n---\n".join(hints)
+
+    return _tool_response(combined)
 
 
 def _do_merge_and_cleanup(
