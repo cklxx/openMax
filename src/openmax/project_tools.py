@@ -56,6 +56,7 @@ _JS_LOCK_FILES: tuple[tuple[str, str], ...] = (
     ("pnpm-lock.yaml", "pnpm"),
     ("yarn.lock", "yarn"),
     ("bun.lockb", "bun"),
+    ("bun.lock", "bun"),
     ("package-lock.json", "npm"),
 )
 
@@ -69,7 +70,9 @@ def _detect_js_package_manager(root: Path) -> str:
 
 def _detect_python(root: Path) -> ProjectTooling | None:
     pyproject = root / "pyproject.toml"
-    if not pyproject.exists() and not (root / "setup.py").exists():
+    has_marker = pyproject.exists() or (root / "setup.py").exists()
+    has_marker = has_marker or (root / "requirements.txt").exists()
+    if not has_marker:
         return None
 
     lint_cmd = None

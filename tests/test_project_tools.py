@@ -122,6 +122,15 @@ def test_detect_rust(tmp_path):
     assert result.test_cmd == "cargo test"
 
 
+def test_detect_python_requirements_txt(tmp_path):
+    (tmp_path / "requirements.txt").write_text("flask\nrequests\n")
+    (tmp_path / "tests").mkdir()
+    result = detect_project_tooling(str(tmp_path))
+    assert result is not None
+    assert result.language == "python"
+    assert result.test_cmd == "pytest"
+
+
 def test_detect_no_project(tmp_path):
     result = detect_project_tooling(str(tmp_path))
     assert result is None
@@ -166,6 +175,14 @@ def test_detect_yarn(tmp_path):
 def test_detect_bun(tmp_path):
     (tmp_path / "package.json").write_text(json.dumps({"scripts": {"test": "bun:test"}}))
     (tmp_path / "bun.lockb").write_text("")
+    result = detect_project_tooling(str(tmp_path))
+    assert result is not None
+    assert result.test_cmd == "bun run test"
+
+
+def test_detect_bun_text_lockfile(tmp_path):
+    (tmp_path / "package.json").write_text(json.dumps({"scripts": {"test": "bun:test"}}))
+    (tmp_path / "bun.lock").write_text("")
     result = detect_project_tooling(str(tmp_path))
     assert result is not None
     assert result.test_cmd == "bun run test"
