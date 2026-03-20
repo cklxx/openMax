@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import PurePosixPath
 from typing import Any
 
 from claude_agent_sdk import tool
@@ -21,6 +22,7 @@ from openmax.lead_agent.tools._helpers import (
 )
 from openmax.lead_agent.types import TaskStatus
 from openmax.output import P, console
+from openmax.stats import load_stats
 from openmax.task_file import (
     append_shared_context,
     delete_checkpoint,
@@ -61,6 +63,38 @@ def _topological_sort_check(subtasks: list[dict[str, Any]]) -> str | None:
             if err:
                 return err
     return None
+
+
+def _get_shared_dirs(files_a: list[str], files_b: list[str]) -> set[str]:
+    """Return directory paths shared between two file lists."""
+    dirs_a = {str(PurePosixPath(f).parent) for f in files_a}
+    dirs_b = {str(PurePosixPath(f).parent) for f in files_b}
+    return dirs_a & dirs_b
+
+
+def predict_conflicts(
+    subtasks: list[dict[str, Any]],
+    parallel_groups: list[list[str]],
+    conflict_rates: dict[str, float],
+    threshold: float = 0.5,
+) -> list[str]:
+    """Return warnings about likely merge conflicts in parallel groups."""
+    task_by_name = {t["name"]: t for t in subtasks}
+    warnings: list[str] = []
+    for group in parallel_groups:
+        group_tasks = [task_by_name[n] for n in group if n in task_by_name]
+        for i, t1 in enumerate(group_tasks):
+            for t2 in group_tasks[i + 1 :]:
+                shared = _get_shared_dirs(t1.get("files", []), t2.get("files", []))
+                for d in sorted(shared):
+                    rate = conflict_rates.get(d, 0.0)
+                    if rate > threshold:
+                        warnings.append(
+                            f"{t1['name']} and {t2['name']} share dir "
+                            f"'{d}' (conflict rate: {rate:.0%}). "
+                            f"Consider serializing."
+                        )
+    return warnings
 
 
 def _format_plan_for_display(
@@ -183,6 +217,11 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
                         f"'{a}' and '{b}' share files: {', '.join(sorted(overlap))}"
                     )
 
+    stats = load_stats(runtime.cwd)
+    conflict_warnings = predict_conflicts(
+        subtasks_raw, parallel_groups, stats.merge_conflict_rate_by_dir
+    )
+
     plan_data = {
         "subtasks": subtasks_raw,
         "rationale": rationale,
@@ -208,6 +247,10 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
         result_data["file_overlap_warnings"] = file_warnings
         for warning in file_warnings:
             console.print(f"  [yellow]![/yellow]  File overlap: {warning}")
+    if conflict_warnings:
+        result_data["conflict_warnings"] = conflict_warnings
+        for warning in conflict_warnings:
+            console.print(f"  [yellow]⚠[/yellow]  {warning}")
 
     return _tool_response(result_data)
 
