@@ -20,6 +20,7 @@ from openmax.lead_agent.tools._helpers import (
 )
 from openmax.lead_agent.types import SubTask
 from openmax.output import P, console
+from openmax.test_parsing import parse_test_output
 
 # Serializes all state-modifying git operations (checkout, merge, branch, worktree)
 # to prevent race conditions when multiple agents finish concurrently.
@@ -345,6 +346,20 @@ async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
         output = _extract_smart_output(text, tail_lines=50)
 
     capped_output = output[-2000:]
+
+    if check_type == "test":
+        tr = parse_test_output(output)
+        test_results: dict[str, Any] = {
+            "passed": tr.passed,
+            "failed": tr.failed,
+            "skipped": tr.skipped,
+            "errors": tr.errors,
+            "failure_summaries": tr.failure_summaries,
+            "framework": tr.framework,
+        }
+    else:
+        test_results = None
+
     result: dict[str, Any] = {
         "status": status,
         "check_type": check_type,
@@ -353,6 +368,8 @@ async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
         "duration_s": duration_s,
         "command": command_str,
     }
+    if test_results is not None:
+        result["test_results"] = test_results
 
     if status != "pass":
         result["dispatch_hint"] = (
