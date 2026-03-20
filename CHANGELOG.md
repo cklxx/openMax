@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.41
+
+- **Feature**: auto-detect project lint/test tooling — new `project_tools.py` scans for config files (pyproject.toml, package.json, go.mod, Cargo.toml, .eslintrc, biome.json, etc.) and injects the correct lint/test commands into the Project State block; supports Python, JavaScript/TypeScript, Go, and Rust
+- **Feature**: lead agent prompt now uses detected tooling for `run_verification` instead of hardcoded `ruff`/`pytest` commands
+
 ## 0.5.40
 
 - **Fix**: git merge race condition — added `anyio.Lock` to serialize all state-modifying git operations (checkout, merge, branch create/delete, worktree add/remove), preventing repo corruption when multiple agents finish concurrently
