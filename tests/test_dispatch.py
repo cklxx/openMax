@@ -1,6 +1,10 @@
-"""Tests for dispatch module — extract_error_context function."""
+"""Tests for dispatch module — extract_error_context and smart retry."""
 
-from openmax.lead_agent.tools._dispatch import extract_error_context
+from openmax.lead_agent.tools._dispatch import (
+    _RETRY_CONTEXT_MAX_CHARS,
+    _build_retry_prompt,
+    extract_error_context,
+)
 
 
 class TestExtractErrorContext:
@@ -141,3 +145,38 @@ class TestExtractErrorContext:
         lines = ["x" * 200 for _ in range(30)]
         result = extract_error_context("\n".join(lines), max_chars=500)
         assert len(result) <= 500
+
+
+class TestBuildRetryPrompt:
+    def test_retry_with_error_context(self):
+        result = _build_retry_prompt("do the task", "Error: something broke")
+        assert "[RETRY CONTEXT]" in result
+        assert "Error: something broke" in result
+        assert "do the task" in result
+        assert result.endswith("do the task")
+
+    def test_original_prompt_preserved(self):
+        original = "implement feature X with files a.py, b.py"
+        result = _build_retry_prompt(original, "Error: test failed")
+        assert original in result
+        assert result.index("[RETRY CONTEXT]") < result.index(original)
+
+    def test_empty_error_context_returns_original(self):
+        original = "do the task"
+        result = _build_retry_prompt(original, "")
+        assert result == original
+
+    def test_error_context_truncation_via_extract(self):
+        long_output = "Error: " + "x" * 5000
+        ctx = extract_error_context(long_output, max_chars=_RETRY_CONTEXT_MAX_CHARS)
+        assert len(ctx) <= _RETRY_CONTEXT_MAX_CHARS
+        result = _build_retry_prompt("do task", ctx)
+        assert "do task" in result
+
+    def test_retry_prompt_structure(self):
+        result = _build_retry_prompt("original", "err details")
+        lines = result.split("\n")
+        assert lines[0] == "[RETRY CONTEXT] Previous attempt failed. Error summary:"
+        assert "err details" in result
+        assert "different approach" in result
+        assert "---" in result

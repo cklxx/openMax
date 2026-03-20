@@ -40,6 +40,7 @@ from openmax.task_file import inject_claude_md, report_path, write_brief
 
 _STUCK_THRESHOLD = 3  # consecutive identical outputs to trigger stuck
 _MAX_RETRIES = 2
+_RETRY_CONTEXT_MAX_CHARS = 2000
 
 _ANSI_ESC_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\].*?\x07")
 _ERROR_MARKERS = ("Error", "FAILED", "Traceback", "panic:", "FATAL", "Exception", "[ERROR]")
@@ -124,6 +125,30 @@ def _get_retry_info_for_pane(pane_id: int) -> dict[str, Any]:
                 "can_retry": st.retry_count < st.max_retries,
             }
     return {}
+
+
+def _get_previous_pane_output(runtime: Any, task_name: str) -> str:
+    """Get terminal output from the most recent subtask matching task_name."""
+    for st in reversed(runtime.plan.subtasks):
+        if st.name == task_name and st.pane_id is not None:
+            try:
+                return runtime.pane_mgr.get_text(st.pane_id)
+            except Exception:
+                return ""
+    return ""
+
+
+def _build_retry_prompt(original_prompt: str, error_context: str) -> str:
+    """Prepend failure context to the retry prompt."""
+    if not error_context:
+        return original_prompt
+    return (
+        "[RETRY CONTEXT] Previous attempt failed. Error summary:\n"
+        f"{error_context}\n\n"
+        "Please try a different approach to avoid the same failure.\n"
+        "---\n"
+        f"{original_prompt}"
+    )
 
 
 def _resolve_agent_type(runtime: Any, agent_type: str) -> str:
@@ -286,6 +311,12 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
 
     existing_names = {st.name for st in runtime.plan.subtasks}
     is_retry = retry_count > 0 and task_name in existing_names
+
+    if is_retry:
+        prev_output = _get_previous_pane_output(runtime, task_name)
+        error_ctx = extract_error_context(prev_output, max_chars=_RETRY_CONTEXT_MAX_CHARS)
+        prompt = _build_retry_prompt(prompt, error_ctx)
+
     task_name = _deduplicate_task_name(runtime, task_name, is_retry)
 
     agent_type = _resolve_agent_type(runtime, agent_type)
