@@ -36,11 +36,28 @@ from openmax.lead_agent.tools._verify import (
 )
 from openmax.lead_agent.types import SubTask, TaskStatus
 from openmax.output import P, console
+from openmax.stats import SessionStats, clamp
 from openmax.task_file import inject_claude_md, report_path, write_brief
 
-_STUCK_THRESHOLD = 3  # consecutive identical outputs to trigger stuck
+_STUCK_BASE_THRESHOLD = 3
 _MAX_RETRIES = 2
 _RETRY_CONTEXT_MAX_CHARS = 2000
+
+
+def get_stuck_threshold(stats: SessionStats | None = None) -> int:
+    """Adaptive stuck threshold based on historical false positive rate."""
+    base = _STUCK_BASE_THRESHOLD
+    if stats is None:
+        return base
+    rate = stats.stuck_false_positive_rate
+    if rate > 0.5:
+        threshold = 7
+    elif rate > 0.3:
+        threshold = 5
+    else:
+        threshold = base
+    return int(clamp(threshold, 2, 10))
+
 
 _ANSI_ESC_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\].*?\x07")
 _ERROR_MARKERS = ("Error", "FAILED", "Traceback", "panic:", "FATAL", "Exception", "[ERROR]")
@@ -495,14 +512,12 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
         output_hash = hashlib.md5(clean.encode(), usedforsecurity=False).hexdigest()
         hash_history = runtime.pane_output_hashes.setdefault(pane_id, [])
         hash_history.append(output_hash)
-        if len(hash_history) > _STUCK_THRESHOLD:
-            runtime.pane_output_hashes[pane_id] = hash_history[-_STUCK_THRESHOLD:]
+        threshold = get_stuck_threshold(runtime.session_stats)
+        if len(hash_history) > threshold:
+            runtime.pane_output_hashes[pane_id] = hash_history[-threshold:]
             hash_history = runtime.pane_output_hashes[pane_id]
 
-        stuck = (
-            len(hash_history) >= _STUCK_THRESHOLD
-            and len(set(hash_history[-_STUCK_THRESHOLD:])) == 1
-        )
+        stuck = len(hash_history) >= threshold and len(set(hash_history[-threshold:])) == 1
         exited = not runtime.pane_mgr.is_pane_alive(pane_id)
 
         response_data: dict[str, Any] = {"text": text, "stuck": stuck, "exited": exited}
