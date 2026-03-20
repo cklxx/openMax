@@ -1,4 +1,4 @@
-"""Tool for reporting completion."""
+"""Tool for reporting completion with cost anomaly detection."""
 
 from __future__ import annotations
 
@@ -11,6 +11,49 @@ from openmax.lead_agent.tools._helpers import (
     _record_phase_anchor,
     _tool_response,
 )
+from openmax.stats import SessionStats
+
+_ANOMALY_FLOOR = 1.5
+_ANOMALY_CEILING = 10.0
+_STATIC_THRESHOLD = 3.0
+_HISTORICAL_MULTIPLIER = 2.0
+
+
+def detect_cost_anomaly(
+    estimated_tokens: int,
+    actual_tokens: int,
+    stats: SessionStats,
+) -> dict[str, Any] | None:
+    """Detect if actual cost significantly exceeds estimate."""
+    if estimated_tokens <= 0:
+        return None
+    ratio = actual_tokens / estimated_tokens
+    historical = stats.cost_multiplier_actual_vs_estimated
+    raw_threshold = max(_STATIC_THRESHOLD, historical * _HISTORICAL_MULTIPLIER)
+    threshold = max(_ANOMALY_FLOOR, min(_ANOMALY_CEILING, raw_threshold))
+    if ratio <= threshold:
+        return None
+    return {
+        "alert": True,
+        "actual_vs_estimated": round(ratio, 2),
+        "threshold": round(threshold, 2),
+        "message": f"Cost anomaly: {ratio:.1f}x estimated (threshold: {threshold:.1f}x)",
+    }
+
+
+def _aggregate_session_tokens() -> tuple[int, int]:
+    """Sum estimated and actual tokens across all subtasks. Returns (estimated, actual)."""
+    try:
+        from openmax.lead_agent.runtime import get_lead_agent_runtime
+
+        rt = get_lead_agent_runtime()
+        if rt.plan is None:
+            return 0, 0
+        estimated = sum(st.token_budget or 0 for st in rt.plan.subtasks)
+        actual = sum(st.tokens_used for st in rt.plan.subtasks)
+        return estimated, actual
+    except Exception:
+        return 0, 0
 
 
 def _persist_session_stats() -> None:
@@ -41,6 +84,23 @@ def _get_scorecard():
     return None
 
 
+def _check_and_report_anomaly() -> str | None:
+    """Run cost anomaly detection and return a warning line, or None."""
+    try:
+        from openmax.lead_agent.runtime import get_lead_agent_runtime
+
+        rt = get_lead_agent_runtime()
+        stats = rt.session_stats or SessionStats()
+        estimated, actual = _aggregate_session_tokens()
+        anomaly = detect_cost_anomaly(estimated, actual, stats)
+        if anomaly:
+            _append_session_event("cost.anomaly", anomaly)
+            return anomaly["message"]
+    except Exception:
+        pass
+    return None
+
+
 @tool(
     "report_completion",
     "Report overall goal completion percentage and summary. Call exactly once "
@@ -60,6 +120,9 @@ async def report_completion(args: dict[str, Any]) -> dict[str, Any]:
         lines.append(f"  [dim]{scorecard.surface_acceleration}[/dim]")
     if scorecard and scorecard.overhead is not None:
         lines.append(f"  [dim]{scorecard.overhead.surface()}[/dim]")
+    anomaly_msg = _check_and_report_anomaly()
+    if anomaly_msg:
+        lines.append(f"  [yellow]{anomaly_msg}[/yellow]")
     panel = Panel(
         "\n".join(lines),
         title="[bold]Result[/bold]",
