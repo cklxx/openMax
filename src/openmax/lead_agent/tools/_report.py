@@ -13,6 +13,20 @@ from openmax.lead_agent.tools._helpers import (
 )
 
 
+def _persist_session_stats() -> None:
+    """Best-effort save of updated session stats."""
+    try:
+        from openmax.lead_agent.runtime import get_lead_agent_runtime
+        from openmax.stats import save_stats, update_stats
+
+        rt = get_lead_agent_runtime()
+        if rt.session_stats is not None:
+            rt.session_stats = update_stats(rt.session_stats, rt.token_usage)
+            save_stats(rt.session_stats, rt.cwd)
+    except Exception:
+        pass
+
+
 def _get_scorecard():
     """Best-effort fetch of the current run scorecard, or None."""
     try:
@@ -62,4 +76,5 @@ async def report_completion(args: dict[str, Any]) -> dict[str, Any]:
         {"completion_pct": pct, "notes": notes},
     )
     _record_phase_anchor("report", notes, pct)
+    _persist_session_stats()
     return _tool_response(f"Reported {pct}% \u2014 {notes}")

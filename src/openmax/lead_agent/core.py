@@ -45,6 +45,7 @@ from openmax.session_runtime import (
     SessionSnapshot,
     SessionStore,
 )
+from openmax.stats import load_stats
 from openmax.usage import UsageStore, usage_from_result
 
 _PROMPT_DIR = Path(__file__).parent / "prompts"
@@ -268,6 +269,7 @@ async def _run_lead_agent_async(
         dashboard=dashboard,
         plan_confirm=plan_confirm,
     )
+    runtime.session_stats = load_stats(cwd)
     token = bind_lead_agent_runtime(runtime)
 
     startup_stage = "sdk_client_startup"

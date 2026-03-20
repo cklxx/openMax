@@ -33,6 +33,7 @@ class LeadAgentRuntime:
     token_usage: dict[str, int] = field(default_factory=dict)
     mailbox: SessionMailbox | None = None
     mailbox_messaged_tasks: set[str] = field(default_factory=set)
+    session_stats: Any | None = None
 
 
 _lead_agent_runtime: ContextVar[LeadAgentRuntime | None] = ContextVar(
