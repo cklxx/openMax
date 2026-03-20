@@ -12,7 +12,7 @@ _RAW_TAIL_LINES = 20
 
 
 @dataclass
-class TestResult:
+class ParsedTestResult:
     passed: int = 0
     failed: int = 0
     skipped: int = 0
@@ -82,7 +82,7 @@ _PYTEST_COUNTS = re.compile(
 )
 
 
-def _parse_pytest(clean: str) -> TestResult:
+def _parse_pytest(clean: str) -> ParsedTestResult:
     passed = failed = errors = skipped = 0
     for m in _PYTEST_COUNTS.finditer(clean):
         if m.group(1):
@@ -94,7 +94,7 @@ def _parse_pytest(clean: str) -> TestResult:
         if m.group(4):
             skipped = max(skipped, int(m.group(4)))
     summaries = _extract_pytest_failures(clean)
-    return TestResult(
+    return ParsedTestResult(
         passed=passed,
         failed=failed,
         skipped=skipped,
@@ -139,7 +139,7 @@ _JEST_COUNTS = re.compile(
 )
 
 
-def _parse_jest(clean: str) -> TestResult:
+def _parse_jest(clean: str) -> ParsedTestResult:
     m = _JEST_COUNTS.search(clean)
     failed = int(m.group(1)) if m and m.group(1) else 0
     skipped = int(m.group(2)) if m and m.group(2) else 0
@@ -147,7 +147,7 @@ def _parse_jest(clean: str) -> TestResult:
     fail_lines = [
         _clip(line.strip()) for line in clean.splitlines() if "FAIL " in line or "● " in line
     ]
-    return TestResult(
+    return ParsedTestResult(
         passed=passed,
         failed=failed,
         skipped=skipped,
@@ -156,12 +156,12 @@ def _parse_jest(clean: str) -> TestResult:
     )
 
 
-def _parse_go_test(clean: str) -> TestResult:
+def _parse_go_test(clean: str) -> ParsedTestResult:
     passed = len(re.findall(r"^ok\s+\S+", clean, re.MULTILINE))
     failed = len(re.findall(r"^FAIL\s+\S+", clean, re.MULTILINE))
     fail_names = re.findall(r"--- FAIL:\s+(.+)", clean)
     summaries = [_clip(f"FAIL: {n.strip()}") for n in fail_names]
-    return TestResult(
+    return ParsedTestResult(
         passed=passed,
         failed=failed,
         failure_summaries=summaries[:_MAX_SUMMARIES],
@@ -172,14 +172,14 @@ def _parse_go_test(clean: str) -> TestResult:
 _CARGO_COUNTS = re.compile(r"test result:.*?(\d+) passed;\s*(\d+) failed;\s*(\d+) ignored")
 
 
-def _parse_cargo(clean: str) -> TestResult:
+def _parse_cargo(clean: str) -> ParsedTestResult:
     m = _CARGO_COUNTS.search(clean)
     passed = int(m.group(1)) if m else 0
     failed = int(m.group(2)) if m else 0
     skipped = int(m.group(3)) if m else 0
     fail_names = re.findall(r"---- (\S+) stdout ----", clean)
     summaries = [_clip(f"FAIL: {n}") for n in fail_names]
-    return TestResult(
+    return ParsedTestResult(
         passed=passed,
         failed=failed,
         skipped=skipped,
@@ -188,13 +188,13 @@ def _parse_cargo(clean: str) -> TestResult:
     )
 
 
-def _parse_generic(clean: str) -> TestResult:
+def _parse_generic(clean: str) -> ParsedTestResult:
     lines = clean.splitlines()
     passed = sum(1 for ln in lines if re.search(r"\bPASS\b", ln))
     failed = sum(1 for ln in lines if re.search(r"\bFAIL\b", ln))
     errors = sum(1 for ln in lines if re.search(r"\bERROR\b", ln))
     fail_lines = [_clip(ln.strip()) for ln in lines if re.search(r"\bFAIL\b|\bERROR\b", ln)]
-    return TestResult(
+    return ParsedTestResult(
         passed=passed,
         failed=failed,
         errors=errors,
@@ -215,10 +215,10 @@ _PARSERS: dict[str, callable] = {
 # ---------------------------------------------------------------------------
 
 
-def parse_test_output(raw: str, framework: str | None = None) -> TestResult:
-    """Parse test runner output into a structured TestResult."""
+def parse_test_output(raw: str, framework: str | None = None) -> ParsedTestResult:
+    """Parse test runner output into a structured ParsedTestResult."""
     if not raw.strip():
-        return TestResult()
+        return ParsedTestResult()
 
     clean = _strip_ansi(raw)
     fw = framework or detect_framework(clean)

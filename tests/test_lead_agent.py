@@ -1467,15 +1467,14 @@ def test_merge_agent_branch_conflict(monkeypatch, tmp_path):
             check=True,
         )
 
-        # Attempt merge — should conflict
+        # Attempt merge — trivial conflict is auto-resolved
         st.status = TaskStatus.DONE
         result = anyio.run(
             lead_agent_tools.merge_agent_branch.handler,
             {"task_name": "feat-conflict"},
         )
         parsed = json.loads(result["content"][0]["text"])
-        assert parsed["status"] == "conflict"
-        assert isinstance(parsed["files"], list)
+        assert parsed["status"] == "merged"
     finally:
         _teardown_session(token)
 

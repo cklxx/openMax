@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openmax.test_parsing import TestResult, detect_framework, parse_test_output
+from openmax.test_parsing import ParsedTestResult, detect_framework, parse_test_output
 
 # ---------------------------------------------------------------------------
 # detect_framework
@@ -46,11 +46,11 @@ class TestDetectFramework:
 class TestParseEmpty:
     def test_empty_string(self):
         r = parse_test_output("")
-        assert r == TestResult()
+        assert r == ParsedTestResult()
 
     def test_whitespace_only(self):
         r = parse_test_output("   \n\n  ")
-        assert r == TestResult()
+        assert r == ParsedTestResult()
 
 
 class TestParseUnknown:

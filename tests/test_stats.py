@@ -49,7 +49,8 @@ def test_session_stats_defaults():
 # --- load_stats ---
 
 
-def test_load_stats_no_file_returns_defaults(tmp_path: Path):
+def test_load_stats_no_file_returns_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "empty_home")
     stats = load_stats(str(tmp_path / "nonexistent"))
     assert stats.sessions_count == 0
     assert stats.schema_version == SCHEMA_VERSION
@@ -74,7 +75,8 @@ def test_load_stats_falls_back_to_global(tmp_path: Path, monkeypatch: pytest.Mon
     assert loaded.sessions_count == 3
 
 
-def test_load_stats_corrupt_json(tmp_path: Path):
+def test_load_stats_corrupt_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "empty_home")
     stats_path = tmp_path / ".openmax" / "stats" / "session_stats.json"
     stats_path.parent.mkdir(parents=True)
     stats_path.write_text("not json at all {{{")
@@ -82,7 +84,8 @@ def test_load_stats_corrupt_json(tmp_path: Path):
     assert loaded.sessions_count == 0
 
 
-def test_load_stats_old_schema_version(tmp_path: Path):
+def test_load_stats_old_schema_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "empty_home")
     stats_path = tmp_path / ".openmax" / "stats" / "session_stats.json"
     stats_path.parent.mkdir(parents=True)
     stats_path.write_text(json.dumps({"schema_version": 999, "sessions_count": 10}))

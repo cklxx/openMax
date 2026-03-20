@@ -22,7 +22,7 @@ from openmax.lead_agent.runtime import (
     bind_lead_agent_runtime,
     reset_lead_agent_runtime,
 )
-from openmax.lead_agent.tools._dispatch import _STUCK_THRESHOLD
+from openmax.lead_agent.tools._dispatch import _STUCK_BASE_THRESHOLD
 from openmax.lead_agent.tools._helpers import strip_terminal_noise
 from openmax.pane_backend import HeadlessPaneBackend, PaneBackendError
 from openmax.pane_manager import PaneManager
@@ -162,13 +162,13 @@ def test_stuck_detection_after_identical_reads(monkeypatch, tmp_path):
 
         # Read N times — output is identical each time ("READY\n" + sleep)
         last_data = None
-        for i in range(_STUCK_THRESHOLD):
+        for i in range(_STUCK_BASE_THRESHOLD):
             result = anyio.run(
                 lead_agent_tools.read_pane_output.handler,
                 {"pane_id": pane_id},
             )
             last_data = json.loads(result["content"][0]["text"])
-            if i < _STUCK_THRESHOLD - 1:
+            if i < _STUCK_BASE_THRESHOLD - 1:
                 assert last_data["stuck"] is False
 
         # After STUCK_THRESHOLD identical reads, stuck should be True
