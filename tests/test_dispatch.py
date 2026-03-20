@@ -1,6 +1,7 @@
-"""Tests for dispatch module — extract_error_context function."""
+"""Tests for dispatch module — extract_error_context and adaptive stuck threshold."""
 
-from openmax.lead_agent.tools._dispatch import extract_error_context
+from openmax.lead_agent.tools._dispatch import extract_error_context, get_stuck_threshold
+from openmax.stats import SessionStats
 
 
 class TestExtractErrorContext:
@@ -141,3 +142,38 @@ class TestExtractErrorContext:
         lines = ["x" * 200 for _ in range(30)]
         result = extract_error_context("\n".join(lines), max_chars=500)
         assert len(result) <= 500
+
+
+class TestGetStuckThreshold:
+    def test_no_stats_returns_base(self):
+        assert get_stuck_threshold(None) == 3
+
+    def test_zero_false_positive_rate_returns_base(self):
+        stats = SessionStats(stuck_false_positive_rate=0.0)
+        assert get_stuck_threshold(stats) == 3
+
+    def test_low_false_positive_rate_returns_base(self):
+        stats = SessionStats(stuck_false_positive_rate=0.2)
+        assert get_stuck_threshold(stats) == 3
+
+    def test_medium_false_positive_rate_returns_5(self):
+        stats = SessionStats(stuck_false_positive_rate=0.4)
+        assert get_stuck_threshold(stats) == 5
+
+    def test_high_false_positive_rate_returns_7(self):
+        stats = SessionStats(stuck_false_positive_rate=0.6)
+        assert get_stuck_threshold(stats) == 7
+
+    def test_boundary_at_0_3_returns_base(self):
+        stats = SessionStats(stuck_false_positive_rate=0.3)
+        assert get_stuck_threshold(stats) == 3
+
+    def test_boundary_at_0_5_returns_5(self):
+        stats = SessionStats(stuck_false_positive_rate=0.5)
+        assert get_stuck_threshold(stats) == 5
+
+    def test_result_within_clamp_range(self):
+        for rate in [0.0, 0.1, 0.3, 0.5, 0.7, 1.0]:
+            stats = SessionStats(stuck_false_positive_rate=rate)
+            result = get_stuck_threshold(stats)
+            assert 2 <= result <= 10
