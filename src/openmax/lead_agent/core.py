@@ -39,6 +39,7 @@ from openmax.lead_agent.types import (
 )
 from openmax.output import P, console
 from openmax.pane_manager import PaneManager
+from openmax.project_tools import detect_project_tooling, format_tooling_block
 from openmax.session_runtime import (
     ContextBuilder,
     SessionSnapshot,
@@ -160,6 +161,11 @@ def _gather_project_snapshot(cwd: str) -> str:
         if tree_lines:
             sections.append("Structure:")
             sections.extend(tree_lines)
+
+        tooling = detect_project_tooling(cwd)
+        if tooling:
+            sections.append("Tooling:")
+            sections.append("  " + format_tooling_block(tooling).replace("\n", "\n  "))
 
         result = "\n".join(sections)
         return result[:_SNAPSHOT_CHAR_CAP] if result else ""

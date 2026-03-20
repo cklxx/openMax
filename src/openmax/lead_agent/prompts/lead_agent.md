@@ -169,8 +169,10 @@ Max 2 debug cycles. If still failing after 2 rounds, `report_completion` with pa
    - If `merge_agent_branch` returned `"conflict"`, dispatch a sub-agent to resolve: include `files` and `diff` from the response. After the agent fixes conflicts, call `merge_agent_branch` again.
    - If `merge_agent_branch` returned `"no-op"` (no new commits), that's fine — the branch is cleaned up automatically.
 1. **Verify — you MUST call `run_verification` for both lint and test. No exceptions.**
-   - `run_verification(check_type="lint", command="ruff check src/ tests/ && ruff format --check src/ tests/", timeout=60)`
-   - `run_verification(check_type="test", command="pytest tests/ -v", timeout=300)`
+   - Use the lint and test commands from the **Tooling** section in the Project State block.
+   - `run_verification(check_type="lint", command="<detected lint command>", timeout=60)`
+   - `run_verification(check_type="test", command="<detected test command>", timeout=300)`
+   - If no tooling was detected, ask the user or skip that check type.
    - On failure: dispatch debug agent (see Layer 3 above), then re-run `run_verification`.
 2. **Check**: `check_conflicts` to ensure no git conflicts remain.
 3. **Report**: `report_completion` with what was actually delivered.

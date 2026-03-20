@@ -69,7 +69,7 @@ No mainstream framework (Claude Teams / Kimi Swarm / LangGraph / CrewAI) has sol
 |----|-------|-----|--------|
 | 5.2 | Build Verification | P0 | done |
 | 5.1 | Git Conflict Detection | P2 | done |
-| 5.3 | Code Consistency (auto-linter) | P3 | pending |
+| 5.3 | Code Consistency (auto-linter) | P3 | done |
 
 ### Pillar E — Observability & Cost (→ Cost Controllability)
 
@@ -88,9 +88,9 @@ No mainstream framework (Claude Teams / Kimi Swarm / LangGraph / CrewAI) has sol
 
 | Status | Count |
 |--------|-------|
-| done | 21 |
+| done | 22 |
 | removed | 4 |
-| pending | 2 |
+| pending | 1 |
 | **total** | **27** |
 
 ### Remaining (P3)
@@ -98,7 +98,6 @@ No mainstream framework (Claude Teams / Kimi Swarm / LangGraph / CrewAI) has sol
 | ID | Title | Notes |
 |----|-------|-------|
 | 2.2 | Load Balancing | No queue management or agent load distribution |
-| 5.3 | Code Consistency | Auto-detect project linter config |
 | 9.2 | Acceptance Confirmation | Post-verification user approval gate |
 
 ---
@@ -127,3 +126,4 @@ No mainstream framework (Claude Teams / Kimi Swarm / LangGraph / CrewAI) has sol
 20. **6.1** Acceleration Ratio (scorecard)
 21. **6.2** Orchestration Overhead (scorecard)
 22. **4.3** Progress Readability (RunDashboard)
+23. **5.3** Code Consistency (project_tools.py auto-detection)
