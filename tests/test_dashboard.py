@@ -267,3 +267,59 @@ def test_render_session_summary_no_tasks():
     panel = render_session_summary({}, metrics, wall_seconds=0)
     output = _render_panel_to_string(panel)
     assert "Session Summary" in output
+
+
+# ── Layer 1: activity column ─────────────────────────────────────
+
+
+def test_task_activity_shows_pane_output():
+    """Running task shows pane_activity content in rendered output."""
+    dash = RunDashboard("test goal")
+    dash.start()
+    dash.update_subtask("fix-auth", "claude", 1, "running", started_at=time.time())
+    dash.update_pane_activity(1, "Running tests...")
+
+    output = _render_to_string(dash)
+    assert "Running tests" in output
+    dash.stop()
+
+
+def test_default_mode_no_pane_id():
+    """Default mode does not show pane_id column values."""
+    dash = RunDashboard("test goal")
+    dash.start()
+    dash.update_subtask("fix-auth", "claude", 42, "running", started_at=time.time())
+
+    output = _render_to_string(dash)
+    assert "#42" not in output
+    dash.stop()
+
+
+def test_verbose_mode_shows_pane_id():
+    """Verbose mode includes pane_id in the output."""
+    dash = RunDashboard("test goal", verbose=True)
+    dash.start()
+    dash.update_subtask("fix-auth", "claude", 42, "running", started_at=time.time())
+
+    output = _render_to_string(dash)
+    assert "#42" in output
+    dash.stop()
+
+
+def test_verbose_mode_shows_dispatch_prompt():
+    """Verbose mode shows the dispatch prompt first line."""
+    dash = RunDashboard("test goal", verbose=True)
+    dash.start()
+    dash.update_subtask("fix-auth", "claude", 1, "running", started_at=time.time())
+    dash.set_dispatch_prompt("fix-auth", "Implement auth fix\nMore details here")
+
+    output = _render_to_string(dash)
+    assert "Implement auth fix" in output
+    dash.stop()
+
+
+def test_set_dispatch_prompt_stores_first_line():
+    """set_dispatch_prompt extracts only the first line."""
+    dash = RunDashboard("test goal")
+    dash.set_dispatch_prompt("task-a", "First line\nSecond line\nThird line")
+    assert dash.dispatch_prompts["task-a"] == "First line"

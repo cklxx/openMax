@@ -251,6 +251,18 @@ def _format_completion(value: int | None) -> str:
     return f"{value}%" if value is not None else "n/a"
 
 
+def _inspect_elapsed(task) -> str:
+    """Compute elapsed string from a SubtaskState's started_at/finished_at (epoch floats)."""
+    start = getattr(task, "started_at", None)
+    end = getattr(task, "finished_at", None)
+    if not start:
+        return "-"
+    ref = end or time.time()
+    secs = max(0, int(ref - start))
+    m, s = divmod(secs, 60)
+    return f"{m}:{s:02d}" if m else f"{s}s"
+
+
 def _detect_resumable_session(task: str, cwd: str) -> tuple[str | None, bool]:
     """Return (session_id, should_resume) if an unfinished session is found."""
     try:
@@ -344,6 +356,7 @@ def main() -> None:
     default=False,
     help="Skip interactive plan confirmation (for automation)",
 )
+@click.option("--verbose", "-v", is_flag=True, default=False, help="Show detailed subtask output")
 def run(
     task: str,
     cwd: str | None,
@@ -355,6 +368,7 @@ def run(
     agents: str | None,
     pane_backend_name: str | None,
     no_confirm: bool,
+    verbose: bool,
 ) -> None:
     """Decompose TASK and dispatch sub-agents in terminal panes."""
     cwd = _resolve_cwd(cwd)
@@ -426,6 +440,7 @@ def run(
                 allowed_agents=allowed_agents,
                 agent_registry=agent_registry,
                 plan_confirm=not no_confirm,
+                verbose=verbose,
             )
         except LeadAgentStartupError as exc:
             raise SystemExit(1) from exc
@@ -472,6 +487,7 @@ def run(
     default=None,
     help="Pane backend to use",
 )
+@click.option("--verbose", "-v", is_flag=True, default=False, help="Show detailed subtask output")
 def loop(
     goal: str,
     cwd: str | None,
@@ -481,6 +497,7 @@ def loop(
     delay: int,
     agents: str | None,
     pane_backend_name: str | None,
+    verbose: bool,
 ) -> None:
     """Run openmax in a continuous loop, pursuing GOAL across unlimited iterations.
 
@@ -523,6 +540,7 @@ def loop(
                 pane_backend_name=pane_backend_name,
                 iteration=iteration,
                 loop_context=loop_context,
+                verbose=verbose,
             )
             loop_store.append_iteration(loop_session.loop_id, result)
             loop_session.iterations.append(result)
@@ -553,6 +571,7 @@ def _run_loop_iteration(
     pane_backend_name: str | None,
     iteration: int,
     loop_context: str | None,
+    verbose: bool = False,
 ) -> LoopIteration:
     started_at = utc_now_iso()
     pane_mgr = PaneManager(backend_name=pane_backend_name)
@@ -579,6 +598,7 @@ def _run_loop_iteration(
             allowed_agents=allowed_agents,
             agent_registry=agent_registry,
             loop_context=loop_context,
+            verbose=verbose,
         )
         return _make_loop_iteration(iteration, started_at, plan)
     except LeadAgentStartupError as exc:
@@ -728,6 +748,7 @@ def _attached_panes_context(panes_list: list, contents: dict[int, str] | None = 
     default=False,
     help="Skip interactive plan confirmation (for automation)",
 )
+@click.option("--verbose", "-v", is_flag=True, default=False, help="Show detailed subtask output")
 def manage(
     task: str | None,
     cwd: str | None,
@@ -737,6 +758,7 @@ def manage(
     agents: str | None,
     pane_backend_name: str | None,
     no_confirm: bool,
+    verbose: bool,
 ) -> None:
     """Discover all existing terminal panes and optionally manage them with TASK.
 
@@ -816,6 +838,7 @@ def manage(
                 agent_registry=agent_registry,
                 loop_context=_attached_panes_context(all_panes, pane_contents),
                 plan_confirm=not no_confirm,
+                verbose=verbose,
             )
         except LeadAgentStartupError as exc:
             raise SystemExit(1) from exc
@@ -998,15 +1021,21 @@ def inspect(session_id: str) -> None:
         tbl.add_column("Status")
         tbl.add_column("Agent", style="dim")
         tbl.add_column("Pane", justify="right", style="dim")
+        tbl.add_column("Elapsed", justify="right", style="dim")
+        tbl.add_column("Notes", style="dim", max_width=40, no_wrap=True, overflow="ellipsis")
 
         for task in plan.subtasks:
             st_style = _SUBTASK_STATUS_STYLES.get(task.status, "white")
             pane_str = str(task.pane_id) if task.pane_id is not None else "-"
+            elapsed = _inspect_elapsed(task)
+            notes = (task.completion_notes or "")[:40] if hasattr(task, "completion_notes") else ""
             tbl.add_row(
                 task.name,
                 f"[{st_style}]{task.status}[/{st_style}]",
                 task.agent_type,
                 pane_str,
+                elapsed,
+                notes,
             )
         console.print(tbl)
 
@@ -1434,9 +1463,7 @@ def setup(status: bool) -> None:
             console.print("Run [bold]openmax setup[/bold] to configure.")
 
         if _claude_openmax_mcp_registered():
-            console.print(
-                f"[green]Claude Code MCP:[/green] registered in {_claude_config_path()}"
-            )
+            console.print(f"[green]Claude Code MCP:[/green] registered in {_claude_config_path()}")
         else:
             console.print(
                 f"[yellow]Claude Code MCP:[/yellow] not registered in {_claude_config_path()}"

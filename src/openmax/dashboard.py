@@ -270,12 +270,14 @@ class RunDashboard:
     Before that, a lightweight "connecting" spinner is shown during SDK warmup.
     """
 
-    def __init__(self, goal: str) -> None:
+    def __init__(self, goal: str, verbose: bool = False) -> None:
         self.goal = goal[:60]
+        self.verbose = verbose
         self.start_time = time.monotonic()
         self.phase = "starting"
         self.subtasks: dict[str, dict] = {}
         self.pane_activity: dict[int, str] = {}
+        self.dispatch_prompts: dict[str, str] = {}
         self.tool_events: list[dict] = []
         self.phase_times: dict[str, tuple[float, float | None]] = {}
         self.metrics = SessionMetrics()
@@ -423,6 +425,10 @@ class RunDashboard:
             self._monitor_count += 1
         self._refresh()
 
+    def set_dispatch_prompt(self, name: str, prompt: str) -> None:
+        first_line = prompt.split("\n", 1)[0].strip()
+        self.dispatch_prompts[name] = first_line
+
     def bump_monitor_count(self) -> None:
         """Increment the monitoring check counter (for collapsed display)."""
         self._monitor_count += 1
@@ -478,20 +484,57 @@ class RunDashboard:
         tbl.add_column(width=2, no_wrap=True)
         tbl.add_column(style="bold", no_wrap=True, max_width=_MAX_TASK_NAME)
         tbl.add_column(style="dim", no_wrap=True, max_width=14)
-        tbl.add_column(style="dim", justify="right", no_wrap=True, width=5)
+        tbl.add_column(style="dim", no_wrap=True, max_width=30)  # activity
+        if self.verbose:
+            tbl.add_column(style="dim", justify="right", no_wrap=True, width=5)
         tbl.add_column(style="dim", justify="right", no_wrap=True, width=6)
 
         for name, info in self.subtasks.items():
-            status = info.get("status", "pending")
-            badge_char, badge_style = _STATUS_BADGES.get(status, ("\u25cb", "dim"))
-            badge = Text(badge_char, style=badge_style)
-            row_style = _ROW_STYLES.get(status, "")
-            agent = Text(info.get("agent", ""), style=row_style)
-            name_text = Text(_truncate(name, _MAX_TASK_NAME), style=row_style)
-            pane_str = f"#{info['pane_id']}" if info.get("pane_id") is not None else ""
-            elapsed = _elapsed_since(info.get("started_at"), info.get("finished_at"))
-            tbl.add_row(badge, name_text, agent, pane_str, elapsed)
+            if self.verbose:
+                self._add_verbose_row(tbl, name, info)
+            else:
+                self._add_compact_row(tbl, name, info)
         return tbl
+
+    def _add_compact_row(self, tbl: Table, name: str, info: dict) -> None:
+        badge, name_text, agent = self._base_row_cells(name, info)
+        style = _ROW_STYLES.get(info.get("status", "pending"), "")
+        activity = Text(self._task_activity(name, info), style=style)
+        elapsed = _elapsed_since(info.get("started_at"), info.get("finished_at"))
+        tbl.add_row(badge, name_text, agent, activity, elapsed)
+
+    def _add_verbose_row(self, tbl: Table, name: str, info: dict) -> None:
+        badge, name_text, agent = self._base_row_cells(name, info)
+        style = _ROW_STYLES.get(info.get("status", "pending"), "")
+        activity = Text(self._task_activity(name, info), style=style)
+        pane_str = f"#{info['pane_id']}" if info.get("pane_id") is not None else ""
+        elapsed = _elapsed_since(info.get("started_at"), info.get("finished_at"))
+        tbl.add_row(badge, name_text, agent, activity, pane_str, elapsed)
+        prompt_line = self.dispatch_prompts.get(name)
+        if prompt_line and info.get("status") in ("running", "done"):
+            detail = Text(f"  {_truncate(prompt_line, 60)}", style="dim italic")
+            tbl.add_row(Text(""), detail)
+
+    def _base_row_cells(self, name: str, info: dict) -> tuple[Text, Text, Text]:
+        status = info.get("status", "pending")
+        badge_char, badge_style = _STATUS_BADGES.get(status, ("\u25cb", "dim"))
+        row_style = _ROW_STYLES.get(status, "")
+        return (
+            Text(badge_char, style=badge_style),
+            Text(_truncate(name, _MAX_TASK_NAME), style=row_style),
+            Text(info.get("agent", ""), style=row_style),
+        )
+
+    def _task_activity(self, name: str, info: dict) -> str:
+        status = info.get("status", "pending")
+        if status == "done":
+            return "done"
+        if status == "pending":
+            return ""
+        pane_id = info.get("pane_id")
+        if pane_id is not None and pane_id in self.pane_activity:
+            return _truncate(self.pane_activity[pane_id], 30)
+        return ""
 
     def _build_progress_line(self) -> tuple[Text, int, int]:
         elapsed = _elapsed(self.start_time)

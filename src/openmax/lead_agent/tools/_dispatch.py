@@ -408,6 +408,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         runtime.dashboard.update_subtask(
             task_name, agent_type, pane.pane_id, "running", started_at=subtask.started_at
         )
+        runtime.dashboard.set_dispatch_prompt(task_name, args["prompt"])
 
     win = runtime.pane_mgr.windows.get(runtime.agent_window_id)
     pane_count = len(win.pane_ids) if win else 1
