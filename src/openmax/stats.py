@@ -44,6 +44,8 @@ def _project_stats_path(project_dir: str) -> Path:
 
 def _read_stats_file(path: Path) -> SessionStats | None:
     """Read and validate a stats file. Returns None on any error."""
+    if not path.exists():
+        return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         if data.get("schema_version") != SCHEMA_VERSION:

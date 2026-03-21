@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.43
+
+- **Fix**: suppress noisy warning when stats file doesn't exist on first run — silently return defaults instead of logging an error
+
 ## 0.5.42
 
 - **Fix**: MCP progress/done tools now accept explicit `session_id` parameters and keep `OPENMAX_SESSION_ID` as a fallback — sub-agents no longer depend entirely on env propagation through nested CLI/MCP process chains
