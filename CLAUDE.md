@@ -132,6 +132,7 @@ Key packages: `lead_agent/` (orchestration), `memory/` (workspace memory), `adap
 
 - Small incremental commits with clear messages.
 - Lint + test before every commit.
+- After validation passes, commit the change and ensure the final result is merged into `main` before considering the task complete.
 - The system prompt (`lead_agent.md`) is the most important file — keep refining it.
 
 ---
@@ -143,4 +144,3 @@ Key packages: `lead_agent/` (orchestration), `memory/` (workspace memory), `adap
 python -m build
 python -m twine upload dist/openmax-<version>*
 ```
-

@@ -297,7 +297,7 @@ def test_run_exits_non_zero_on_lead_agent_startup_failure(monkeypatch, tmp_path)
     assert "Closing panes" in result.output
 
 
-def test_setup_registers_openmax_mcp_server_and_merges_existing_config(monkeypatch, tmp_path):
+def test_setup_registers_openmax_mcp_servers_and_merges_existing_config(monkeypatch, tmp_path):
     home_dir = tmp_path / "home"
     home_dir.mkdir()
     monkeypatch.setenv("HOME", str(home_dir))
@@ -307,9 +307,14 @@ def test_setup_registers_openmax_mcp_server_and_merges_existing_config(monkeypat
         "run_claude_setup_token",
         lambda: (_ for _ in ()).throw(AssertionError("setup-token should not run")),
     )
+    monkeypatch.setattr(
+        cli.shutil,
+        "which",
+        lambda name: f"/usr/bin/{name}" if name in {"claude", "codex"} else None,
+    )
 
-    config_path = home_dir / ".claude.json"
-    config_path.write_text(
+    claude_config_path = home_dir / ".claude.json"
+    claude_config_path.write_text(
         json.dumps(
             {
                 "theme": "dark",
@@ -325,11 +330,32 @@ def test_setup_registers_openmax_mcp_server_and_merges_existing_config(monkeypat
         encoding="utf-8",
     )
 
+    codex_config_path = home_dir / ".codex" / "config.toml"
+    codex_config_path.parent.mkdir(parents=True)
+    codex_config_path.write_text(
+        'model = "gpt-5.4"\n\n[mcp_servers.existing]\ncommand = "existing-mcp"\n',
+        encoding="utf-8",
+    )
+
+    def fake_subprocess_run(args, capture_output, text, timeout):
+        assert args == ["codex", "mcp", "add", "openmax", "--", "openmax-mcp"]
+        assert capture_output is True
+        assert text is True
+        assert timeout == 15
+        existing = codex_config_path.read_text(encoding="utf-8")
+        codex_config_path.write_text(
+            existing + '\n[mcp_servers.openmax]\ncommand = "openmax-mcp"\n',
+            encoding="utf-8",
+        )
+        return SimpleNamespace(returncode=0, stdout="Added global MCP server 'openmax'.", stderr="")
+
+    monkeypatch.setattr(cli.subprocess, "run", fake_subprocess_run)
+
     runner = CliRunner()
     result = runner.invoke(cli.main, ["setup"])
 
     assert result.exit_code == 0
-    data = json.loads(config_path.read_text(encoding="utf-8"))
+    data = json.loads(claude_config_path.read_text(encoding="utf-8"))
     assert data["theme"] == "dark"
     assert data["mcpServers"]["existing"]["command"] == "existing-mcp"
     assert data["mcpServers"]["openmax"] == {
@@ -337,6 +363,76 @@ def test_setup_registers_openmax_mcp_server_and_merges_existing_config(monkeypat
         "command": "openmax-mcp",
         "args": [],
     }
+    codex_config = codex_config_path.read_text(encoding="utf-8")
+    assert 'model = "gpt-5.4"' in codex_config
+    assert '[mcp_servers.existing]\ncommand = "existing-mcp"' in codex_config
+    assert '[mcp_servers.openmax]\ncommand = "openmax-mcp"' in codex_config
+
+
+def test_setup_skips_codex_registration_when_codex_cli_missing(monkeypatch, tmp_path):
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    monkeypatch.setattr(cli, "has_claude_auth", lambda: (True, "token present"))
+    monkeypatch.setattr(
+        cli,
+        "run_claude_setup_token",
+        lambda: (_ for _ in ()).throw(AssertionError("setup-token should not run")),
+    )
+    monkeypatch.setattr(
+        cli.shutil,
+        "which",
+        lambda name: "/usr/bin/claude" if name == "claude" else None,
+    )
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("codex mcp add should not run when codex is missing")
+        ),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["setup"])
+
+    assert result.exit_code == 0
+    assert "skipped Codex MCP registration" in result.output
+
+
+def test_setup_does_not_reregister_codex_mcp_when_already_present(monkeypatch, tmp_path):
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    monkeypatch.setattr(cli, "has_claude_auth", lambda: (True, "token present"))
+    monkeypatch.setattr(
+        cli,
+        "run_claude_setup_token",
+        lambda: (_ for _ in ()).throw(AssertionError("setup-token should not run")),
+    )
+    monkeypatch.setattr(
+        cli.shutil,
+        "which",
+        lambda name: f"/usr/bin/{name}" if name in {"claude", "codex"} else None,
+    )
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("codex mcp add should not run when already configured")
+        ),
+    )
+
+    (home_dir / ".codex").mkdir()
+    (home_dir / ".codex" / "config.toml").write_text(
+        '[mcp_servers.openmax]\ncommand = "openmax-mcp"\n',
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["setup"])
+
+    assert result.exit_code == 0
+    assert "Codex MCP server already registered" in result.output
 
 
 def test_list_agents_includes_configured_agents(monkeypatch, tmp_path):

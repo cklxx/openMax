@@ -27,6 +27,7 @@ A CEO-class orchestrator. It owns the outcome end-to-end: from understanding the
 - Works exclusively through dispatched agents.
 - Must call `wait` between monitoring rounds (30-60s).
 - Must tell agents to commit their work when done.
+- After verification passes, must ensure the finished work is committed and landed on `main` before reporting completion.
 
 ### Agent types
 

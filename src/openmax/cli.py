@@ -5,7 +5,9 @@ from __future__ import annotations
 import atexit
 import json
 import os
+import shutil
 import signal
+import subprocess
 import sys
 import time
 from collections import Counter
@@ -38,6 +40,11 @@ from openmax.terminal import (
     is_tmux_available,
 )
 from openmax.usage import UsageStore
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10
+    import tomli as tomllib
 
 _ANCHOR_PREVIEW_LIMIT = 5
 
@@ -83,6 +90,10 @@ def _claude_config_path() -> Path:
     return Path.home() / ".claude.json"
 
 
+def _codex_config_path() -> Path:
+    return Path.home() / ".codex" / "config.toml"
+
+
 def _load_claude_config(config_path: Path) -> dict[str, Any]:
     if not config_path.exists():
         return {}
@@ -97,6 +108,60 @@ def _load_claude_config(config_path: Path) -> dict[str, Any]:
             f"Invalid Claude config at {config_path}: top-level JSON must be an object"
         )
     return data
+
+
+def _load_codex_config(config_path: Path) -> dict[str, Any]:
+    if not config_path.exists():
+        return {}
+
+    try:
+        data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        raise click.ClickException(f"Invalid Codex config at {config_path}: {exc}") from exc
+
+    if not isinstance(data, dict):
+        raise click.ClickException(
+            f"Invalid Codex config at {config_path}: top-level TOML must be a table"
+        )
+    return data
+
+
+def _claude_openmax_mcp_registered(config_path: Path | None = None) -> bool:
+    config_path = config_path or _claude_config_path()
+    config = _load_claude_config(config_path)
+
+    servers = config.get("mcpServers")
+    if servers is None:
+        return False
+    if not isinstance(servers, dict):
+        raise click.ClickException(
+            f"Invalid Claude config at {config_path}: `mcpServers` must be an object"
+        )
+    return servers.get(_OPENMAX_MCP_SERVER_NAME) == _OPENMAX_MCP_SERVER_CONFIG
+
+
+def _codex_openmax_mcp_registered(config_path: Path | None = None) -> bool:
+    config_path = config_path or _codex_config_path()
+    config = _load_codex_config(config_path)
+
+    servers = config.get("mcp_servers")
+    if servers is None:
+        return False
+    if not isinstance(servers, dict):
+        raise click.ClickException(
+            f"Invalid Codex config at {config_path}: `mcp_servers` must be a table"
+        )
+
+    server = servers.get(_OPENMAX_MCP_SERVER_NAME)
+    if not isinstance(server, dict):
+        return False
+
+    args = server.get("args")
+    return (
+        server.get("command") == _OPENMAX_MCP_SERVER_CONFIG["command"]
+        and server.get("url") in (None, "")
+        and args in (None, [])
+    )
 
 
 def _register_openmax_mcp_server(config_path: Path | None = None) -> bool:
@@ -123,6 +188,33 @@ def _register_openmax_mcp_server(config_path: Path | None = None) -> bool:
         json.dumps(config, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
+    return True
+
+
+def _register_openmax_codex_mcp_server(config_path: Path | None = None) -> bool | None:
+    config_path = config_path or _codex_config_path()
+    if _codex_openmax_mcp_registered(config_path):
+        return False
+
+    if not shutil.which("codex"):
+        return None
+
+    result = subprocess.run(
+        [
+            "codex",
+            "mcp",
+            "add",
+            _OPENMAX_MCP_SERVER_NAME,
+            "--",
+            _OPENMAX_MCP_SERVER_CONFIG["command"],
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
+        raise click.ClickException(f"Failed to register Codex MCP server: {detail}")
     return True
 
 
@@ -1328,7 +1420,7 @@ def validate_config(cwd: str | None) -> None:
 @main.command()
 @click.option("--status", is_flag=True, default=False, help="Show current auth status")
 def setup(status: bool) -> None:
-    """Set up Claude authentication for openMax.
+    """Set up Claude authentication and register openMax MCP servers.
 
     Runs `claude setup-token` to configure a long-lived token
     that avoids OAuth expiration issues.
@@ -1340,6 +1432,23 @@ def setup(status: bool) -> None:
         else:
             console.print("[yellow]No auth configured.[/yellow]")
             console.print("Run [bold]openmax setup[/bold] to configure.")
+
+        if _claude_openmax_mcp_registered():
+            console.print(
+                f"[green]Claude Code MCP:[/green] registered in {_claude_config_path()}"
+            )
+        else:
+            console.print(
+                f"[yellow]Claude Code MCP:[/yellow] not registered in {_claude_config_path()}"
+            )
+
+        codex_registered = _codex_openmax_mcp_registered()
+        if codex_registered:
+            console.print(f"[green]Codex MCP:[/green] registered in {_codex_config_path()}")
+        elif shutil.which("codex"):
+            console.print(f"[yellow]Codex MCP:[/yellow] not registered in {_codex_config_path()}")
+        else:
+            console.print("[dim]Codex MCP:[/dim] skipped (codex CLI not found)")
         return
 
     # Skip if already authenticated
@@ -1347,8 +1456,6 @@ def setup(status: bool) -> None:
     if already_ok:
         console.print(f"[green]Already authenticated:[/green] {detail}")
     else:
-        import shutil
-
         if not shutil.which("claude"):
             console.print("[red]claude CLI not found.[/red]")
             console.print("Install it first: https://docs.anthropic.com/en/docs/claude-code")
@@ -1372,6 +1479,14 @@ def setup(status: bool) -> None:
         )
     else:
         console.print(f"[dim]MCP server already registered:[/dim] {_claude_config_path()}")
+
+    codex_registered = _register_openmax_codex_mcp_server()
+    if codex_registered is True:
+        console.print(f"[green]Registered Codex MCP server:[/green] {_codex_config_path()}")
+    elif codex_registered is False:
+        console.print(f"[dim]Codex MCP server already registered:[/dim] {_codex_config_path()}")
+    else:
+        console.print("[yellow]Codex CLI not found; skipped Codex MCP registration.[/yellow]")
     console.print("\n[green]Setup complete.[/green]")
 
 
