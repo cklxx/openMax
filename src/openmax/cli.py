@@ -10,6 +10,7 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -311,6 +312,10 @@ def _format_session_age(updated_at: str) -> str:
         return "recently"
 
 
+def _generate_session_id(prefix: str = "run") -> str:
+    return f"{prefix}-{uuid.uuid4().hex[:12]}"
+
+
 def _render_subtask_counts(snapshot: SessionSnapshot) -> str:
     counts = Counter(task.status for task in snapshot.plan.subtasks)
     parts = [f"{len(snapshot.plan.subtasks)} total"]
@@ -347,7 +352,11 @@ def main() -> None:
     "--max-turns", default=None, type=click.IntRange(min=1), help="Max turns (default: unlimited)"
 )
 @click.option("--keep-panes", is_flag=True, default=False, help="Don't close panes on exit")
-@click.option("--session-id", default=None, help="Persistent lead-agent session identifier")
+@click.option(
+    "--session-id",
+    default=None,
+    help="Persistent lead-agent session identifier (default: auto-generated)",
+)
 @click.option(
     "--resume",
     is_flag=True,
@@ -403,6 +412,8 @@ def run(
         if should_resume and found_id:
             session_id = found_id
             resume = True
+    if not session_id:
+        session_id = _generate_session_id("run")
 
     try:
         agent_registry = load_agent_registry(cwd)
@@ -599,6 +610,7 @@ def _run_loop_iteration(
     from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
 
     started_at = utc_now_iso()
+    session_id = _generate_session_id(f"loop-{iteration}")
     pane_mgr = PaneManager(backend_name=pane_backend_name)
     cleaned_up = False
 
@@ -620,27 +632,34 @@ def _run_loop_iteration(
             cwd=cwd,
             model=effective_model,
             max_turns=max_turns,
+            session_id=session_id,
             allowed_agents=allowed_agents,
             agent_registry=agent_registry,
             loop_context=loop_context,
             verbose=verbose,
         )
-        return _make_loop_iteration(iteration, started_at, plan)
+        return _make_loop_iteration(iteration, started_at, plan, session_id=session_id)
     except LeadAgentStartupError as exc:
         console.print(f"[red]Iteration {iteration} failed to start: {exc}[/red]")
-        return _make_loop_iteration(iteration, started_at, None)
+        return _make_loop_iteration(iteration, started_at, None, session_id=session_id)
     finally:
         _do_cleanup()
         atexit.unregister(_do_cleanup)
 
 
-def _make_loop_iteration(iteration: int, started_at: str, plan: Any) -> LoopIteration:
+def _make_loop_iteration(
+    iteration: int,
+    started_at: str,
+    plan: Any,
+    *,
+    session_id: str | None,
+) -> LoopIteration:
     from openmax.lead_agent.types import PlanResult, TaskStatus
 
     if plan is None or not isinstance(plan, PlanResult):
         return LoopIteration(
             iteration=iteration,
-            session_id=None,
+            session_id=session_id,
             started_at=started_at,
             completed_at=utc_now_iso(),
             outcome_summary="Failed to start",
@@ -655,7 +674,7 @@ def _make_loop_iteration(iteration: int, started_at: str, plan: Any) -> LoopIter
     summary = f"{len(done)}/{total} subtasks done" if total else "Completed (no subtasks)"
     return LoopIteration(
         iteration=iteration,
-        session_id=None,
+        session_id=session_id,
         started_at=started_at,
         completed_at=utc_now_iso(),
         outcome_summary=summary,

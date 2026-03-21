@@ -94,6 +94,35 @@ def test_run_forwards_session_options(monkeypatch, tmp_path):
     assert captured["cwd"] == str(tmp_path.resolve())
 
 
+def test_run_generates_session_id_when_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "ensure_kaku", lambda: True)
+    monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+
+    captured: dict[str, object] = {}
+
+    def fake_run_lead_agent(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(subtasks=[])
+
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run_lead_agent)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        [
+            "run",
+            "Build feature",
+            "--cwd",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert isinstance(captured["session_id"], str)
+    assert captured["session_id"].startswith("run-")
+
+
 def test_run_uses_headless_backend_without_checking_kaku(monkeypatch, tmp_path):
     monkeypatch.setattr(
         cli,
@@ -946,6 +975,39 @@ def test_loop_second_iteration_receives_loop_context(monkeypatch, tmp_path):
     assert "DO NOT repeat" in ctx2
 
 
+def test_loop_generates_session_id_for_each_iteration(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+    monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
+
+    captured: list[dict] = []
+
+    def fake_run(**kwargs):
+        captured.append(kwargs)
+        return SimpleNamespace(subtasks=[])
+
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run)
+
+    import openmax.loop_session as lsmod
+
+    def patched_dir():
+        d = tmp_path / "loops"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    monkeypatch.setattr(lsmod, "_loops_dir", patched_dir)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["loop", "goal", "--max-iterations", "2", "--delay", "0"])
+
+    assert result.exit_code == 0
+    assert len(captured) == 2
+    assert isinstance(captured[0]["session_id"], str)
+    assert isinstance(captured[1]["session_id"], str)
+    assert captured[0]["session_id"].startswith("loop-1-")
+    assert captured[1]["session_id"].startswith("loop-2-")
+    assert captured[0]["session_id"] != captured[1]["session_id"]
+
+
 def test_loop_writes_tape_entry_per_iteration(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
     monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
@@ -953,11 +1015,11 @@ def test_loop_writes_tape_entry_per_iteration(monkeypatch, tmp_path):
 
     import openmax.loop_session as lsmod
 
-    written: list[str] = []
+    written: list[tuple[str, str | None]] = []
     orig_append = lsmod.LoopSessionStore.append_iteration
 
     def spy_append(self, loop_id, iteration):
-        written.append(loop_id)
+        written.append((loop_id, iteration.session_id))
         orig_append(self, loop_id, iteration)
 
     monkeypatch.setattr(lsmod.LoopSessionStore, "append_iteration", spy_append)
@@ -973,6 +1035,15 @@ def test_loop_writes_tape_entry_per_iteration(monkeypatch, tmp_path):
     runner.invoke(cli.main, ["loop", "goal", "--max-iterations", "3", "--delay", "0"])
 
     assert len(written) == 3  # one tape entry per iteration
+    assert all(loop_id for loop_id, _session_id in written)
+    assert all(session_id and session_id.startswith("loop-") for _loop_id, session_id in written)
+
+
+def test_make_loop_iteration_preserves_session_id():
+    iteration = cli._make_loop_iteration(1, "2026-03-21T00:00:00+00:00", None, session_id="loop-1-test")
+
+    assert iteration.session_id == "loop-1-test"
+    assert iteration.completion_pct == 0
 
 
 def test_loop_stops_at_max_iterations(monkeypatch, tmp_path):
