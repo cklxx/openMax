@@ -13,6 +13,7 @@ import re
 import sys
 import time
 from dataclasses import dataclass, field
+from typing import Protocol, runtime_checkable
 
 from rich.console import Console, ConsoleRenderable, Group
 from rich.live import Live
@@ -41,6 +42,42 @@ _ROW_STYLES: dict[str, str] = {
     "error": "bold red",
     "pending": "dim",
 }
+
+
+@runtime_checkable
+class DashboardProtocol(Protocol):
+    """Interface that all dashboard implementations must satisfy."""
+
+    def start(self) -> None: ...
+    def stop(self) -> None: ...
+    def mark_connected(self) -> None: ...
+    def update_phase(self, phase: str, pct: int | None = None) -> None: ...
+
+    def update_subtask(
+        self,
+        name: str,
+        agent: str,
+        pane_id: int | None,
+        status: str,
+        started_at: float | None = None,
+        finished_at: float | None = None,
+        estimated_minutes: int | None = None,
+    ) -> None: ...
+
+    def update_pane_activity(self, pane_id: int, last_line: str) -> None: ...
+    def add_tool_event(self, text: str, category: str = "system") -> None: ...
+
+    def set_session_metrics(
+        self,
+        *,
+        total_input_tokens: int = 0,
+        total_output_tokens: int = 0,
+        acceleration_ratio: float | None = None,
+        critical_path_seconds: float | None = None,
+    ) -> None: ...
+
+    def set_dispatch_prompt(self, name: str, prompt: str) -> None: ...
+    def bump_monitor_count(self) -> None: ...
 
 
 @dataclass
@@ -649,3 +686,19 @@ class RunDashboard:
     def _refresh(self) -> None:
         if self._live is not None and self._active:
             self._live.update(self._render())
+
+
+def create_dashboard(
+    goal: str,
+    verbose: bool = False,
+    tui: bool = True,
+) -> DashboardProtocol:
+    """Factory: return TUI dashboard when available, else classic Rich bar."""
+    if tui and sys.stdout.isatty():
+        try:
+            from openmax.tui import TuiDashboard
+
+            return TuiDashboard(goal, verbose=verbose)
+        except ImportError:
+            pass
+    return RunDashboard(goal, verbose=verbose)

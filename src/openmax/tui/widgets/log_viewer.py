@@ -1,0 +1,1 @@
+"""Log viewer widget — placeholder."""

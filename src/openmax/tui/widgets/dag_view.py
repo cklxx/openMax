@@ -1,0 +1,1 @@
+"""DAG view widget — placeholder."""
