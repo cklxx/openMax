@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import signal
 import threading
 import time
 from dataclasses import dataclass, field
@@ -158,8 +159,17 @@ class TuiDashboard:
         from openmax.tui.app import OpenMaxApp
 
         self._app = OpenMaxApp(self._bridge)
-        self._thread = threading.Thread(target=self._app.run, daemon=True)
+        self._thread = threading.Thread(target=self._run_app, daemon=True)
         self._thread.start()
+
+    def _run_app(self) -> None:
+        """Run Textual app with signal registration suppressed (non-main thread)."""
+        original = signal.signal
+        signal.signal = lambda *_a, **_kw: signal.SIG_DFL
+        try:
+            self._app.run()
+        finally:
+            signal.signal = original
 
     def stop(self) -> None:
         if self._app:

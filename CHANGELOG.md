@@ -1,8 +1,12 @@
 # Changelog
 
+## 0.5.51
+
+- **Fix**: TUI crash on startup — suppress `signal.signal` for entire Textual app lifecycle in background thread (covers `_build_driver`, `start_application_mode`, and `SIGWINCH` handler registration)
+
 ## 0.5.50
 
-- **Fix**: TUI crash on startup — `signal only works in main thread` error when Textual app runs in background thread; skip signal handler registration for non-main threads
+- **Fix**: TUI crash on startup (incomplete) — only patched `_build_driver`, missed `start_application_mode` signal calls
 
 ## 0.5.49
 
