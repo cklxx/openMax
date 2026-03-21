@@ -23,6 +23,7 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
+from openmax.formatting import estimate_cost_usd, format_cost, format_tokens_short
 from openmax.output import console
 from openmax.theme import get_theme
 
@@ -250,11 +251,13 @@ def _add_tokens_row(tbl: Table, metrics: SessionMetrics) -> None:
     total = metrics.total_input_tokens + metrics.total_output_tokens
     if total == 0:
         return
+    cost = estimate_cost_usd(metrics.total_input_tokens, metrics.total_output_tokens)
     tbl.add_row(
         "Tokens",
         Text(
             f"{_format_tokens(metrics.total_input_tokens)} input"
             f" \u00b7 {_format_tokens(metrics.total_output_tokens)} output"
+            f" \u00b7 {format_cost(cost)}"
         ),
     )
 
@@ -675,6 +678,15 @@ class RunDashboard:
         if self._monitor_count > 0:
             progress.append(f"  [{self._monitor_count} checks]", style=t.progress_detail)
 
+        total_tokens = self.metrics.total_input_tokens + self.metrics.total_output_tokens
+        if total_tokens > 0:
+            cost = estimate_cost_usd(
+                self.metrics.total_input_tokens, self.metrics.total_output_tokens
+            )
+            tok_str = format_tokens_short(total_tokens)
+            progress.append(f"  {tok_str} tokens", style=t.progress_detail)
+            progress.append(f" \u00b7 {format_cost(cost)}", style=t.progress_detail)
+
         if not all_done:
             return self._with_spinner(progress), done, total
         return progress, done, total
@@ -733,7 +745,13 @@ class RunDashboard:
 
         total_tokens = self.metrics.total_input_tokens + self.metrics.total_output_tokens
         if total_tokens > 0:
-            headline.append(f" \u00b7 {_format_tokens(total_tokens)} tokens", style=t.banner_detail)
+            cost = estimate_cost_usd(
+                self.metrics.total_input_tokens, self.metrics.total_output_tokens
+            )
+            headline.append(
+                f" \u00b7 {_format_tokens(total_tokens)} tokens ({format_cost(cost)})",
+                style=t.banner_detail,
+            )
 
         if self.metrics.acceleration_ratio is not None:
             headline.append(

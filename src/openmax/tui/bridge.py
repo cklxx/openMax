@@ -8,6 +8,8 @@ import threading
 import time
 from dataclasses import dataclass, field
 
+from openmax.formatting import estimate_cost_usd
+
 _MAX_TOOL_EVENTS = 1000
 _MAX_LOG_LINES = 2000
 
@@ -44,6 +46,9 @@ class DashboardState:
     total_input_tokens: int = 0
     total_output_tokens: int = 0
     critical_path_seconds: float | None = None
+    # per-task token tracking and cost
+    task_tokens: dict[str, int] = field(default_factory=dict)
+    total_cost_usd: float = 0.0
 
 
 class DashboardBridge:
@@ -115,12 +120,16 @@ class DashboardBridge:
         total_output_tokens: int = 0,
         acceleration_ratio: float | None = None,
         critical_path_seconds: float | None = None,
+        task_tokens: dict[str, int] | None = None,
     ) -> None:
         with self._lock:
             self._state.total_input_tokens = total_input_tokens
             self._state.total_output_tokens = total_output_tokens
             self._state.acceleration_ratio = acceleration_ratio
             self._state.critical_path_seconds = critical_path_seconds
+            self._state.total_cost_usd = estimate_cost_usd(total_input_tokens, total_output_tokens)
+            if task_tokens is not None:
+                self._state.task_tokens = task_tokens
             self._version += 1
 
     def add_log(self, line: str) -> None:
