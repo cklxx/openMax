@@ -30,6 +30,21 @@ def test_task_icon_unknown_status():
     assert _task_icon("unknown") == "?"
 
 
+def test_task_icon_accessible_mode(monkeypatch):
+    """Accessible mode appends text labels to icons."""
+    monkeypatch.setenv("OPENMAX_ACCESSIBLE", "1")
+    assert _task_icon("running") == "\u25cf RUN"
+    assert _task_icon("done") == "\u2713 DONE"
+    assert _task_icon("error") == "\u2717 FAIL"
+    assert _task_icon("pending") == "\u25cb WAIT"
+
+
+def test_task_icon_compact_mode(monkeypatch):
+    """Compact mode (default) returns icon only."""
+    monkeypatch.delenv("OPENMAX_ACCESSIBLE", raising=False)
+    assert _task_icon("running") == "\u25cf"
+
+
 def test_elapsed_str_no_start():
     assert _elapsed_str(None, None) == "--"
 

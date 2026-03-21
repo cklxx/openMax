@@ -24,6 +24,7 @@ from rich.table import Table
 from rich.text import Text
 
 from openmax.formatting import estimate_cost_usd, format_cost, format_tokens_short
+from openmax.formatting import _ACCESSIBLE_LABELS, is_accessible_mode
 from openmax.output import console
 from openmax.theme import get_theme
 
@@ -39,13 +40,23 @@ _STATUS_SORT_ORDER: dict[str, int] = {
 }
 
 
+def _badge_width() -> int:
+    return 6 if is_accessible_mode() else 2
+
+
 def _status_badges() -> dict[str, tuple[str, str]]:
     t = get_theme()
+    accessible = is_accessible_mode()
+    badges: dict[str, tuple[str, str]] = {
+        "running": ("\u25c9", t.status_running),
+        "done": ("\u2714", t.status_done),
+        "error": ("\u2718", t.status_error),
+        "pending": ("\u25cb", t.status_pending),
+    }
+    if not accessible:
+        return badges
     return {
-        "running": ("\u25c9", t.status_running),  # ◉
-        "done": ("\u2714", t.status_done),  # ✔
-        "error": ("\u2718", t.status_error),  # ✘
-        "pending": ("\u25cb", t.status_pending),  # ○
+        k: (f"{icon} {_ACCESSIBLE_LABELS.get(k, '')}", style) for k, (icon, style) in badges.items()
     }
 
 
@@ -288,7 +299,7 @@ def _build_breakdown_table(subtasks: dict[str, dict], metrics: SessionMetrics) -
         expand=False,
         header_style=get_theme().header_breakdown,
     )
-    tbl.add_column("", width=2, no_wrap=True)
+    tbl.add_column("", width=_badge_width(), no_wrap=True)
     tbl.add_column("Task", no_wrap=True, max_width=_MAX_TASK_NAME)
     tbl.add_column("Agent", no_wrap=True, max_width=14)
     tbl.add_column("Est", justify="right", no_wrap=True, width=5)
@@ -571,7 +582,7 @@ class RunDashboard:
             padding=(0, 1),
             expand=False,
         )
-        tbl.add_column(width=2, no_wrap=True)
+        tbl.add_column(width=_badge_width(), no_wrap=True)
         tbl.add_column(style=t.col_task_name, no_wrap=True, max_width=_MAX_TASK_NAME)
         tbl.add_column(style=t.col_secondary, no_wrap=True, max_width=14)
         tbl.add_column(style=t.col_secondary, no_wrap=True, max_width=activity_width)
