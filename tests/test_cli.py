@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from click.testing import CliRunner
 
+import openmax.lead_agent as lead_agent_mod
 import openmax.session_runtime as session_runtime
 from openmax import cli
 from openmax.agent_registry import AgentDefinition, built_in_agent_registry
@@ -17,6 +18,10 @@ class DummyPaneManager:
     def __init__(self, *args, **kwargs) -> None:
         self.args = args
         self.kwargs = kwargs
+
+    @staticmethod
+    def list_all_panes():
+        return []
 
     def summary(self) -> dict:
         return {"total_windows": 0, "done": 0}
@@ -67,7 +72,7 @@ def test_run_forwards_session_options(monkeypatch, tmp_path):
         captured.update(kwargs)
         return SimpleNamespace(subtasks=[])
 
-    monkeypatch.setattr(cli, "run_lead_agent", fake_run_lead_agent)
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run_lead_agent)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -103,7 +108,7 @@ def test_run_uses_headless_backend_without_checking_kaku(monkeypatch, tmp_path):
         captured.update(kwargs)
         return SimpleNamespace(subtasks=[])
 
-    monkeypatch.setattr(cli, "run_lead_agent", fake_run_lead_agent)
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run_lead_agent)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -130,7 +135,7 @@ def test_run_uses_kaku_backend_by_default(monkeypatch, tmp_path):
         captured.update(kwargs)
         return SimpleNamespace(subtasks=[])
 
-    monkeypatch.setattr(cli, "run_lead_agent", fake_run_lead_agent)
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run_lead_agent)
 
     runner = CliRunner()
     result = runner.invoke(cli.main, ["run", "Build feature", "--cwd", str(tmp_path)])
@@ -161,7 +166,7 @@ def test_agents_option_forwarded(monkeypatch, tmp_path):
         captured.update(kwargs)
         return SimpleNamespace(subtasks=[])
 
-    monkeypatch.setattr(cli, "run_lead_agent", fake_run_lead_agent)
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run_lead_agent)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -184,7 +189,7 @@ def test_agents_option_deduplicates_and_ignores_empty_values(monkeypatch, tmp_pa
         captured.update(kwargs)
         return SimpleNamespace(subtasks=[])
 
-    monkeypatch.setattr(cli, "run_lead_agent", fake_run_lead_agent)
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run_lead_agent)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -216,7 +221,7 @@ def test_agents_option_accepts_configured_agent(monkeypatch, tmp_path):
         captured.update(kwargs)
         return SimpleNamespace(subtasks=[])
 
-    monkeypatch.setattr(cli, "run_lead_agent", fake_run_lead_agent)
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run_lead_agent)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -239,7 +244,7 @@ def test_run_no_confirm_flag_forwards_plan_confirm_false(monkeypatch, tmp_path):
         captured.update(kwargs)
         return SimpleNamespace(subtasks=[])
 
-    monkeypatch.setattr(cli, "run_lead_agent", fake_run_lead_agent)
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run_lead_agent)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -262,7 +267,7 @@ def test_run_accepts_verbose_flag(monkeypatch, tmp_path):
         captured.update(kwargs)
         return SimpleNamespace(subtasks=[])
 
-    monkeypatch.setattr(cli, "run_lead_agent", fake_run_lead_agent)
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run_lead_agent)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -285,7 +290,7 @@ def test_run_default_plan_confirm_true(monkeypatch, tmp_path):
         captured.update(kwargs)
         return SimpleNamespace(subtasks=[])
 
-    monkeypatch.setattr(cli, "run_lead_agent", fake_run_lead_agent)
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run_lead_agent)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -310,7 +315,7 @@ def test_run_exits_non_zero_on_lead_agent_startup_failure(monkeypatch, tmp_path)
             remediation="Run `claude auth login` and retry.",
         )
 
-    monkeypatch.setattr(cli, "run_lead_agent", fake_run_lead_agent)
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run_lead_agent)
 
     runner = CliRunner()
     result = runner.invoke(cli.main, ["run", "Build feature", "--cwd", str(tmp_path)])
@@ -891,7 +896,7 @@ def test_loop_first_iteration_gets_no_loop_context(monkeypatch, tmp_path):
         captured.append(kwargs)
         return SimpleNamespace(subtasks=[])
 
-    monkeypatch.setattr(cli, "run_lead_agent", fake_run)
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run)
 
     import openmax.loop_session as lsmod
 
@@ -919,7 +924,7 @@ def test_loop_second_iteration_receives_loop_context(monkeypatch, tmp_path):
         captured.append(kwargs)
         return SimpleNamespace(subtasks=[])
 
-    monkeypatch.setattr(cli, "run_lead_agent", fake_run)
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run)
 
     import openmax.loop_session as lsmod
 
@@ -944,7 +949,7 @@ def test_loop_second_iteration_receives_loop_context(monkeypatch, tmp_path):
 def test_loop_writes_tape_entry_per_iteration(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
     monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
-    monkeypatch.setattr(cli, "run_lead_agent", lambda **kw: SimpleNamespace(subtasks=[]))
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", lambda **kw: SimpleNamespace(subtasks=[]))
 
     import openmax.loop_session as lsmod
 
@@ -981,7 +986,7 @@ def test_loop_stops_at_max_iterations(monkeypatch, tmp_path):
         call_count += 1
         return SimpleNamespace(subtasks=[])
 
-    monkeypatch.setattr(cli, "run_lead_agent", fake_run)
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run)
 
     import openmax.loop_session as lsmod
 
@@ -1013,7 +1018,7 @@ def test_loop_handles_startup_error_gracefully(monkeypatch, tmp_path):
             remediation="retry",
         )
 
-    monkeypatch.setattr(cli, "run_lead_agent", fake_run)
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run)
 
     import openmax.loop_session as lsmod
 
@@ -1030,7 +1035,7 @@ def test_loop_handles_startup_error_gracefully(monkeypatch, tmp_path):
     assert result.exit_code == 0  # graceful, not a crash
 
 
-# ── manage command ─────────────────────────────────────────────────────────────
+# ── DefaultGroup fallback + pane reuse ────────────────────────────────────────
 
 
 def _make_pane_info(pane_id: int, window_id: int, title: str = "", cwd: str = "/tmp"):
@@ -1051,50 +1056,10 @@ def _make_pane_info(pane_id: int, window_id: int, title: str = "", cwd: str = "/
     )
 
 
-def test_manage_no_task_lists_panes(monkeypatch):
-    monkeypatch.setattr(cli, "is_kaku_available", lambda: True)
-    monkeypatch.setattr(cli, "is_tmux_available", lambda: False)
-    monkeypatch.setattr(
-        cli.PaneManager,
-        "list_all_panes",
-        staticmethod(lambda: [_make_pane_info(5, 1, "nvim"), _make_pane_info(6, 1, "zsh")]),
-    )
-
-    runner = CliRunner()
-    result = runner.invoke(cli.main, ["manage"])
-
-    assert result.exit_code == 0
-    assert "2" in result.output  # table shows 2 total panes
-
-
-def test_manage_no_panes_exits_early(monkeypatch):
-    monkeypatch.setattr(cli, "is_kaku_available", lambda: True)
-    monkeypatch.setattr(cli, "is_tmux_available", lambda: False)
-    monkeypatch.setattr(cli.PaneManager, "list_all_panes", staticmethod(lambda: []))
-
-    runner = CliRunner()
-    result = runner.invoke(cli.main, ["manage"])
-
-    assert result.exit_code == 0
-    assert "No existing panes" in result.output
-
-
-def test_manage_with_task_attaches_panes_and_runs_lead_agent(monkeypatch, tmp_path):
-    monkeypatch.setattr(cli, "is_kaku_available", lambda: True)
-    monkeypatch.setattr(cli, "is_tmux_available", lambda: False)
+def test_bare_task_routes_to_run(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "ensure_kaku", lambda: True)
+    monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
     monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
-
-    fake_panes = [_make_pane_info(7, 2, "claude", "/repo")]
-
-    class DummyManagePaneManager(DummyPaneManager):
-        @staticmethod
-        def list_all_panes():
-            return fake_panes
-
-        def attach_pane(self, pane_info, purpose: str):
-            pass  # no-op; attachment is tested in test_pane_manager
-
-    monkeypatch.setattr(cli, "PaneManager", DummyManagePaneManager)
 
     captured: dict = {}
 
@@ -1102,12 +1067,45 @@ def test_manage_with_task_attaches_panes_and_runs_lead_agent(monkeypatch, tmp_pa
         captured.update(kwargs)
         return SimpleNamespace(subtasks=[])
 
-    monkeypatch.setattr(cli, "run_lead_agent", fake_run_lead_agent)
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run_lead_agent)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["Build feature", "--cwd", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert captured["task"] == "Build feature"
+
+
+def test_run_attaches_existing_panes(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+
+    fake_panes = [_make_pane_info(7, 2, "claude", "/repo")]
+
+    class DummyAttachPaneManager(DummyPaneManager):
+        @staticmethod
+        def list_all_panes():
+            return fake_panes
+
+        def attach_pane(self, pane_info, purpose: str):
+            pass
+
+        def get_text(self, pane_id: int) -> str:
+            return "$ echo hello"
+
+    monkeypatch.setattr(cli, "PaneManager", DummyAttachPaneManager)
+
+    captured: dict = {}
+
+    def fake_run_lead_agent(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(subtasks=[])
+
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run_lead_agent)
 
     runner = CliRunner()
     result = runner.invoke(
         cli.main,
-        ["manage", "monitor all panes", "--cwd", str(tmp_path), "--pane-backend", "headless"],
+        ["run", "monitor all panes", "--cwd", str(tmp_path), "--pane-backend", "headless"],
     )
 
     assert result.exit_code == 0

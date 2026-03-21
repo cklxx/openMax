@@ -24,8 +24,6 @@ from openmax.auth import has_claude_auth, run_claude_setup_token
 from openmax.config import fetch_anthropic_models, get_model, set_model
 from openmax.doctor import render_results, run_checks
 from openmax.formatting import format_relative_time, status_icon
-from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
-from openmax.lead_agent.types import TaskStatus
 from openmax.loop_session import LoopIteration, LoopSessionStore, build_loop_context
 from openmax.output import console
 from openmax.pane_backend import resolve_pane_backend_name
@@ -49,6 +47,15 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
     import tomli as tomllib
 
 _ANCHOR_PREVIEW_LIMIT = 5
+
+
+class DefaultGroup(click.Group):
+    """Routes unknown first arguments to the 'run' subcommand."""
+
+    def parse_args(self, ctx, args):
+        if args and args[0] not in self.commands and not args[0].startswith("-"):
+            args = ["run"] + args
+        return super().parse_args(ctx, args)
 
 
 def _status_styles() -> dict[str, str]:
@@ -326,7 +333,7 @@ def _describe_outcome(snapshot: SessionSnapshot) -> str:
     return "Session active"
 
 
-@click.group()
+@click.group(cls=DefaultGroup)
 @click.version_option(version=None, package_name="openmax", prog_name="openmax")
 def main() -> None:
     """openMax — Multi AI Agent orchestration hub."""
@@ -382,6 +389,9 @@ def run(
     no_tui: bool,
 ) -> None:
     """Decompose TASK and dispatch sub-agents in terminal panes."""
+    from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
+    from openmax.lead_agent.types import TaskStatus
+
     cwd = _resolve_cwd(cwd)
     pane_backend_name = resolve_pane_backend_name(pane_backend_name)
 
@@ -411,7 +421,8 @@ def run(
 
     pane_mgr = PaneManager(backend_name=pane_backend_name)
 
-    # Safety net: atexit ensures cleanup even on unhandled exceptions
+    loop_context = _attach_existing_panes(pane_mgr)
+
     _cleaned_up = False
 
     def _do_cleanup():
@@ -422,7 +433,7 @@ def run(
         try:
             pane_mgr.cleanup_all()
         except Exception:
-            pass  # best-effort at exit
+            pass
 
     atexit.register(_do_cleanup)
 
@@ -450,6 +461,7 @@ def run(
                 resume=resume,
                 allowed_agents=allowed_agents,
                 agent_registry=agent_registry,
+                loop_context=loop_context,
                 plan_confirm=not no_confirm,
                 verbose=verbose,
                 tui=not no_tui,
@@ -457,7 +469,6 @@ def run(
         except LeadAgentStartupError as exc:
             raise SystemExit(1) from exc
         else:
-            # Session complete — show final summary before cleanup
             done_count = sum(1 for t in plan.subtasks if t.status == TaskStatus.DONE)
             console.print(f"\n[bold]Done.[/bold] {len(plan.subtasks)} sub-tasks, {done_count} done")
     finally:
@@ -585,6 +596,8 @@ def _run_loop_iteration(
     loop_context: str | None,
     verbose: bool = False,
 ) -> LoopIteration:
+    from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
+
     started_at = utc_now_iso()
     pane_mgr = PaneManager(backend_name=pane_backend_name)
     cleaned_up = False
@@ -622,7 +635,7 @@ def _run_loop_iteration(
 
 
 def _make_loop_iteration(iteration: int, started_at: str, plan: Any) -> LoopIteration:
-    from openmax.lead_agent.types import PlanResult
+    from openmax.lead_agent.types import PlanResult, TaskStatus
 
     if plan is None or not isinstance(plan, PlanResult):
         return LoopIteration(
@@ -712,6 +725,17 @@ def _snapshot_panes(pane_mgr: PaneManager, panes_list: list) -> dict[int, str]:
     return out
 
 
+def _attach_existing_panes(pane_mgr: PaneManager) -> str | None:
+    """Detect running panes, attach them to the manager, and return context for the lead agent."""
+    existing = PaneManager.list_all_panes()
+    if not existing:
+        return None
+    for p in existing:
+        pane_mgr.attach_pane(p, purpose=p.title or p.cwd or f"pane-{p.pane_id}")
+    contents = _snapshot_panes(pane_mgr, existing)
+    return _attached_panes_context(existing, contents)
+
+
 def _attached_panes_context(panes_list: list, contents: dict[int, str] | None = None) -> str:
     """Build a text block describing existing panes (with output snapshots) for the lead agent."""
     from collections import defaultdict
@@ -722,7 +746,7 @@ def _attached_panes_context(panes_list: list, contents: dict[int, str] | None = 
 
     lines = [
         "## Attached Existing Panes",
-        "These panes were already running when `manage` was invoked.",
+        "These panes were already running when the session started.",
         "Use read_pane_output / send_text_to_pane to interact with them.",
     ]
     for wid in sorted(by_window):
@@ -736,135 +760,6 @@ def _attached_panes_context(panes_list: list, contents: dict[int, str] | None = 
                 lines.extend(f"  {ln}" for ln in contents[p.pane_id].splitlines())
                 lines.append("  ```")
     return "\n".join(lines)
-
-
-@main.command()
-@click.argument("task", required=False, default=None)
-@click.option("--cwd", default=None, help="Working directory context")
-@click.option("--model", default=None, help="Model for the lead agent")
-@click.option(
-    "--max-turns", default=None, type=click.IntRange(min=1), help="Max turns (default: unlimited)"
-)
-@click.option("--keep-panes", is_flag=True, default=False, help="Don't close new panes on exit")
-@click.option("--agents", default=None, help="Comma-separated list of allowed agent names")
-@click.option(
-    "--pane-backend",
-    "pane_backend_name",
-    type=click.Choice(["kaku", "ghostty", "tmux", "headless", "auto"], case_sensitive=False),
-    default=None,
-    help="Pane backend to use (defaults to auto-detect)",
-)
-@click.option(
-    "--no-confirm",
-    is_flag=True,
-    default=False,
-    help="Skip interactive plan confirmation (for automation)",
-)
-@click.option("--verbose", "-v", is_flag=True, default=False, help="Show detailed subtask output")
-def manage(
-    task: str | None,
-    cwd: str | None,
-    model: str | None,
-    max_turns: int,
-    keep_panes: bool,
-    agents: str | None,
-    pane_backend_name: str | None,
-    no_confirm: bool,
-    verbose: bool,
-) -> None:
-    """Discover all existing terminal panes and optionally manage them with TASK.
-
-    Without TASK: show a table of all running panes/windows.
-    With TASK: attach existing panes and run the lead agent so it can interact with them.
-    """
-    if not is_kaku_available() and not is_ghostty_available() and not is_tmux_available():
-        console.print("[red]No pane backend available.[/red]\nRun inside Kaku, Ghostty, or tmux.")
-        raise SystemExit(1)
-
-    pane_backend_name = resolve_pane_backend_name(pane_backend_name)
-    all_panes = PaneManager.list_all_panes()
-    if not all_panes:
-        console.print("[yellow]No existing panes found.[/yellow]")
-        return
-
-    if not task:
-        _display_panes_table(all_panes)
-        return
-
-    cwd = _resolve_cwd(cwd)
-    try:
-        agent_registry = load_agent_registry(cwd)
-    except AgentConfigError as exc:
-        raise click.UsageError(str(exc)) from exc
-
-    allowed_agents = _parse_allowed_agents(agents, set(agent_registry.names()))
-
-    if pane_backend_name == "kaku" and not ensure_kaku():
-        raise SystemExit(1)
-    if pane_backend_name == "ghostty" and not ensure_ghostty():
-        raise SystemExit(1)
-    if pane_backend_name == "tmux" and not ensure_tmux():
-        raise SystemExit(1)
-
-    pane_mgr = PaneManager(backend_name=pane_backend_name)
-
-    for p in all_panes:
-        pane_mgr.attach_pane(p, purpose=p.title or p.cwd or f"pane-{p.pane_id}")
-
-    pane_contents = _snapshot_panes(pane_mgr, all_panes)
-    _cleaned_up = False
-
-    def _do_cleanup():
-        nonlocal _cleaned_up
-        if _cleaned_up or keep_panes:
-            return
-        _cleaned_up = True
-        try:
-            pane_mgr.cleanup_all()
-        except Exception:
-            pass
-
-    atexit.register(_do_cleanup)
-
-    previous_sigint = signal.getsignal(signal.SIGINT)
-    previous_sigterm = signal.getsignal(signal.SIGTERM)
-
-    def _cleanup_and_exit(signum, _frame):
-        console.print("\n[dim]Interrupted — cleaning up...[/dim]")
-        _do_cleanup()
-        sys.exit(130 if signum == signal.SIGINT else 143)
-
-    signal.signal(signal.SIGINT, _cleanup_and_exit)
-    signal.signal(signal.SIGTERM, _cleanup_and_exit)
-
-    try:
-        effective_model = model or get_model()
-        try:
-            plan = run_lead_agent(
-                task=task,
-                pane_mgr=pane_mgr,
-                cwd=cwd,
-                model=effective_model,
-                max_turns=max_turns,
-                allowed_agents=allowed_agents,
-                agent_registry=agent_registry,
-                loop_context=_attached_panes_context(all_panes, pane_contents),
-                plan_confirm=not no_confirm,
-                verbose=verbose,
-            )
-        except LeadAgentStartupError as exc:
-            raise SystemExit(1) from exc
-        else:
-            done_count = sum(1 for t in plan.subtasks if t.status == TaskStatus.DONE)
-            console.print(f"\n[bold]Done.[/bold] {len(plan.subtasks)} sub-tasks, {done_count} done")
-    finally:
-        signal.signal(signal.SIGINT, previous_sigint)
-        signal.signal(signal.SIGTERM, previous_sigterm)
-        if not keep_panes and not _cleaned_up:
-            console.print("[dim]Closing new panes...[/dim]")
-            _do_cleanup()
-        elif keep_panes:
-            console.print("[dim]Keeping new panes open (--keep-panes).[/dim]")
 
 
 @main.command("read-pane")
