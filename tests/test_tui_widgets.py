@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from openmax.tui.bridge import DashboardBridge, DashboardState, SubtaskInfo
+from openmax.tui.bridge import DashboardBridge, DashboardState, SubtaskInfo  # noqa: F401
 from openmax.tui.widgets import (
     DagScreen,
     HelpScreen,

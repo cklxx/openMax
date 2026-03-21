@@ -123,6 +123,20 @@ def test_bump_monitor_count():
     assert snap.monitor_count == 2
 
 
+def test_set_task_dependencies():
+    bridge = DashboardBridge("g")
+    deps = {"auth": ["research"], "api": ["research"]}
+    bridge.set_task_dependencies(deps)
+    snap = bridge.get_snapshot()
+    assert snap.task_dependencies == deps
+
+
+def test_task_dependencies_default_empty():
+    bridge = DashboardBridge("g")
+    snap = bridge.get_snapshot()
+    assert snap.task_dependencies == {}
+
+
 def test_snapshot_is_deep_copy():
     bridge = DashboardBridge("g")
     bridge.update_subtask("t", "codex", 1, "running", started_at=1.0)
@@ -181,6 +195,7 @@ def test_tui_dashboard_delegates_to_bridge():
     dash.bump_monitor_count()
     dash.set_session_metrics(total_input_tokens=100)
     dash.update_pane_activity(1, "output")
+    dash.set_task_dependencies({"x": ["y"]})
 
     snap = dash._bridge.get_snapshot()
     assert snap.phase == "plan"
@@ -231,3 +246,4 @@ def test_tui_dashboard_delegates_task_progress():
     dash.update_task_progress("auth", 75)
     snap = dash._bridge.get_snapshot()
     assert snap.task_progress["auth"] == 75
+    assert snap.task_dependencies == {"x": ["y"]}

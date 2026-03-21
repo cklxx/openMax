@@ -136,3 +136,4 @@ class OpenMaxApp(App):
 
     def action_show_help(self) -> None:
         self.push_screen(HelpScreen())
+        self.push_screen(DagScreen(self._bridge))
