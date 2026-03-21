@@ -92,9 +92,7 @@ class SessionMetrics:
 
 
 def _elapsed(start: float) -> str:
-    secs = int(time.monotonic() - start)
-    m, s = divmod(secs, 60)
-    return f"{m}:{s:02d}" if m else f"{s}s"
+    return _format_duration(time.monotonic() - start)
 
 
 def _elapsed_since(start: float | None, end: float | None = None) -> str:
@@ -102,18 +100,20 @@ def _elapsed_since(start: float | None, end: float | None = None) -> str:
     if start is None:
         return ""
     ref = end if end is not None else time.monotonic()
-    secs = max(0, int(ref - start))
-    m, s = divmod(secs, 60)
-    return f"{m}:{s:02d}" if m else f"{s}s"
+    return _format_duration(ref - start)
 
 
 def _format_duration(seconds: float) -> str:
-    """Format seconds into human-readable duration."""
-    secs = int(seconds)
+    """Format seconds into human-readable duration: 45s / 2m 30s / 1h 05m."""
+    secs = max(0, int(seconds))
     if secs < 60:
         return f"{secs}s"
-    m, s = divmod(secs, 60)
-    return f"{m}m {s:02d}s"
+    if secs < 3600:
+        m, s = divmod(secs, 60)
+        return f"{m}m {s:02d}s"
+    h, remainder = divmod(secs, 3600)
+    m = remainder // 60
+    return f"{h}h {m:02d}m"
 
 
 def _truncate(text: str, max_len: int) -> str:
@@ -573,11 +573,11 @@ class RunDashboard:
             return _truncate(self.pane_activity[pane_id], 30)
         return ""
 
-    def _build_progress_line(self) -> tuple[Text, int, int]:
+    def _build_progress_line(self) -> tuple[ConsoleRenderable, int, int]:
         elapsed = _elapsed(self.start_time)
         total = len(self.subtasks)
         counts = _count_statuses(self.subtasks)
-        done = counts.get("done", 0)
+        done = counts.get("done", 0) + counts.get("error", 0)
 
         bar_width = 20
         ratio = done / total if total else 0
@@ -586,7 +586,8 @@ class RunDashboard:
         partial_chars = " \u258f\u258e\u258d\u258c\u258b\u258a\u2589\u2588"
         partial_idx = int(remainder * 8)
 
-        bar_color = "green" if done == total else "cyan"
+        all_done = done == total > 0
+        bar_color = "green" if all_done else "cyan"
         progress = Text("  ")
         progress.append("\u2588" * filled_full, style=bar_color)
         if filled_full < bar_width:
@@ -594,6 +595,10 @@ class RunDashboard:
             progress.append("\u2591" * (bar_width - filled_full - 1), style="dim")
         progress.append(f" {done}/{total}", style="bold")
         progress.append(f"  {elapsed}", style="dim")
+
+        eta = self._estimate_eta(done, total)
+        if eta is not None:
+            progress.append(f"  ETA ~{_format_duration(eta)}", style="bold yellow")
 
         status_parts = []
         if counts.get("running"):
@@ -609,79 +614,94 @@ class RunDashboard:
         if self._monitor_count > 0:
             progress.append(f"  [{self._monitor_count} checks]", style="dim")
 
+        if not all_done:
+            return self._with_spinner(progress), done, total
         return progress, done, total
+
+    def _with_spinner(self, text: Text) -> ConsoleRenderable:
+        """Prepend a Rich Spinner to the progress line."""
+        from rich.columns import Columns
+        from rich.spinner import Spinner
+
+        return Columns([Spinner("dots", style="cyan"), text], padding=(0, 0))
+
+    def _estimate_eta(self, done: int, total: int) -> float | None:
+        """Estimate remaining seconds. Returns None if <10% complete."""
+        if total == 0 or done == 0:
+            return None
+        ratio = done / total
+        if ratio < 0.1:
+            return None
+        if ratio >= 1.0:
+            return None
+        elapsed = time.monotonic() - self.start_time
+        return max(0, (elapsed / ratio) - elapsed)
 
     def _render_phase_durations(self) -> Text | None:
         if not self.phase_times:
             return None
         now = time.monotonic()
-        segments = []
-        for phase, (start, end) in self.phase_times.items():
-            secs = int((end or now) - start)
-            segments.append(f"{phase}: {secs}s")
         line = Text("  ")
-        line.append(" | ".join(segments), style="dim")
+        entries = list(self.phase_times.items())
+        for i, (phase, (start, end)) in enumerate(entries):
+            is_active = end is None
+            duration = _format_duration((end or now) - start)
+            style = "bold cyan" if is_active else "dim"
+            if i > 0:
+                line.append(" | ", style="dim")
+            line.append(f"{phase}: {duration}", style=style)
         return line
 
     def _render_done_banner(self) -> ConsoleRenderable:
-        elapsed = _elapsed(self.start_time)
         wall = time.monotonic() - self.start_time
-        parts: list[ConsoleRenderable] = []
+        counts = _count_statuses(self.subtasks)
+        total = len(self.subtasks)
+        done_count = counts.get("done", 0)
+        error_count = counts.get("error", 0)
+        has_errors = error_count > 0
 
-        # Summary metrics line
-        summary = Text("  ")
-        summary.append("\u2714 ALL DONE", style="bold green")
-        summary.append(f"  {elapsed}", style="dim")
+        banner_style = "yellow" if has_errors else "green"
+        check = "\u2714" if not has_errors else "\u26a0"
+
+        headline = Text()
+        headline.append(f" {check} ALL DONE", style=f"bold {banner_style}")
+        headline.append(f" in {_format_duration(wall)}", style="bold")
+        headline.append(f" \u00b7 {done_count}/{total} tasks", style="")
+        if has_errors:
+            headline.append(f" \u00b7 {error_count} error", style="bold red")
+
+        total_tokens = self.metrics.total_input_tokens + self.metrics.total_output_tokens
+        if total_tokens > 0:
+            headline.append(f" \u00b7 {_format_tokens(total_tokens)} tokens", style="dim")
+
         if self.metrics.acceleration_ratio is not None:
-            summary.append(f"  {self.metrics.acceleration_ratio:.1f}x", style="bold cyan")
-        parts.append(summary)
+            headline.append(
+                f" \u00b7 {self.metrics.acceleration_ratio:.1f}x faster",
+                style="bold cyan",
+            )
 
-        # Detailed metrics (only when we have meaningful data)
-        detail_lines = self._done_detail_lines(wall)
-        for line in detail_lines:
-            parts.append(line)
+        detail = self._done_detail_line(wall)
+        content = Group(headline, detail) if detail else headline
+        return Panel(content, border_style=banner_style, padding=(0, 1))
 
-        if len(parts) == 1:
-            return parts[0]
-        return Group(*parts)
-
-    def _done_detail_lines(self, wall_seconds: float) -> list[Text]:
-        lines: list[Text] = []
-        m = self.metrics
-
-        # Time saved
-        est_total = sum(m.estimated_human_minutes.values())
+    def _done_detail_line(self, wall_seconds: float) -> Text | None:
+        parts: list[str] = []
+        est_total = sum(self.metrics.estimated_human_minutes.values())
         if est_total > 0:
             saved = max(0, est_total * 60 - wall_seconds)
-            line = Text("  ")
-            line.append(
-                f"saved ~{_format_duration(saved)}"
-                f" ({est_total}m est \u2192 {_format_duration(wall_seconds)})",
-                style="dim",
-            )
-            lines.append(line)
+            parts.append(f"saved ~{_format_duration(saved)} ({est_total}m est)")
 
-        # Tokens
-        total_tokens = m.total_input_tokens + m.total_output_tokens
-        if total_tokens > 0:
-            line = Text("  ")
-            line.append(
-                f"tokens: {_format_tokens(m.total_input_tokens)} in"
-                f" \u00b7 {_format_tokens(m.total_output_tokens)} out",
-                style="dim",
-            )
-            lines.append(line)
-
-        # Concurrency
         total = len(self.subtasks)
         if total > 1:
             peak = _max_concurrent(self.subtasks)
             if peak > 1:
-                line = Text("  ")
-                line.append(f"peak concurrency: {peak} agents", style="dim")
-                lines.append(line)
+                parts.append(f"peak {peak} concurrent")
 
-        return lines
+        if not parts:
+            return None
+        line = Text(" ")
+        line.append(" \u00b7 ".join(parts), style="dim")
+        return line
 
     def _refresh(self) -> None:
         if self._live is not None and self._active:
