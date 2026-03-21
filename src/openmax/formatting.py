@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from openmax.theme import get_theme
+
 
 def format_relative_time(value: str | None) -> str:
     """Format an ISO timestamp as relative time: '2h ago', 'yesterday', 'Mar 15'."""
@@ -42,30 +44,33 @@ def format_tokens(count: int | None) -> str:
     return str(count)
 
 
-_STATUS_ICONS: dict[str, tuple[str, str]] = {
-    "done": ("✔", "green"),
-    "completed": ("✔", "green"),
-    "running": ("●", "cyan"),
-    "active": ("●", "yellow"),
-    "pending": ("○", "dim"),
-    "error": ("✘", "red"),
-    "failed": ("✘", "red"),
-    "partial": ("◐", "yellow"),
-    "aborted": ("○", "dim"),
-}
+def _status_icons() -> dict[str, tuple[str, str]]:
+    t = get_theme()
+    return {
+        "done": ("\u2714", t.icon_done),
+        "completed": ("\u2714", t.icon_completed),
+        "running": ("\u25cf", t.icon_running),
+        "active": ("\u25cf", t.icon_active),
+        "pending": ("\u25cb", t.icon_pending),
+        "error": ("\u2718", t.icon_error),
+        "failed": ("\u2718", t.icon_failed),
+        "partial": ("\u25d0", t.icon_partial),
+        "aborted": ("\u25cb", t.icon_aborted),
+    }
 
 
 def status_icon(status: str | None) -> str:
     """Return a Rich-markup status icon: ✔ green, ✘ red, ● cyan, etc."""
     if not status:
-        return "[dim]○[/dim]"
-    icon, style = _STATUS_ICONS.get(status.lower(), ("○", "dim"))
+        fallback = get_theme().icon_pending
+        return f"[{fallback}]\u25cb[/{fallback}]"
+    icon, style = _status_icons().get(status.lower(), ("\u25cb", get_theme().icon_pending))
     return f"[{style}]{icon}[/{style}]"
 
 
 def status_icon_plain(status: str | None) -> str:
     """Return a plain status icon without Rich markup."""
     if not status:
-        return "○"
-    icon, _ = _STATUS_ICONS.get(status.lower(), ("○", "dim"))
+        return "\u25cb"
+    icon, _ = _status_icons().get(status.lower(), ("\u25cb", ""))
     return icon

@@ -8,6 +8,8 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
+from openmax.theme import get_theme
+
 
 @dataclass
 class CheckResult:
@@ -147,26 +149,27 @@ def run_checks() -> list[CheckResult]:
 
 def render_results(results: list[CheckResult]) -> tuple[list[str], int]:
     """Return (lines, issue_count)."""
-    lines: list[str] = ["[bold]openMax environment check[/bold]", "─" * 42]
+    t = get_theme()
+    lines: list[str] = ["[bold]openMax environment check[/bold]", "\u2500" * 42]
     issues = 0
     for r in results:
         if r.ok:
-            icon = "[green]✔[/green]"
+            icon = f"[{t.doctor_ok}]\u2714[/{t.doctor_ok}]"
         elif r.fix_hint:
-            icon = "[red]✘[/red]"
+            icon = f"[{t.doctor_fail}]\u2718[/{t.doctor_fail}]"
         else:
-            icon = "[yellow]⚠[/yellow]"
+            icon = f"[{t.doctor_warn}]\u26a0[/{t.doctor_warn}]"
         ver = f"  {r.version}" if r.version else ""
-        detail = f"  [dim]({r.detail})[/dim]" if r.detail else ""
+        detail = f"  [{t.banner_detail}]({r.detail})[/{t.banner_detail}]" if r.detail else ""
         lines.append(f"  {icon}  {r.name:<18}{ver}{detail}")
         if not r.ok:
             issues += 1
             if r.fix_hint:
-                lines.append(f"       [dim]Fix:[/dim] {r.fix_hint}")
-    lines.append("─" * 42)
+                lines.append(f"       [{t.banner_detail}]Fix:[/{t.banner_detail}] {r.fix_hint}")
+    lines.append("\u2500" * 42)
     if issues == 0:
-        lines.append("[green]All checks passed ✔[/green]")
+        lines.append(f"[{t.doctor_ok}]All checks passed \u2714[/{t.doctor_ok}]")
     else:
         noun = "issue" if issues == 1 else "issues"
-        lines.append(f"[yellow]{issues} {noun} found.[/yellow]")
+        lines.append(f"[{t.doctor_warn}]{issues} {noun} found.[/{t.doctor_warn}]")
     return lines, issues

@@ -108,6 +108,22 @@ class Theme:
     cli_col_dim: str = "dim"
     cli_session_default: str = "white"
 
+    # ── Status icons (shared formatting helpers) ──────────────────
+    icon_done: str = "green"
+    icon_completed: str = "green"
+    icon_running: str = "cyan"
+    icon_active: str = "yellow"
+    icon_pending: str = "dim"
+    icon_error: str = "red"
+    icon_failed: str = "red"
+    icon_partial: str = "yellow"
+    icon_aborted: str = "dim"
+
+    # ── Doctor check results ──────────────────────────────────────
+    doctor_ok: str = "green"
+    doctor_fail: str = "red"
+    doctor_warn: str = "yellow"
+
 
 DEFAULT_THEME = Theme()
 
