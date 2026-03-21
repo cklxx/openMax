@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0
+
+- **Breaking**: CLI command semantic restructure — 17 commands consolidated to 12 visible commands with grouped help output
+  - `runs` → `sessions`
+  - `list-agents` → `agents`
+  - `read-pane` merged into `panes` (use `openmax panes 5` to read pane 5)
+  - `tail` + `replay` merged into `log` (`--follow`/`-f` = tail, default = replay)
+  - `validate-config` merged into `doctor` (always runs config validation)
+  - `install-skill` merged into `setup --skills` / `setup --skills-global`
+  - `msg` hidden from `--help` (still works for IPC)
+- **Feature**: Grouped `--help` output — commands organized into Run, Sessions, Environment, and Setup sections
+
 ## 0.5.53
 
 - **Perf**: Lazy-load `lead_agent`/`claude_agent_sdk` — `openmax --help` drops from ~1.2s to ~0.4s

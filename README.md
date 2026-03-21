@@ -166,22 +166,9 @@ openMax environment check
 1 issue found.
 ```
 
-### `openmax validate-config`
-
-Validate your agent TOML configuration:
-
-```bash
-$ openmax validate-config --cwd ~/projects/my-app
-Validating agent config for /Users/me/my-app
-  Built-in: claude-code, codex, opencode, generic  ✅
-  .openmax/agents.toml
-    remote-codex  ✅  ssh devbox bash -lc ...
-    broken-agent  ❌  command must be a non-empty string array
-```
-
 ### `openmax panes`
 
-List all terminal panes and their status.
+List all terminal panes and their status, or read a specific pane by ID.
 
 ```bash
 $ openmax panes
@@ -190,14 +177,8 @@ Found 4 panes:
   Pane 2: codex (120x30)
   Pane 3: claude-code (120x30)
   Pane 4: opencode (120x30)
-```
 
-### `openmax read-pane`
-
-Read the terminal output of a specific pane — useful for checking what an agent is doing.
-
-```bash
-$ openmax read-pane 1
+$ openmax panes 1
 ```
 
 ### `openmax memories`
@@ -299,7 +280,7 @@ openMax merges agents from these locations, in this order:
 List the effective agent registry for a workspace with:
 
 ```bash
-openmax list-agents --cwd /path/to/repo
+openmax agents --cwd /path/to/repo
 ```
 
 Example config:
@@ -361,7 +342,7 @@ openmax run "Build React components for dashboard" --cwd ./frontend --agents cla
 # ...
 
 # Later, check the results
-openmax read-pane 1
+openmax panes 1
 ```
 
 This turns a single agent into a **team of agents** — your primary agent handles the high-level architecture while openMax manages the parallel sub-tasks. The key benefits:

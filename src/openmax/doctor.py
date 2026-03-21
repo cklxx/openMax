@@ -131,7 +131,30 @@ def _check_openai_auth() -> CheckResult:
     )
 
 
-def run_checks() -> list[CheckResult]:
+def _check_agent_config(cwd: str | None = None) -> CheckResult:
+    from openmax.agent_registry import (
+        AgentConfigError,
+        _candidate_config_paths,
+        _merge_config_file,
+        built_in_agent_registry,
+    )
+
+    cwd = cwd or os.getcwd()
+    registry = built_in_agent_registry()
+    for path, _required in _candidate_config_paths(cwd):
+        from pathlib import Path
+
+        p = Path(path)
+        if not p.exists():
+            continue
+        try:
+            _merge_config_file(registry, p)
+        except AgentConfigError as exc:
+            return CheckResult(name="Agent config", ok=False, detail=str(exc))
+    return CheckResult(name="Agent config", ok=True, detail="all valid")
+
+
+def run_checks(cwd: str | None = None) -> list[CheckResult]:
     return [
         _check_python(),
         *_check_terminal_backends(),
@@ -144,6 +167,7 @@ def run_checks() -> list[CheckResult]:
         ),
         _check_claude_auth(),
         _check_openai_auth(),
+        _check_agent_config(cwd),
     ]
 
 

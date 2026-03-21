@@ -50,13 +50,37 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
 _ANCHOR_PREVIEW_LIMIT = 5
 
 
-class DefaultGroup(click.Group):
-    """Routes unknown first arguments to the 'run' subcommand."""
+class GroupedGroup(click.Group):
+    """Routes unknown first arguments to 'run' and renders grouped --help."""
+
+    command_groups = [
+        ("Run", ["run", "loop"]),
+        ("Sessions", ["sessions", "inspect", "usage", "log"]),
+        ("Environment", ["status", "agents", "panes", "models"]),
+        ("Setup", ["setup", "doctor"]),
+    ]
 
     def parse_args(self, ctx, args):
         if args and args[0] not in self.commands and not args[0].startswith("-"):
             args = ["run"] + args
         return super().parse_args(ctx, args)
+
+    def format_commands(self, ctx, formatter):
+        grouped_names: set[str] = set()
+        for _label, names in self.command_groups:
+            grouped_names.update(names)
+
+        for label, names in self.command_groups:
+            rows: list[tuple[str, str]] = []
+            for name in names:
+                cmd = self.commands.get(name)
+                if cmd is None or cmd.hidden:
+                    continue
+                help_text = cmd.get_short_help_str(limit=formatter.width)
+                rows.append((name, help_text))
+            if rows:
+                with formatter.section(label):
+                    formatter.write_dl(rows)
 
 
 def _status_styles() -> dict[str, str]:
@@ -338,7 +362,7 @@ def _describe_outcome(snapshot: SessionSnapshot) -> str:
     return "Session active"
 
 
-@click.group(cls=DefaultGroup)
+@click.group(cls=GroupedGroup)
 @click.version_option(version=None, package_name="openmax", prog_name="openmax")
 def main() -> None:
     """openMax — Multi AI Agent orchestration hub."""
@@ -685,8 +709,17 @@ def _make_loop_iteration(
 
 
 @main.command()
-def panes() -> None:
-    """List all terminal panes (kaku, ghostty, or tmux)."""
+@click.argument("pane_id", required=False, default=None, type=int)
+def panes(pane_id: int | None) -> None:
+    """List terminal panes, or read one by ID."""
+    if pane_id is not None:
+        mgr = PaneManager()
+        try:
+            console.print(mgr.get_text(pane_id))
+        except RuntimeError as e:
+            console.print(f"[red]{e}[/red]")
+        return
+
     if not is_kaku_available() and not is_ghostty_available() and not is_tmux_available():
         console.print("[red]No pane backend available.[/red]\nRun inside Kaku, Ghostty, or tmux.")
         raise SystemExit(1)
@@ -781,25 +814,13 @@ def _attached_panes_context(panes_list: list, contents: dict[int, str] | None = 
     return "\n".join(lines)
 
 
-@main.command("read-pane")
-@click.argument("pane_id", type=int)
-def read_pane(pane_id: int) -> None:
-    """Read the text content of a specific pane."""
-    mgr = PaneManager()
-    try:
-        text = mgr.get_text(pane_id)
-        console.print(text)
-    except RuntimeError as e:
-        console.print(f"[red]{e}[/red]")
-
-
-@main.command("list-agents")
+@main.command()
 @click.option("--cwd", default=None, help="Working directory used for workspace agent config")
 @click.option(
     "--verbose", "-v", is_flag=True, default=False, help="Show command template for each agent"
 )
-def list_agents(cwd: str | None, verbose: bool) -> None:
-    """List built-in and configured agents."""
+def agents(cwd: str | None, verbose: bool) -> None:
+    """List available agents (built-in and configured)."""
     cwd = _resolve_cwd(cwd)
 
     try:
@@ -819,7 +840,7 @@ def list_agents(cwd: str | None, verbose: bool) -> None:
         console.print(line)
 
 
-@main.command("runs")
+@main.command()
 @click.option(
     "--status",
     default=None,
@@ -832,8 +853,8 @@ def list_agents(cwd: str | None, verbose: bool) -> None:
     type=click.IntRange(min=1),
     help="Maximum number of recent sessions to show",
 )
-def runs(status: str | None, limit: int) -> None:
-    """List recent persisted sessions."""
+def sessions(status: str | None, limit: int) -> None:
+    """List recent sessions."""
     store = SessionStore()
     sessions = store.list_sessions(status=status.lower() if status else None, limit=limit)
     if not sessions:
@@ -1335,60 +1356,31 @@ def _provider_display_name(provider: str) -> str:
 
 
 @main.command()
-def doctor() -> None:
-    """Check the environment — Python, terminal backends, agent CLIs, and auth."""
-    results = run_checks()
+@click.option("--cwd", default=None, help="Workspace to validate agent config for")
+def doctor(cwd: str | None) -> None:
+    """Check environment health and configuration."""
+    results = run_checks(cwd=_resolve_cwd(cwd))
     lines, issue_count = render_results(results)
     for line in lines:
         console.print(line)
     raise SystemExit(0 if issue_count == 0 else 1)
 
 
-@main.command("validate-config")
-@click.option("--cwd", default=None, help="Workspace to validate agent config for")
-def validate_config(cwd: str | None) -> None:
-    """Validate built-in and custom agent configuration."""
-    cwd = _resolve_cwd(cwd)
-    console.print(f"[bold]Validating agent config for {cwd}[/bold]")
-
-    from pathlib import Path
-
-    from openmax.agent_registry import (
-        _candidate_config_paths,
-        _merge_config_file,
-        built_in_agent_registry,
-    )
-
-    registry = built_in_agent_registry()
-    console.print("[dim]Built-in agents:[/dim] " + ", ".join(registry.names()))
-
-    found_errors = False
-    for path, required in _candidate_config_paths(cwd):
-        p = Path(path)
-        if not p.exists():
-            continue
-        console.print(f"\n[bold]Config file:[/bold] {p}")
-        try:
-            _merge_config_file(registry, p)
-            console.print("  [green]✅ valid[/green]")
-        except AgentConfigError as exc:
-            console.print(f"  [red]❌ {exc}[/red]")
-            found_errors = True
-
-    if not found_errors:
-        console.print("\n[green]All configs valid.[/green]")
-    else:
-        raise SystemExit(1)
-
-
 @main.command()
 @click.option("--status", is_flag=True, default=False, help="Show current auth status")
-def setup(status: bool) -> None:
-    """Set up Claude authentication and register openMax MCP servers.
+@click.option("--skills", is_flag=True, default=False, help="Install openMax skills")
+@click.option(
+    "--skills-global",
+    is_flag=True,
+    default=False,
+    help="Install skills globally (~/.claude/commands/)",
+)
+def setup(status: bool, skills: bool, skills_global: bool) -> None:
+    """Configure auth, MCP servers, and skills."""
+    if skills or skills_global:
+        _setup_install_skills(global_=skills_global)
+        return
 
-    Runs `claude setup-token` to configure a long-lived token
-    that avoids OAuth expiration issues.
-    """
     if status:
         ok, detail = has_claude_auth()
         if ok:
@@ -1452,15 +1444,7 @@ def setup(status: bool) -> None:
     console.print("\n[green]Setup complete.[/green]")
 
 
-@main.command("install-skill")
-@click.option("--global", "global_", is_flag=True, default=False, help="Install globally")
-@click.option("--cwd", default=None, help="Project root for project-level install")
-def install_skill(global_: bool, cwd: str | None) -> None:
-    """Install openMax skills (/openmax, /codex) for Claude Code.
-
-    Default: installs to .claude/commands/ in the current project.
-    With --global: installs to ~/.claude/commands/ (available in all projects).
-    """
+def _setup_install_skills(global_: bool = False, cwd: str | None = None) -> None:
     from openmax.skills import global_commands_dir, install, project_commands_dir
 
     target = global_commands_dir() if global_ else project_commands_dir(cwd)
@@ -1504,11 +1488,11 @@ def models() -> None:
     console.print("[dim]Used by future `openmax run` calls (override with --model).[/dim]")
 
 
-@main.command()
+@main.command(hidden=True)
 @click.argument("message")
 @click.option("--session", required=True, envvar="OPENMAX_SESSION_ID", help="Session ID")
 def msg(message: str, session: str) -> None:
-    """Send a JSON message to the lead agent mailbox."""
+    """Send a JSON message to the lead agent mailbox (internal)."""
     from openmax.mailbox import send_mailbox_message
 
     try:
@@ -1531,9 +1515,10 @@ def msg(message: str, session: str) -> None:
 
 @main.command()
 @click.option("--session", required=True, help="Session ID")
+@click.option("--follow", "-f", is_flag=True, default=False, help="Stream new messages (tail mode)")
 @click.option("--cwd", default=None, help="Working directory (default: current)")
-def tail(session: str, cwd: str | None) -> None:
-    """Stream messages from a session in follow mode."""
+def log(session: str, follow: bool, cwd: str | None) -> None:
+    """View or follow session message log."""
     from pathlib import Path as _Path
 
     cwd_path = _Path(cwd).resolve() if cwd else _Path.cwd()
@@ -1542,6 +1527,13 @@ def tail(session: str, cwd: str | None) -> None:
         click.echo(f"No message log found: {log_path}", err=True)
         sys.exit(1)
 
+    if follow:
+        _log_follow(log_path)
+    else:
+        _log_replay(log_path)
+
+
+def _log_follow(log_path: Path) -> None:
     with log_path.open(encoding="utf-8") as f:
         f.seek(0, 2)
         while True:
@@ -1558,19 +1550,7 @@ def tail(session: str, cwd: str | None) -> None:
                 time.sleep(0.1)
 
 
-@main.command()
-@click.option("--session", required=True, help="Session ID")
-@click.option("--cwd", default=None, help="Working directory (default: current)")
-def replay(session: str, cwd: str | None) -> None:
-    """Replay all messages from a completed session."""
-    from pathlib import Path as _Path
-
-    cwd_path = _Path(cwd).resolve() if cwd else _Path.cwd()
-    log_path = cwd_path / ".openmax" / f"messages-{session}.jsonl"
-    if not log_path.exists():
-        click.echo(f"No message log found: {log_path}", err=True)
-        sys.exit(1)
-
+def _log_replay(log_path: Path) -> None:
     start_ts: float | None = None
     for line in log_path.read_text(encoding="utf-8").splitlines():
         try:

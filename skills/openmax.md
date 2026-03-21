@@ -21,9 +21,8 @@ openMax handles the full workflow automatically:
 
 **Useful follow-up commands:**
 ```bash
-openmax runs                        # list recent sessions
+openmax sessions                    # list recent sessions
 openmax inspect <session-id>        # inspect a specific session
-openmax memories                    # view learned workspace knowledge
 openmax status                      # view agent subscription usage
 ```
 

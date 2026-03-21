@@ -492,7 +492,7 @@ def test_setup_does_not_reregister_codex_mcp_when_already_present(monkeypatch, t
     assert "Codex MCP server already registered" in result.output
 
 
-def test_list_agents_includes_configured_agents(monkeypatch, tmp_path):
+def test_agents_includes_configured_agents(monkeypatch, tmp_path):
     registry = built_in_agent_registry().with_definition(
         AgentDefinition(
             name="remote-codex",
@@ -504,13 +504,13 @@ def test_list_agents_includes_configured_agents(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: registry)
 
     runner = CliRunner()
-    result = runner.invoke(cli.main, ["list-agents", "--cwd", str(tmp_path)])
+    result = runner.invoke(cli.main, ["agents", "--cwd", str(tmp_path)])
 
     assert result.exit_code == 0
     assert "remote-codex" in result.output
 
 
-def test_runs_command_prints_recent_sessions(monkeypatch, tmp_path):
+def test_sessions_command_prints_recent_sessions(monkeypatch, tmp_path):
     store = SessionStore(base_dir=tmp_path / "sessions")
     older = store.create_session("session-old", "Older task", str(tmp_path / "older"))
     older.latest_phase = "plan"
@@ -533,7 +533,7 @@ def test_runs_command_prints_recent_sessions(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "SessionStore", lambda: store)
 
     runner = CliRunner()
-    result = runner.invoke(cli.main, ["runs"])
+    result = runner.invoke(cli.main, ["sessions"])
 
     assert result.exit_code == 0
     assert result.output.index("session-new") < result.output.index("session-old")
@@ -541,7 +541,7 @@ def test_runs_command_prints_recent_sessions(monkeypatch, tmp_path):
     assert "monitor" in result.output
 
 
-def test_runs_command_prints_scorecard_signals(monkeypatch, tmp_path):
+def test_sessions_command_prints_scorecard_signals(monkeypatch, tmp_path):
     timestamps = iter(
         [
             "2026-03-13T12:01:00+00:00",
@@ -578,7 +578,7 @@ def test_runs_command_prints_scorecard_signals(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "SessionStore", lambda: store)
 
     runner = CliRunner()
-    result = runner.invoke(cli.main, ["runs", "--limit", "1"])
+    result = runner.invoke(cli.main, ["sessions", "--limit", "1"])
 
     assert result.exit_code == 0
     assert "session-scor" in result.output  # truncated session ID in table
@@ -586,18 +586,18 @@ def test_runs_command_prints_scorecard_signals(monkeypatch, tmp_path):
     assert "monitor" in result.output
 
 
-def test_runs_command_handles_empty_store(monkeypatch, tmp_path):
+def test_sessions_command_handles_empty_store(monkeypatch, tmp_path):
     store = SessionStore(base_dir=tmp_path / "sessions")
     monkeypatch.setattr(cli, "SessionStore", lambda: store)
 
     runner = CliRunner()
-    result = runner.invoke(cli.main, ["runs"])
+    result = runner.invoke(cli.main, ["sessions"])
 
     assert result.exit_code == 0
     assert "No sessions found." in result.output
 
 
-def test_runs_command_filters_by_status_and_limit(monkeypatch, tmp_path):
+def test_sessions_command_filters_by_status_and_limit(monkeypatch, tmp_path):
     store = SessionStore(base_dir=tmp_path / "sessions")
     completed = store.create_session("session-completed", "Completed task", str(tmp_path / "done"))
     active_old = store.create_session("session-active-old", "Older active", str(tmp_path / "older"))
@@ -620,7 +620,7 @@ def test_runs_command_filters_by_status_and_limit(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "SessionStore", lambda: store)
 
     runner = CliRunner()
-    result = runner.invoke(cli.main, ["runs", "--status", "active", "--limit", "1"])
+    result = runner.invoke(cli.main, ["sessions", "--status", "active", "--limit", "1"])
 
     assert result.exit_code == 0
     assert "session-acti" in result.output  # session-active-new truncated
@@ -630,12 +630,12 @@ def test_runs_command_filters_by_status_and_limit(monkeypatch, tmp_path):
     assert "Failed task" not in result.output
 
 
-def test_runs_command_rejects_invalid_status(monkeypatch, tmp_path):
+def test_sessions_command_rejects_invalid_status(monkeypatch, tmp_path):
     store = SessionStore(base_dir=tmp_path / "sessions")
     monkeypatch.setattr(cli, "SessionStore", lambda: store)
 
     runner = CliRunner()
-    result = runner.invoke(cli.main, ["runs", "--status", "broken"])
+    result = runner.invoke(cli.main, ["sessions", "--status", "broken"])
 
     assert result.exit_code != 0
     assert "Invalid value for '--status'" in result.output
@@ -861,7 +861,7 @@ def test_inspect_command_reports_missing_session(monkeypatch, tmp_path):
     assert "Session 'missing-session' was not found." in result.output
 
 
-def test_runs_command_surfaces_event_log_warnings(monkeypatch, tmp_path):
+def test_sessions_command_surfaces_event_log_warnings(monkeypatch, tmp_path):
     store = SessionStore(base_dir=tmp_path / "sessions")
     meta = store.create_session("session-corrupt", "Build API", str(tmp_path / "workspace"))
     store.append_event(
@@ -875,7 +875,7 @@ def test_runs_command_surfaces_event_log_warnings(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "SessionStore", lambda: store)
 
     runner = CliRunner()
-    result = runner.invoke(cli.main, ["runs"])
+    result = runner.invoke(cli.main, ["sessions"])
 
     assert result.exit_code == 0
     assert "session-corr" in result.output  # truncated in table
@@ -1040,7 +1040,9 @@ def test_loop_writes_tape_entry_per_iteration(monkeypatch, tmp_path):
 
 
 def test_make_loop_iteration_preserves_session_id():
-    iteration = cli._make_loop_iteration(1, "2026-03-21T00:00:00+00:00", None, session_id="loop-1-test")
+    iteration = cli._make_loop_iteration(
+        1, "2026-03-21T00:00:00+00:00", None, session_id="loop-1-test"
+    )
 
     assert iteration.session_id == "loop-1-test"
     assert iteration.completion_pct == 0
@@ -1183,3 +1185,119 @@ def test_run_attaches_existing_panes(monkeypatch, tmp_path):
     assert captured["task"] == "monitor all panes"
     assert "Attached Existing Panes" in captured["loop_context"]
     assert "pane_id=7" in captured["loop_context"]
+
+
+# ── Grouped help output ───────────────────────────────────────────────────────
+
+
+def test_help_shows_grouped_commands():
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["--help"])
+
+    assert result.exit_code == 0
+    assert "Run:" in result.output
+    assert "Sessions:" in result.output
+    assert "Environment:" in result.output
+    assert "Setup:" in result.output
+
+
+def test_help_shows_exactly_12_visible_commands():
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["--help"])
+
+    expected = [
+        "run",
+        "loop",
+        "sessions",
+        "inspect",
+        "usage",
+        "log",
+        "status",
+        "agents",
+        "panes",
+        "models",
+        "setup",
+        "doctor",
+    ]
+    for cmd in expected:
+        assert cmd in result.output
+
+
+def test_msg_hidden_from_help():
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["--help"])
+
+    lines = result.output.splitlines()
+    assert not any(line.strip().startswith("msg ") for line in lines)
+
+
+def test_msg_still_works():
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["msg", "--help"])
+    assert result.exit_code == 0
+
+
+# ── panes read by ID ─────────────────────────────────────────────────────────
+
+
+def test_panes_read_by_id(monkeypatch):
+    def _get_text(self, pid):
+        return f"output of pane {pid}"
+
+    pm = type("PM", (), {"__init__": lambda *a, **kw: None, "get_text": _get_text})
+    monkeypatch.setattr(cli, "PaneManager", pm)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["panes", "5"])
+
+    assert result.exit_code == 0
+    assert "output of pane 5" in result.output
+
+
+# ── log command ───────────────────────────────────────────────────────────────
+
+
+def test_log_replay(tmp_path):
+    import json as _json
+
+    log_dir = tmp_path / ".openmax"
+    log_dir.mkdir()
+    log_file = log_dir / "messages-test-session.jsonl"
+    log_file.write_text(
+        _json.dumps({"_ts": 100.0, "type": "progress", "task": "build", "pct": 50}) + "\n",
+        encoding="utf-8",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["log", "--session", "test-session", "--cwd", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "build" in result.output
+    assert "50%" in result.output
+
+
+def test_log_missing_file(tmp_path):
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["log", "--session", "nonexistent", "--cwd", str(tmp_path)])
+
+    assert result.exit_code != 0
+
+
+# ── setup --skills ────────────────────────────────────────────────────────────
+
+
+def test_setup_skills_flag(monkeypatch, tmp_path):
+    installed: list[str] = []
+
+    def fake_install(target):
+        installed.append(str(target))
+        return [str(target / "openmax.md")]
+
+    monkeypatch.setattr("openmax.skills.install", fake_install)
+    monkeypatch.setattr("openmax.skills.project_commands_dir", lambda cwd=None: tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["setup", "--skills"])
+
+    assert result.exit_code == 0
+    assert len(installed) == 1

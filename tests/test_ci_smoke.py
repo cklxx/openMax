@@ -117,7 +117,7 @@ def test_ci_smoke_exercises_headless_noninteractive_dispatch_and_session_cli(
 
         monkeypatch.setattr(cli, "SessionStore", lambda: session_store)
 
-        runs_result = runner.invoke(cli.main, ["runs"])
+        runs_result = runner.invoke(cli.main, ["sessions"])
         inspect_result = runner.invoke(cli.main, ["inspect", session_meta.session_id])
 
         assert runs_result.exit_code == 0
