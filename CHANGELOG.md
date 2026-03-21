@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.53
+
+- **Perf**: Lazy-load `lead_agent`/`claude_agent_sdk` — `openmax --help` drops from ~1.2s to ~0.4s
+- **Feat**: `openmax "task"` now routes directly to `run` (no subcommand needed)
+- **Feat**: `run` auto-detects and attaches existing terminal panes (merged from `manage`)
+- **Breaking**: Removed `manage` command — use `run` instead (pane reuse is automatic)
+
 ## 0.5.52
 
 - **Fix**: `TuiDashboard.stop()` crash when app already exited or failed to start — guard `call_from_thread` with `RuntimeError` catch
