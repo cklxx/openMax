@@ -179,7 +179,9 @@ def _agent_strategy_hint(allowed: list[str]) -> str:
     has_codex = "codex" in allowed
     if has_claude and has_codex:
         return (
-            "Strategy: use claude-code for research/analysis, codex for implementation/execution."
+            "Strategy: agent_type is auto-inferred from role "
+            "(reviewer/challenger/debugger→claude-code, writer→codex). "
+            "You can omit agent_type in dispatch_agent and submit_plan subtasks."
         )
     if has_codex:
         return f"Prefer '{allowed[0]}' for all tasks."

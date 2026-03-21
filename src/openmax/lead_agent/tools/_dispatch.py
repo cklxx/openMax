@@ -168,6 +168,25 @@ def _build_retry_prompt(original_prompt: str, error_context: str) -> str:
     )
 
 
+_ROLE_TO_AGENT: dict[str, str] = {
+    "reviewer": "claude-code",
+    "challenger": "claude-code",
+    "debugger": "claude-code",
+    "writer": "codex",
+}
+
+
+def _auto_select_agent(runtime: Any, role: str) -> str:
+    """Infer the best agent_type from role when both claude-code and codex are available."""
+    allowed = runtime.allowed_agents or []
+    has_both = "claude-code" in allowed and "codex" in allowed
+    if has_both:
+        return _ROLE_TO_AGENT.get(role, "codex")
+    if allowed:
+        return allowed[0]
+    return runtime.agent_registry.default_agent_name() or "claude-code"
+
+
 def _resolve_agent_type(runtime: Any, agent_type: str) -> str:
     """Enforce allowed agents constraint and fall back to defaults."""
     if runtime.allowed_agents and agent_type not in runtime.allowed_agents:
@@ -310,19 +329,19 @@ def _dispatch_failure_response(
                 "enum": ["writer", "reviewer", "challenger", "debugger"],
             },
         },
-        "required": ["task_name", "agent_type", "prompt"],
+        "required": ["task_name", "prompt"],
     },
 )
 async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime()
     task_name = args["task_name"]
-    agent_type = args.get("agent_type", "claude-code")
     prompt = args["prompt"]
     retry_count = args.get("retry_count", 0)
     token_budget = args.get("token_budget")
     role = args.get("role", "writer")
     if role not in ("writer", "reviewer", "challenger", "debugger"):
         role = "writer"
+    agent_type = args.get("agent_type") or _auto_select_agent(runtime, role)
     if not isinstance(retry_count, int) or retry_count < 0:
         retry_count = 0
 

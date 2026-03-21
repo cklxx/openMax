@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.45
+
+- **Feature**: auto agent selection — `agent_type` is now optional in `dispatch_agent`; system auto-infers from `role` (reviewer/challenger/debugger→claude-code, writer→codex) when both agents are available
+- **Feature**: `submit_plan` subtasks now accept optional `agent_type` field for pre-assigning agents in the plan, displayed during plan confirmation
+
 ## 0.5.44
 
 - **Feature**: agent selection strategy — when both `claude-code` and `codex` are available, lead agent now prefers claude-code for research/analysis and codex for implementation/execution, with strategy table in system prompt and dynamic hint injection

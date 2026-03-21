@@ -106,7 +106,8 @@ def _format_plan_for_display(
     console.print(f"  [dim]{rationale}[/dim]\n")
     for i, st in enumerate(subtasks, 1):
         files_str = ", ".join(st.get("files", []))[:60]
-        console.print(f"  {i}. [bold]{st['name']}[/bold] — {st['description']}")
+        agent_tag = f" [dim]({st['agent_type']})[/dim]" if st.get("agent_type") else ""
+        console.print(f"  {i}. [bold]{st['name']}[/bold]{agent_tag} — {st['description']}")
         if files_str:
             console.print(f"     [dim]{files_str}[/dim]")
     if parallel_groups:
@@ -155,6 +156,7 @@ def _prompt_plan_confirmation(
                         "files": {"type": "array", "items": {"type": "string"}},
                         "dependencies": {"type": "array", "items": {"type": "string"}},
                         "estimated_minutes": {"type": "integer"},
+                        "agent_type": {"type": "string"},
                     },
                     "required": ["name", "description"],
                 },

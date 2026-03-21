@@ -49,6 +49,7 @@ class PlannedSubtask:
     files: list[str] = field(default_factory=list)
     dependencies: list[str] = field(default_factory=list)
     estimated_minutes: int | None = None
+    agent_type: str | None = None
 
 
 @dataclass

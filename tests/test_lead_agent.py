@@ -35,7 +35,7 @@ class DummyPaneManager:
         self.windows[7] = SimpleNamespace(pane_ids=[101])
         return SimpleNamespace(pane_id=101, window_id=7)
 
-    def add_pane(self, window_id, command, purpose, agent_type, cwd, env=None):
+    def add_pane(self, window_id, command, purpose, agent_type, cwd, env=None, title=None):
         self.created_commands.append(command)
         self.windows[window_id].pane_ids.append(102)
         return SimpleNamespace(pane_id=102, window_id=window_id)
@@ -218,8 +218,8 @@ def test_agent_strategy_hint_both():
     from openmax.lead_agent.core import _agent_strategy_hint
 
     hint = _agent_strategy_hint(["claude-code", "codex"])
-    assert "claude-code" in hint and "research" in hint
-    assert "codex" in hint and "implementation" in hint
+    assert "auto-inferred" in hint
+    assert "role" in hint
 
 
 def test_agent_strategy_hint_single():
@@ -2119,3 +2119,138 @@ def test_launch_pane_reraises_unrelated_pane_backend_error(tmp_path):
             _launch_pane(runtime, ["bash"], "test-task", "command")
     finally:
         reset_lead_agent_runtime(token)
+
+
+# ── Auto Agent Selection Tests ─────────────────────────────────────────
+
+
+def test_auto_select_agent_both_available(tmp_path):
+    """When both claude-code and codex are available, role determines agent."""
+    from openmax.lead_agent.tools._dispatch import _auto_select_agent
+
+    runtime, token, _store, _meta = _setup_session(tmp_path)
+    runtime.allowed_agents = ["claude-code", "codex"]
+
+    try:
+        assert _auto_select_agent(runtime, "writer") == "codex"
+        assert _auto_select_agent(runtime, "reviewer") == "claude-code"
+        assert _auto_select_agent(runtime, "challenger") == "claude-code"
+        assert _auto_select_agent(runtime, "debugger") == "claude-code"
+    finally:
+        _teardown_session(token)
+
+
+def test_auto_select_agent_single(tmp_path):
+    """When only one agent is available, always returns that agent."""
+    from openmax.lead_agent.tools._dispatch import _auto_select_agent
+
+    runtime, token, _store, _meta = _setup_session(tmp_path)
+
+    runtime.allowed_agents = ["codex"]
+    try:
+        assert _auto_select_agent(runtime, "writer") == "codex"
+        assert _auto_select_agent(runtime, "reviewer") == "codex"
+    finally:
+        _teardown_session(token)
+
+
+def test_auto_select_agent_no_allowed_uses_registry_default(tmp_path):
+    """When allowed_agents is empty, falls back to registry default."""
+    from openmax.lead_agent.tools._dispatch import _auto_select_agent
+
+    runtime, token, _store, _meta = _setup_session(tmp_path)
+    runtime.allowed_agents = None
+
+    try:
+        result = _auto_select_agent(runtime, "writer")
+        assert result == "claude-code"  # registry default
+    finally:
+        _teardown_session(token)
+
+
+def test_dispatch_agent_auto_selects_without_explicit_type(monkeypatch, tmp_path):
+    """dispatch_agent without agent_type auto-infers from role."""
+    runtime, token, _store, _meta = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+    runtime.allowed_agents = ["claude-code", "codex"]
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.dispatch_agent.handler,
+            {"task_name": "review-task", "prompt": "Review code", "role": "reviewer"},
+        )
+        parsed = json.loads(result["content"][0]["text"])
+        assert parsed["agent_type"] == "claude-code"
+
+        result2 = anyio.run(
+            lead_agent_tools.dispatch_agent.handler,
+            {"task_name": "write-task", "prompt": "Write code"},
+        )
+        parsed2 = json.loads(result2["content"][0]["text"])
+        assert parsed2["agent_type"] == "codex"
+    finally:
+        _teardown_session(token)
+
+
+def test_dispatch_agent_explicit_type_overrides_auto(monkeypatch, tmp_path):
+    """Explicitly passing agent_type overrides auto-selection."""
+    runtime, token, _store, _meta = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+    runtime.allowed_agents = ["claude-code", "codex"]
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.dispatch_agent.handler,
+            {
+                "task_name": "write-with-claude",
+                "agent_type": "claude-code",
+                "prompt": "Write code",
+                "role": "writer",
+            },
+        )
+        parsed = json.loads(result["content"][0]["text"])
+        assert parsed["agent_type"] == "claude-code"
+    finally:
+        _teardown_session(token)
+
+
+def test_planned_subtask_agent_type():
+    """PlannedSubtask accepts and stores agent_type."""
+    from openmax.lead_agent.types import PlannedSubtask
+
+    st = PlannedSubtask(name="api", description="Build API", agent_type="codex")
+    assert st.agent_type == "codex"
+
+    st_none = PlannedSubtask(name="api", description="Build API")
+    assert st_none.agent_type is None
+
+
+def test_submit_plan_accepts_agent_type(monkeypatch, tmp_path):
+    """submit_plan accepts agent_type in subtask items."""
+    runtime, token, _store, _meta = _setup_session(tmp_path)
+
+    try:
+        result = anyio.run(
+            lead_agent_tools.submit_plan.handler,
+            {
+                "subtasks": [
+                    {
+                        "name": "research",
+                        "description": "Investigate codebase",
+                        "agent_type": "claude-code",
+                    },
+                    {
+                        "name": "implement",
+                        "description": "Write the feature",
+                        "agent_type": "codex",
+                        "dependencies": ["research"],
+                    },
+                ],
+                "rationale": "Research first, then implement",
+                "parallel_groups": [],
+            },
+        )
+        parsed = json.loads(result["content"][0]["text"])
+        assert parsed["status"] == "accepted"
+    finally:
+        _teardown_session(token)

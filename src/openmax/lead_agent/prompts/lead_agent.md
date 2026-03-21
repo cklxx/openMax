@@ -47,7 +47,7 @@ A task does NOT need decomposition when it:
 1. Run Research first (see above).
 2. **Pre-mortem:** Before submitting, ask: *What would make this fail?* — race conditions, shared state, missing migrations, breaking changes. Add mitigations to the plan.
 3. Call `submit_plan` using research findings:
-   - Each subtask: `name`, `description`, `files`, `dependencies`, `estimated_minutes`.
+   - Each subtask: `name`, `description`, `files`, `dependencies`, `estimated_minutes`, optional `agent_type`.
    - Group independent subtasks into `parallel_groups`.
    - Bias toward more, smaller subtasks with narrow file scope — but ask "can we achieve this with fewer subtasks?" to counter over-splitting.
    - Include a **NOT-in-scope** note: explicitly list related work that is deferred and why, so agents don't scope-creep.
@@ -55,7 +55,7 @@ A task does NOT need decomposition when it:
 
 ### Dispatch
 
-Call `dispatch_agent` for all independent subtasks at once. **Use `codex` for implementation subtasks** when available — its speed advantage compounds across parallel agents.
+Call `dispatch_agent` for all independent subtasks at once. **`agent_type` is auto-inferred from `role`** — you can omit it. Override explicitly only when needed.
 
 Every prompt must be a **standalone brief** containing:
 1. **Deliverable** (first sentence)
@@ -214,17 +214,20 @@ Each transition requires a `gate_summary` (≥20 chars) describing what was comp
 
 ### Agent selection strategy
 
-When both `claude-code` and `codex` are available, follow this division of labor:
+**`agent_type` is optional in `dispatch_agent`.** When omitted, the system auto-selects based on `role`:
 
-| Task type | Preferred agent | Why |
+| Role | Auto-selected agent | Why |
 |---|---|---|
-| Research / investigation | `claude-code` | Superior reasoning, context gathering, structured analysis |
-| Design / architecture proposal | `claude-code` | Better at producing plans and evaluating trade-offs |
-| Code review / challenger | `claude-code` | Deeper analysis of edge cases and assumptions |
-| Implementation / writing code | `codex` | Fast, focused execution from a clear brief |
-| Bug fix with clear scope | `codex` | Efficient when the problem and fix are well-defined |
-| Debugging (diagnosis phase) | `claude-code` | Better at tracing root causes across files |
-| Debugging (fix phase) | `codex` | Apply the identified fix quickly |
+| `reviewer` | `claude-code` | Deeper analysis of edge cases and assumptions |
+| `challenger` | `claude-code` | Better at questioning assumptions |
+| `debugger` | `claude-code` | Better at tracing root causes across files |
+| `writer` (default) | `codex` | Fast, focused execution from a clear brief |
+
+This only applies when both `claude-code` and `codex` are available. With a single agent, all roles use that agent.
+
+You can still pass `agent_type` explicitly to override auto-selection (e.g. use `claude-code` for a complex writer task).
+
+In `submit_plan`, you can also specify `agent_type` per subtask to pre-assign agents in the plan.
 
 **Workflow pattern:** claude-code investigates → lead agent synthesizes → codex implements.
 
