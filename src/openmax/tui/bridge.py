@@ -173,7 +173,10 @@ class TuiDashboard:
 
     def stop(self) -> None:
         if self._app:
-            self._app.call_from_thread(self._app.exit)
+            try:
+                self._app.call_from_thread(self._app.exit)
+            except RuntimeError:
+                pass
         if self._thread:
             self._thread.join(timeout=5)
 
