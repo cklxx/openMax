@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.44
+
+- **Feature**: agent selection strategy — when both `claude-code` and `codex` are available, lead agent now prefers claude-code for research/analysis and codex for implementation/execution, with strategy table in system prompt and dynamic hint injection
+
 ## 0.5.43
 
 - **Fix**: suppress noisy warning when stats file doesn't exist on first run — silently return defaults instead of logging an error

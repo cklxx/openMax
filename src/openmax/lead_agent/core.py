@@ -174,6 +174,18 @@ def _gather_project_snapshot(cwd: str) -> str:
         return ""
 
 
+def _agent_strategy_hint(allowed: list[str]) -> str:
+    has_claude = "claude-code" in allowed
+    has_codex = "codex" in allowed
+    if has_claude and has_codex:
+        return (
+            "Strategy: use claude-code for research/analysis, codex for implementation/execution."
+        )
+    if has_codex:
+        return f"Prefer '{allowed[0]}' for all tasks."
+    return f"Prefer '{allowed[0]}' for all tasks."
+
+
 def _build_lead_prompt(
     task: str,
     cwd: str,
@@ -191,9 +203,9 @@ def _build_lead_prompt(
 
     if allowed_agents:
         agents_str = ", ".join(allowed_agents)
+        strategy = _agent_strategy_hint(allowed_agents)
         parts.append(
-            f"Allowed agents: {agents_str} (prefer '{allowed_agents[0]}'). "
-            f"Do NOT use agent types outside this list."
+            f"Allowed agents: {agents_str}. Do NOT use agent types outside this list. {strategy}"
         )
     if session_id:
         parts.append(f"Session ID: {session_id}")

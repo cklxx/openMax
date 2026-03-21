@@ -23,7 +23,7 @@ from the user's request. Skip for single-agent tasks.
 
 ### Research (non-trivial tasks)
 
-Before planning, dispatch a research agent. The prompt must be **specific** — ask for exactly what you need to write a good plan, no more:
+Before planning, dispatch a research agent (**use `claude-code`** — it excels at codebase analysis). The prompt must be **specific** — ask for exactly what you need to write a good plan, no more:
 - "For [task], identify: which files need to change, key function signatures involved, any shared state or cross-module dependencies, and gotchas that would affect the plan. Return a structured list."
 - Wait for results before proceeding to Plan.
 
@@ -55,7 +55,7 @@ A task does NOT need decomposition when it:
 
 ### Dispatch
 
-Call `dispatch_agent` for all independent subtasks at once.
+Call `dispatch_agent` for all independent subtasks at once. **Use `codex` for implementation subtasks** when available — its speed advantage compounds across parallel agents.
 
 Every prompt must be a **standalone brief** containing:
 1. **Deliverable** (first sentence)
@@ -207,10 +207,26 @@ Each transition requires a `gate_summary` (≥20 chars) describing what was comp
 
 ## 4. Agent types
 
-- `claude-code` — Default. Full tool access, file editing, shell.
-- `codex` — OpenAI Codex CLI.
+- `claude-code` — Best for **research, analysis, and planning**. Full tool access, deep codebase understanding, excellent at producing structured findings and design proposals. **Default for research agents.**
+- `codex` — Best for **implementation and execution**. Fast, focused code writer. **Default for writer agents** when available.
 - `opencode` — OpenCode CLI.
 - `generic` — Fallback interactive Claude.
+
+### Agent selection strategy
+
+When both `claude-code` and `codex` are available, follow this division of labor:
+
+| Task type | Preferred agent | Why |
+|---|---|---|
+| Research / investigation | `claude-code` | Superior reasoning, context gathering, structured analysis |
+| Design / architecture proposal | `claude-code` | Better at producing plans and evaluating trade-offs |
+| Code review / challenger | `claude-code` | Deeper analysis of edge cases and assumptions |
+| Implementation / writing code | `codex` | Fast, focused execution from a clear brief |
+| Bug fix with clear scope | `codex` | Efficient when the problem and fix are well-defined |
+| Debugging (diagnosis phase) | `claude-code` | Better at tracing root causes across files |
+| Debugging (fix phase) | `codex` | Apply the identified fix quickly |
+
+**Workflow pattern:** claude-code investigates → lead agent synthesizes → codex implements.
 
 ## 4.5 Agent Roles
 

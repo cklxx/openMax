@@ -214,6 +214,21 @@ def test_dispatch_agent_enforces_allowed_agents(monkeypatch, tmp_path):
     _teardown_session(token)
 
 
+def test_agent_strategy_hint_both():
+    from openmax.lead_agent.core import _agent_strategy_hint
+
+    hint = _agent_strategy_hint(["claude-code", "codex"])
+    assert "claude-code" in hint and "research" in hint
+    assert "codex" in hint and "implementation" in hint
+
+
+def test_agent_strategy_hint_single():
+    from openmax.lead_agent.core import _agent_strategy_hint
+
+    assert "Prefer 'codex'" in _agent_strategy_hint(["codex"])
+    assert "Prefer 'claude-code'" in _agent_strategy_hint(["claude-code"])
+
+
 def test_report_completion_writes_report_and_anchor(tmp_path):
     runtime, token, store, meta = _setup_session(tmp_path)
     runtime.plan.subtasks.append(
