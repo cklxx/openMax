@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import signal
+import threading
+
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
@@ -43,6 +46,22 @@ class OpenMaxApp(App):
         super().__init__()
         self._bridge = bridge
         self._last_version = -1
+
+    def _build_driver(
+        self,
+        headless: bool = False,
+        inline: bool = False,
+        mouse: bool = True,
+        size: tuple[int, int] | None = None,
+    ):
+        if threading.current_thread() is not threading.main_thread():
+            original = signal.signal
+            signal.signal = lambda *_a, **_kw: signal.SIG_DFL
+            try:
+                return super()._build_driver(headless, inline, mouse, size)
+            finally:
+                signal.signal = original
+        return super()._build_driver(headless, inline, mouse, size)
 
     def compose(self) -> ComposeResult:
         yield Horizontal(

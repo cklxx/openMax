@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.50
+
+- **Fix**: TUI crash on startup — `signal only works in main thread` error when Textual app runs in background thread; skip signal handler registration for non-main threads
+
 ## 0.5.49
 
 - **Simplify**: Version-gated TUI refresh — skip `deepcopy` when bridge state hasn't changed, reducing GC pressure
