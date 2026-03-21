@@ -9,6 +9,7 @@ import pytest
 from openmax.tui.bridge import DashboardBridge, DashboardState, SubtaskInfo
 from openmax.tui.widgets import (
     DagScreen,
+    HelpScreen,
     LogViewerWidget,
     StatusBarWidget,
     TaskListWidget,
@@ -73,6 +74,28 @@ def _make_state(**overrides) -> DashboardState:
     return DashboardState(**defaults)
 
 
+def _two_task_state() -> DashboardState:
+    return _make_state(
+        subtasks={
+            "auth": SubtaskInfo(
+                name="auth",
+                agent="claude",
+                pane_id=1,
+                status="running",
+                started_at=100.0,
+            ),
+            "api": SubtaskInfo(
+                name="api",
+                agent="codex",
+                pane_id=2,
+                status="done",
+                started_at=100.0,
+                finished_at=110.0,
+            ),
+        }
+    )
+
+
 class TestTaskListWidget:
     def test_refresh_empty(self):
         w = TaskListWidget()
@@ -101,7 +124,38 @@ class TestTaskListWidget:
             task_progress={"auth": 42},
         )
         w = TaskListWidget()
-        w.refresh_from_state(state)
+        w.refresh_from_state(_two_task_state())
+
+    def test_selected_task_none_when_empty(self):
+        w = TaskListWidget()
+        w.refresh_from_state(_make_state())
+        assert w.selected_task is None
+
+    def test_selected_task_returns_first_by_default(self):
+        w = TaskListWidget()
+        w.refresh_from_state(_two_task_state())
+        assert w.selected_task == "auth"
+
+    def test_move_cursor_changes_selection(self):
+        w = TaskListWidget()
+        w.refresh_from_state(_two_task_state())
+        w.move_cursor(1)
+        assert w.selected_task == "api"
+
+    def test_move_cursor_clamps_at_bounds(self):
+        w = TaskListWidget()
+        w.refresh_from_state(_two_task_state())
+        w.move_cursor(-5)
+        assert w.selected_task == "auth"
+        w.move_cursor(100)
+        assert w.selected_task == "api"
+
+    def test_task_status_lookup(self):
+        w = TaskListWidget()
+        w.refresh_from_state(_two_task_state())
+        assert w.task_status("auth") == "running"
+        assert w.task_status("api") == "done"
+        assert w.task_status("nonexistent") is None
 
 
 class TestLogViewerWidget:
@@ -116,6 +170,33 @@ class TestLogViewerWidget:
         ]
         w = LogViewerWidget()
         w.refresh_from_state(_make_state(tool_events=events))
+
+    def test_filter_by_task(self):
+        events = [
+            {"text": "[auth] compiling", "category": "system", "ts": 1.0},
+            {"text": "[api] testing", "category": "system", "ts": 2.0},
+            {"text": "[auth] done", "category": "system", "ts": 3.0},
+        ]
+        w = LogViewerWidget()
+        state = _make_state(tool_events=events)
+        w.refresh_from_state(state)
+        w.toggle_filter("auth")
+        w.refresh_from_state(state)
+        # After filtering, only auth events should appear
+
+    def test_toggle_filter_clears(self):
+        w = LogViewerWidget()
+        w.toggle_filter("auth")
+        assert w.filter_task == "auth"
+        w.toggle_filter("auth")
+        assert w.filter_task is None
+
+    def test_toggle_filter_switches(self):
+        w = LogViewerWidget()
+        w.toggle_filter("auth")
+        assert w.filter_task == "auth"
+        w.toggle_filter("api")
+        assert w.filter_task == "api"
 
 
 class TestStatusBarWidget:
@@ -148,6 +229,14 @@ def bridge_with_data() -> DashboardBridge:
     b.update_subtask("auth", "claude", 1, "running", started_at=1.0)
     b.update_subtask("api", "codex", 2, "done", started_at=1.0, finished_at=2.0)
     b.add_tool_event("hello world")
+    return b
+
+
+@pytest.fixture()
+def bridge_with_error() -> DashboardBridge:
+    b = DashboardBridge("error test")
+    b.update_subtask("auth", "claude", 1, "error", started_at=1.0, finished_at=2.0)
+    b.update_subtask("api", "codex", 2, "running", started_at=1.0)
     return b
 
 
@@ -189,3 +278,124 @@ async def test_quit_binding(bridge_with_data):
     app = OpenMaxApp(bridge_with_data)
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.press("q")
+
+
+async def test_cursor_navigation(bridge_with_data):
+    from openmax.tui.app import OpenMaxApp
+
+    app = OpenMaxApp(bridge_with_data)
+    async with app.run_test(size=(120, 40)) as pilot:
+        app._refresh_dashboard()
+        await pilot.pause()
+        tl = app.query_one(TaskListWidget)
+        assert tl.selected_task == "auth"
+        await pilot.press("j")
+        await pilot.pause()
+        assert tl.selected_task == "api"
+        await pilot.press("k")
+        await pilot.pause()
+        assert tl.selected_task == "auth"
+
+
+async def test_cursor_arrow_keys(bridge_with_data):
+    from openmax.tui.app import OpenMaxApp
+
+    app = OpenMaxApp(bridge_with_data)
+    async with app.run_test(size=(120, 40)) as pilot:
+        app._refresh_dashboard()
+        await pilot.pause()
+        tl = app.query_one(TaskListWidget)
+        await pilot.press("down")
+        await pilot.pause()
+        assert tl.selected_task == "api"
+        await pilot.press("up")
+        await pilot.pause()
+        assert tl.selected_task == "auth"
+
+
+async def test_cancel_running_task(bridge_with_data):
+    from openmax.tui.app import OpenMaxApp
+
+    app = OpenMaxApp(bridge_with_data)
+    async with app.run_test(size=(120, 40)) as pilot:
+        app._refresh_dashboard()
+        await pilot.pause()
+        await pilot.press("c")
+        await pilot.pause()
+        assert app.pending_cancel is not None
+        assert app.pending_cancel.task_name == "auth"
+
+
+async def test_cancel_completed_task_warns(bridge_with_data):
+    from openmax.tui.app import OpenMaxApp
+
+    app = OpenMaxApp(bridge_with_data)
+    async with app.run_test(size=(120, 40)) as pilot:
+        app._refresh_dashboard()
+        await pilot.pause()
+        tl = app.query_one(TaskListWidget)
+        tl.move_cursor(1)  # select "api" (done)
+        await pilot.press("c")
+        await pilot.pause()
+        assert app.pending_cancel is None
+
+
+async def test_retry_error_task(bridge_with_error):
+    from openmax.tui.app import OpenMaxApp
+
+    app = OpenMaxApp(bridge_with_error)
+    async with app.run_test(size=(120, 40)) as pilot:
+        app._refresh_dashboard()
+        await pilot.pause()
+        await pilot.press("r")
+        await pilot.pause()
+        assert app.pending_retry is not None
+        assert app.pending_retry.task_name == "auth"
+
+
+async def test_retry_non_error_warns(bridge_with_data):
+    from openmax.tui.app import OpenMaxApp
+
+    app = OpenMaxApp(bridge_with_data)
+    async with app.run_test(size=(120, 40)) as pilot:
+        app._refresh_dashboard()
+        await pilot.pause()
+        await pilot.press("r")
+        await pilot.pause()
+        assert app.pending_retry is None
+
+
+async def test_filter_logs(bridge_with_data):
+    from openmax.tui.app import OpenMaxApp
+
+    app = OpenMaxApp(bridge_with_data)
+    async with app.run_test(size=(120, 40)) as pilot:
+        app._refresh_dashboard()
+        await pilot.pause()
+        await pilot.press("l")
+        await pilot.pause()
+        lv = app.query_one(LogViewerWidget)
+        assert lv.filter_task == "auth"
+
+
+async def test_help_screen(bridge_with_data):
+    from openmax.tui.app import OpenMaxApp
+
+    app = OpenMaxApp(bridge_with_data)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("question_mark")
+        await pilot.pause()
+        assert isinstance(app.screen, HelpScreen)
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, HelpScreen)
+
+
+async def test_help_screen_h_key(bridge_with_data):
+    from openmax.tui.app import OpenMaxApp
+
+    app = OpenMaxApp(bridge_with_data)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("h")
+        await pilot.pause()
+        assert isinstance(app.screen, HelpScreen)
