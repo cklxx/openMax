@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.48
+
+- **Feature**: Textual TUI Dashboard — interactive terminal UI with task list, DAG dependency graph, live log viewer, keyboard navigation, and progress bar
+  - `DashboardProtocol` + `create_dashboard()` factory for pluggable dashboard backends
+  - Pure-function DAG renderer (`tui/dag.py`) for visualizing parallel_groups
+  - Thread-safe `DashboardBridge` + `DashboardState` for cross-thread communication
+  - `OpenMaxApp` with `TaskListWidget`, `LogViewerWidget`, `StatusBarWidget`, `DagViewWidget`
+  - `ConsoleProxy` for capturing console output into TUI log panel
+  - `--no-tui` CLI flag to fall back to classic Rich status bar
+- **Fix**: codex `auth.json` crash — `last_refresh` integer timestamp caused immediate exit (converted to RFC 3339 string)
+
 ## 0.5.47
 
 - **Feature**: `execute_with_codex` MCP tool — Claude plans, Codex implements; synchronous `codex exec` call with output capture, timeout, and approval mode control
