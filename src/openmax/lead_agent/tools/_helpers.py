@@ -532,8 +532,7 @@ def _file_protocol_section(brief_file: Path, rep_file: Path, cwd: str) -> str:
             "Use the MCP tool `report_done` with your task name and a one-line summary.\n"
             "For mid-task progress, use the MCP tool `report_progress` with `task`, "
             "`pct`, and `msg`.\n"
-            "(`$OPENMAX_SESSION_ID` is already set in your env, and the MCP tool reads it "
-            "automatically. No JSON crafting or Bash command is needed.)"
+            f'Always pass `session_id="{session_id}"` when calling these MCP tools.'
         )
 
     return (

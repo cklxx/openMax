@@ -123,6 +123,7 @@ def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
     assert st.agent_type == "generic"
     assert st.prompt.startswith("Implement API")
     assert "## File Protocol (openMax)" in st.prompt
+    assert 'session_id="lead-test"' in st.prompt
     assert st.status == TaskStatus.RUNNING
     assert st.pane_id == 101
     assert st.started_at is not None

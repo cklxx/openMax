@@ -50,7 +50,13 @@ def test_report_done_returns_error_without_session_env(monkeypatch):
 
     result = report_done("API task", "implemented endpoint")
 
-    assert result == {"ok": False, "error": "OPENMAX_SESSION_ID is not set"}
+    assert result == {
+        "ok": False,
+        "error": (
+            "session_id is required: pass it as a parameter, or ensure "
+            "OPENMAX_SESSION_ID is set in the environment"
+        ),
+    }
 
 
 def test_report_progress_rejects_invalid_pct(monkeypatch, tmp_path):
@@ -72,3 +78,55 @@ def test_report_done_returns_error_when_mailbox_is_unavailable(monkeypatch):
 
     assert result["ok"] is False
     assert "no active session socket" in result["error"]
+
+
+def test_report_done_accepts_explicit_session_id(monkeypatch, tmp_path):
+    monkeypatch.delenv("OPENMAX_SESSION_ID", raising=False)
+    mailbox = SessionMailbox("mcp-explicit", tmp_path)
+    mailbox.start()
+    try:
+        result = report_done("API task", "implemented endpoint", session_id="mcp-explicit")
+        assert result["ok"] is True
+        assert result["session_id"] == "mcp-explicit"
+
+        message = mailbox.receive(timeout=2.0)
+        assert message is not None
+        assert message.raw == {
+            "type": "done",
+            "task": "API task",
+            "summary": "implemented endpoint",
+        }
+    finally:
+        mailbox.stop()
+
+
+def test_explicit_session_id_overrides_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("OPENMAX_SESSION_ID", "mcp-env")
+    mailbox = SessionMailbox("mcp-param", tmp_path)
+    mailbox.start()
+    try:
+        result = report_done("API task", "implemented endpoint", session_id="mcp-param")
+        assert result["ok"] is True
+        assert result["session_id"] == "mcp-param"
+
+        message = mailbox.receive(timeout=2.0)
+        assert message is not None
+        assert message.raw["task"] == "API task"
+    finally:
+        mailbox.stop()
+
+
+def test_report_progress_falls_back_to_env_when_session_id_is_empty(monkeypatch, tmp_path):
+    monkeypatch.setenv("OPENMAX_SESSION_ID", "mcp-fallback")
+    mailbox = SessionMailbox("mcp-fallback", tmp_path)
+    mailbox.start()
+    try:
+        result = report_progress("API task", 55, "wiring handlers", session_id="")
+        assert result["ok"] is True
+        assert result["session_id"] == "mcp-fallback"
+
+        message = mailbox.receive(timeout=2.0)
+        assert message is not None
+        assert message.raw["type"] == "progress"
+    finally:
+        mailbox.stop()

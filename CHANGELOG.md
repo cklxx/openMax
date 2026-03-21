@@ -2,6 +2,7 @@
 
 ## 0.5.42
 
+- **Fix**: MCP progress/done tools now accept explicit `session_id` parameters and keep `OPENMAX_SESSION_ID` as a fallback — sub-agents no longer depend entirely on env propagation through nested CLI/MCP process chains
 - **Feature**: two-layer dashboard display — default mode replaces pane_id with activity column showing last pane output; `--verbose`/`-v` flag on `run`/`manage`/`loop` adds pane_id and dispatch prompt detail rows
 - **Feature**: `openmax inspect` subtask table now includes Elapsed and Notes columns
 

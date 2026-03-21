@@ -13,8 +13,9 @@ mcp = FastMCP(
     "openmax",
     instructions=(
         "Use report_progress while you work and report_done when your task finishes. "
-        "The server reads OPENMAX_SESSION_ID from the environment and forwards updates "
-        "to the openMax lead agent mailbox."
+        "Pass the session_id from your task brief when available. "
+        "If omitted, the server falls back to OPENMAX_SESSION_ID from the environment "
+        "and forwards updates to the openMax lead agent mailbox."
     ),
 )
 
@@ -35,10 +36,20 @@ def _current_session_id() -> str | None:
     return session_id or None
 
 
-def _send_tool_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    session_id = _current_session_id()
+def _resolve_session_id(explicit: str) -> str | None:
+    normalized = _normalize_required_text(explicit)
+    if normalized is not None:
+        return normalized
+    return _current_session_id()
+
+
+def _send_tool_payload(payload: dict[str, Any], session_id: str = "") -> dict[str, Any]:
+    session_id = _resolve_session_id(session_id)
     if not session_id:
-        return _error_result("OPENMAX_SESSION_ID is not set")
+        return _error_result(
+            "session_id is required: pass it as a parameter, or ensure "
+            "OPENMAX_SESSION_ID is set in the environment"
+        )
 
     try:
         send_mailbox_payload(session_id, payload)
@@ -49,10 +60,10 @@ def _send_tool_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @mcp.tool(
-    description="Report that a sub-task is complete and include a one-line summary.",
+    description="Report that a sub-task is complete. Pass session_id from the task brief.",
     structured_output=True,
 )
-def report_done(task: str, summary: str) -> dict[str, Any]:
+def report_done(task: str, summary: str, session_id: str = "") -> dict[str, Any]:
     task_name = _normalize_required_text(task)
     if task_name is None:
         return _error_result("task is required")
@@ -61,14 +72,17 @@ def report_done(task: str, summary: str) -> dict[str, Any]:
     if summary_text is None:
         return _error_result("summary is required")
 
-    return _send_tool_payload({"type": "done", "task": task_name, "summary": summary_text})
+    return _send_tool_payload(
+        {"type": "done", "task": task_name, "summary": summary_text},
+        session_id,
+    )
 
 
 @mcp.tool(
-    description="Report mid-task progress with a percent and a short status message.",
+    description="Report progress. Pass session_id from the task brief.",
     structured_output=True,
 )
-def report_progress(task: str, pct: int, msg: str) -> dict[str, Any]:
+def report_progress(task: str, pct: int, msg: str, session_id: str = "") -> dict[str, Any]:
     task_name = _normalize_required_text(task)
     if task_name is None:
         return _error_result("task is required")
@@ -81,7 +95,8 @@ def report_progress(task: str, pct: int, msg: str) -> dict[str, Any]:
         return _error_result("pct must be an integer between 0 and 100")
 
     return _send_tool_payload(
-        {"type": "progress", "task": task_name, "pct": pct, "msg": status_msg}
+        {"type": "progress", "task": task_name, "pct": pct, "msg": status_msg},
+        session_id,
     )
 
 
