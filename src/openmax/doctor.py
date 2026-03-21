@@ -147,21 +147,26 @@ def run_checks() -> list[CheckResult]:
 
 def render_results(results: list[CheckResult]) -> tuple[list[str], int]:
     """Return (lines, issue_count)."""
-    lines: list[str] = ["openMax environment check", "─" * 42]
+    lines: list[str] = ["[bold]openMax environment check[/bold]", "─" * 42]
     issues = 0
     for r in results:
-        icon = "✅" if r.ok else "❌"
+        if r.ok:
+            icon = "[green]✔[/green]"
+        elif r.fix_hint:
+            icon = "[red]✘[/red]"
+        else:
+            icon = "[yellow]⚠[/yellow]"
         ver = f"  {r.version}" if r.version else ""
-        detail = f"  ({r.detail})" if r.detail else ""
+        detail = f"  [dim]({r.detail})[/dim]" if r.detail else ""
         lines.append(f"  {icon}  {r.name:<18}{ver}{detail}")
         if not r.ok:
             issues += 1
             if r.fix_hint:
-                lines.append(f"       Fix: {r.fix_hint}")
+                lines.append(f"       [dim]Fix:[/dim] {r.fix_hint}")
     lines.append("─" * 42)
     if issues == 0:
-        lines.append("All checks passed ✅")
+        lines.append("[green]All checks passed ✔[/green]")
     else:
         noun = "issue" if issues == 1 else "issues"
-        lines.append(f"{issues} {noun} found.")
+        lines.append(f"[yellow]{issues} {noun} found.[/yellow]")
     return lines, issues
