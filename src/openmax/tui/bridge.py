@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass, field
 
 _MAX_TOOL_EVENTS = 1000
+_MAX_LOG_LINES = 2000
 
 
 @dataclass
@@ -34,6 +35,7 @@ class DashboardState:
     pane_activity: dict[int, str] = field(default_factory=dict)
     tool_events: list[dict] = field(default_factory=list)
     dispatch_prompts: dict[str, str] = field(default_factory=dict)
+    log_lines: list[str] = field(default_factory=list)
     monitor_count: int = 0
     start_time: float = field(default_factory=time.monotonic)
     # session metrics
@@ -109,6 +111,12 @@ class DashboardBridge:
             self._state.total_output_tokens = total_output_tokens
             self._state.acceleration_ratio = acceleration_ratio
             self._state.critical_path_seconds = critical_path_seconds
+
+    def add_log(self, line: str) -> None:
+        with self._lock:
+            self._state.log_lines.append(line)
+            if len(self._state.log_lines) > _MAX_LOG_LINES:
+                self._state.log_lines = self._state.log_lines[-_MAX_LOG_LINES:]
 
     def set_dispatch_prompt(self, name: str, prompt: str) -> None:
         with self._lock:
