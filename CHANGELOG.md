@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.42
+
+- **Feature**: two-layer dashboard display — default mode replaces pane_id with activity column showing last pane output; `--verbose`/`-v` flag on `run`/`manage`/`loop` adds pane_id and dispatch prompt detail rows
+- **Feature**: `openmax inspect` subtask table now includes Elapsed and Notes columns
+
 ## 0.5.41
 
 - **Feature**: auto-detect project lint/test tooling — new `project_tools.py` scans for config files (pyproject.toml, package.json, go.mod, Cargo.toml, .eslintrc, biome.json, etc.) and injects the correct lint/test commands into the Project State block; supports Python, JavaScript/TypeScript, Go, and Rust
