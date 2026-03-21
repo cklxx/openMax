@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.52
+
+- **Fix**: `TuiDashboard.stop()` crash when app already exited or failed to start — guard `call_from_thread` with `RuntimeError` catch
+
 ## 0.5.51
 
 - **Fix**: TUI crash on startup — suppress `signal.signal` for entire Textual app lifecycle in background thread (covers `_build_driver`, `start_application_mode`, and `SIGWINCH` handler registration)
