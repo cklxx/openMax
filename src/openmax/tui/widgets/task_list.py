@@ -1,9 +1,11 @@
-"""Task list widget showing subtask status indicators."""
+"""Task list widget showing subtask status indicators with selection support."""
 
 from __future__ import annotations
 
 import time
 
+from textual.message import Message
+from textual.reactive import reactive
 from textual.widgets import Static
 
 from openmax.tui.bridge import DashboardState
@@ -22,7 +24,7 @@ def _elapsed_str(started: float | None, finished: float | None) -> str:
 
 
 class TaskListWidget(Static):
-    """Displays task list with status indicators."""
+    """Displays task list with status indicators and cursor selection."""
 
     DEFAULT_CSS = """
     TaskListWidget {
@@ -33,10 +35,55 @@ class TaskListWidget(Static):
     }
     """
 
+    selected_index: reactive[int] = reactive(0)
+
+    class Selected(Message):
+        """Posted when the selected task changes."""
+
+        def __init__(self, task_name: str | None) -> None:
+            super().__init__()
+            self.task_name = task_name
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._task_names: list[str] = []
+
+    @property
+    def selected_task(self) -> str | None:
+        if not self._task_names:
+            return None
+        idx = max(0, min(self.selected_index, len(self._task_names) - 1))
+        return self._task_names[idx]
+
+    def task_status(self, task_name: str) -> str | None:
+        return self._task_statuses.get(task_name)
+
+    def move_cursor(self, delta: int) -> None:
+        if not self._task_names:
+            return
+        new = max(0, min(self.selected_index + delta, len(self._task_names) - 1))
+        if new != self.selected_index:
+            self.selected_index = new
+
+    def watch_selected_index(self) -> None:
+        self.post_message(self.Selected(self.selected_task))
+        self._render_tasks()
+
     def refresh_from_state(self, state: DashboardState) -> None:
+        self._task_names = list(state.subtasks.keys())
+        self._task_statuses = {n: info.status for n, info in state.subtasks.items()}
+        self._state = state
+        if self.selected_index >= len(self._task_names) and self._task_names:
+            self.selected_index = len(self._task_names) - 1
+        self._render_tasks()
+
+    def _render_tasks(self) -> None:
+        if not hasattr(self, "_state"):
+            return
         lines: list[str] = []
-        for info in state.subtasks.values():
+        for i, (name, info) in enumerate(self._state.subtasks.items()):
             icon = _task_icon(info.status)
             elapsed = _elapsed_str(info.started_at, info.finished_at)
-            lines.append(f"{icon} {info.name:<20s} {info.agent:<10s} {elapsed}")
+            marker = ">" if i == self.selected_index else " "
+            lines.append(f"{marker} {icon} {info.name:<20s} {info.agent:<10s} {elapsed}")
         self.update("\n".join(lines) if lines else "(no tasks)")
