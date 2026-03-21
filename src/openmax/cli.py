@@ -39,6 +39,7 @@ from openmax.terminal import (
     is_kaku_available,
     is_tmux_available,
 )
+from openmax.theme import get_theme
 from openmax.usage import UsageStore
 
 try:
@@ -48,19 +49,26 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
 
 _ANCHOR_PREVIEW_LIMIT = 5
 
-_STATUS_STYLES: dict[str, str] = {
-    "completed": "green",
-    "active": "yellow",
-    "failed": "red",
-    "aborted": "dim",
-}
 
-_SUBTASK_STATUS_STYLES: dict[str, str] = {
-    "done": "green",
-    "running": "yellow",
-    "error": "red",
-    "pending": "dim",
-}
+def _status_styles() -> dict[str, str]:
+    t = get_theme()
+    return {
+        "completed": t.session_completed,
+        "active": t.session_active,
+        "failed": t.session_failed,
+        "aborted": t.session_aborted,
+    }
+
+
+def _subtask_status_styles() -> dict[str, str]:
+    t = get_theme()
+    return {
+        "done": t.subtask_done,
+        "running": t.subtask_running,
+        "error": t.subtask_error,
+        "pending": t.subtask_pending,
+    }
+
 
 _OPENMAX_MCP_SERVER_NAME = "openmax"
 _OPENMAX_MCP_SERVER_CONFIG = {
@@ -73,7 +81,7 @@ _OPENMAX_MCP_SERVER_CONFIG = {
 def _make_table(**overrides: Any) -> Table:
     defaults = dict(
         show_header=True,
-        header_style="bold dim",
+        header_style=get_theme().header_default,
         show_edge=False,
         pad_edge=False,
         padding=(0, 1),
@@ -668,7 +676,7 @@ def _display_panes_table(panes_list: list) -> None:
         by_window[p.window_id].append(p)
 
     t = _make_table(title=f"Existing panes ({len(panes_list)} total)")
-    t.add_column("Window", style="dim")
+    t.add_column("Window", style=get_theme().cli_col_dim)
     t.add_column("Pane")
     t.add_column("Title")
     t.add_column("CWD")
@@ -918,11 +926,12 @@ def runs(status: str | None, limit: int) -> None:
         return
 
     tbl = _make_table(expand=True)
-    tbl.add_column("Session", style="bold", no_wrap=True)
+    t = get_theme()
+    tbl.add_column("Session", style=t.cli_col_bold, no_wrap=True)
     tbl.add_column("Status", no_wrap=True)
-    tbl.add_column("Phase", style="dim", no_wrap=True)
+    tbl.add_column("Phase", style=t.cli_col_dim, no_wrap=True)
     tbl.add_column("%", justify="right", no_wrap=True)
-    tbl.add_column("Updated", style="dim", no_wrap=True)
+    tbl.add_column("Updated", style=t.cli_col_dim, no_wrap=True)
     tbl.add_column("Task", max_width=36, no_wrap=True, overflow="ellipsis")
 
     for meta in sessions:
@@ -935,7 +944,7 @@ def runs(status: str | None, limit: int) -> None:
         except RuntimeError:
             pass
 
-        status_style = _STATUS_STYLES.get(meta.status, "white")
+        status_style = _status_styles().get(meta.status, get_theme().cli_session_default)
 
         tbl.add_row(
             meta.session_id[:16],
@@ -962,7 +971,7 @@ def inspect(session_id: str) -> None:
     meta = snapshot.meta
     plan = snapshot.plan
 
-    status_style = _STATUS_STYLES.get(meta.status, "white")
+    status_style = _status_styles().get(meta.status, get_theme().cli_session_default)
 
     # Header
     console.print(f"[bold]{meta.session_id}[/bold]  [{status_style}]{meta.status}[/{status_style}]")
@@ -1019,16 +1028,19 @@ def inspect(session_id: str) -> None:
     # Subtasks table
     if plan.subtasks:
         console.print()
-        tbl = _make_table(title="Subtasks", title_style="bold", expand=True)
-        tbl.add_column("Name", style="bold")
+        tbl = _make_table(title="Subtasks", title_style=get_theme().cli_col_bold, expand=True)
+        th = get_theme()
+        tbl.add_column("Name", style=th.cli_col_bold)
         tbl.add_column("Status")
-        tbl.add_column("Agent", style="dim")
-        tbl.add_column("Pane", justify="right", style="dim")
-        tbl.add_column("Elapsed", justify="right", style="dim")
-        tbl.add_column("Notes", style="dim", max_width=40, no_wrap=True, overflow="ellipsis")
+        tbl.add_column("Agent", style=th.cli_col_dim)
+        tbl.add_column("Pane", justify="right", style=th.cli_col_dim)
+        tbl.add_column("Elapsed", justify="right", style=th.cli_col_dim)
+        tbl.add_column(
+            "Notes", style=th.cli_col_dim, max_width=40, no_wrap=True, overflow="ellipsis"
+        )
 
         for task in plan.subtasks:
-            st_style = _SUBTASK_STATUS_STYLES.get(task.status, "white")
+            st_style = _subtask_status_styles().get(task.status, get_theme().subtask_default)
             pane_str = str(task.pane_id) if task.pane_id is not None else "-"
             elapsed = _inspect_elapsed(task)
             notes = (task.completion_notes or "")[:40] if hasattr(task, "completion_notes") else ""
@@ -1079,8 +1091,8 @@ def usage(session_id: str | None, limit: int, total: bool) -> None:
         console.print("[yellow]No usage data recorded yet.[/yellow]")
         return
 
-    tbl = _make_table(title="Session usage", title_style="bold", expand=True)
-    tbl.add_column("Session", style="bold")
+    tbl = _make_table(title="Session usage", title_style=get_theme().cli_col_bold, expand=True)
+    tbl.add_column("Session", style=get_theme().cli_col_bold)
     tbl.add_column("Cost", justify="right")
     tbl.add_column("Tokens", justify="right")
     tbl.add_column("Duration", justify="right")
@@ -1168,7 +1180,7 @@ def _render_total_summary(providers: list[ProviderStatus]) -> None:
         body,
         title="[bold white]Total[/bold white]",
         title_align="left",
-        border_style="dim",
+        border_style=get_theme().provider_total_border,
         padding=(0, 2),
     )
     console.print(panel)
@@ -1300,7 +1312,7 @@ def _render_provider_card(
         body,
         title=title,
         title_align="left",
-        border_style="dim cyan",
+        border_style=get_theme().provider_border,
         padding=(1, 2),
     )
     console.print(panel)
@@ -1310,12 +1322,13 @@ def _quota_bar(used_pct: float) -> str:
     """20-char quota bar: green when plenty left, red when near limit."""
     filled = min(int(used_pct / 5), 20)
     empty = 20 - filled
+    t = get_theme()
     if used_pct >= 90:
-        color = "bold red"
+        color = t.quota_danger
     elif used_pct >= 70:
-        color = "yellow"
+        color = t.quota_warning
     else:
-        color = "green"
+        color = t.quota_ok
     return f"[{color}]{'█' * filled}[/][dim]{'░' * empty}[/dim]"
 
 

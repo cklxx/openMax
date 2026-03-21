@@ -24,24 +24,30 @@ from rich.table import Table
 from rich.text import Text
 
 from openmax.output import console
+from openmax.theme import get_theme
 
 _MAX_TOOL_EVENTS = 8
 _MAX_TASK_NAME = 24
 
-# Status indicators for subtask states.
-_STATUS_BADGES: dict[str, tuple[str, str]] = {
-    "running": ("\u25cf", "yellow"),  # ●
-    "done": ("\u2713", "green"),  # ✓
-    "error": ("\u2717", "red"),  # ✗
-    "pending": ("\u25cb", "dim"),  # ○
-}
 
-_ROW_STYLES: dict[str, str] = {
-    "running": "bold",
-    "done": "dim strike",
-    "error": "bold red",
-    "pending": "dim",
-}
+def _status_badges() -> dict[str, tuple[str, str]]:
+    t = get_theme()
+    return {
+        "running": ("\u25cf", t.status_running),  # ●
+        "done": ("\u2713", t.status_done),  # ✓
+        "error": ("\u2717", t.status_error),  # ✗
+        "pending": ("\u25cb", t.status_pending),  # ○
+    }
+
+
+def _row_styles() -> dict[str, str]:
+    t = get_theme()
+    return {
+        "running": t.row_running,
+        "done": t.row_done,
+        "error": t.row_error,
+        "pending": t.row_pending,
+    }
 
 
 @runtime_checkable
@@ -135,7 +141,7 @@ def _format_tokens(count: int) -> str:
 def print_phase_divider(phase: str) -> None:
     """Print a styled phase divider to the console."""
     console.print()
-    console.print(Rule(f" {phase} ", style="dim cyan", align="left"))
+    console.print(Rule(f" {phase} ", style=get_theme().phase_rule, align="left"))
     console.print()
 
 
@@ -165,7 +171,7 @@ def render_session_summary(
         Group(*parts),
         title="[bold]Session Summary[/bold]",
         title_align="left",
-        border_style="green",
+        border_style=get_theme().summary_border,
         padding=(0, 1),
     )
 
@@ -177,7 +183,7 @@ def _build_metrics_table(
 ) -> Table:
     """Build the top-level metrics key-value table."""
     tbl = Table(show_header=False, show_edge=False, pad_edge=False, expand=False)
-    tbl.add_column(style="bold cyan", no_wrap=True, width=16)
+    tbl.add_column(style=get_theme().summary_metric_label, no_wrap=True, width=16)
     tbl.add_column(no_wrap=True)
 
     _add_acceleration_row(tbl, metrics)
@@ -191,7 +197,8 @@ def _add_acceleration_row(tbl: Table, metrics: SessionMetrics) -> None:
     if metrics.acceleration_ratio is None:
         return
     ratio = metrics.acceleration_ratio
-    style = "bold green" if ratio >= 2.0 else "bold yellow" if ratio >= 1.0 else "red"
+    t = get_theme()
+    style = t.accel_fast if ratio >= 2.0 else t.accel_medium if ratio >= 1.0 else t.accel_slow
     tbl.add_row("Acceleration", Text(f"{ratio:.1f}x faster than sequential", style=style))
 
 
@@ -252,7 +259,7 @@ def _build_breakdown_table(subtasks: dict[str, dict], metrics: SessionMetrics) -
         pad_edge=False,
         padding=(0, 1),
         expand=False,
-        header_style="dim bold",
+        header_style=get_theme().header_breakdown,
     )
     tbl.add_column("", width=2, no_wrap=True)
     tbl.add_column("Task", no_wrap=True, max_width=_MAX_TASK_NAME)
@@ -262,9 +269,9 @@ def _build_breakdown_table(subtasks: dict[str, dict], metrics: SessionMetrics) -
 
     for name, info in subtasks.items():
         status = info.get("status", "pending")
-        badge_char, badge_style = _STATUS_BADGES.get(status, ("\u25cb", "dim"))
+        badge_char, badge_style = _status_badges().get(status, ("\u25cb", "dim"))
         badge = Text(badge_char, style=badge_style)
-        row_style = _ROW_STYLES.get(status, "")
+        row_style = _row_styles().get(status, "")
         agent = Text(info.get("agent", ""), style=row_style)
         name_text = Text(_truncate(name, _MAX_TASK_NAME), style=row_style)
         est_min = metrics.estimated_human_minutes.get(name)
@@ -344,8 +351,10 @@ class RunDashboard:
         from rich.columns import Columns
         from rich.spinner import Spinner
 
+        t = get_theme()
         return Columns(
-            [Spinner("dots2", style="dim cyan"), Text(label, style="dim")], padding=(0, 1)
+            [Spinner("dots2", style=t.spinner_style), Text(label, style=t.spinner_label)],
+            padding=(0, 1),
         )
 
     def _stop_spinner(self) -> None:
@@ -483,8 +492,9 @@ class RunDashboard:
         """Minimal status line when no subtasks exist yet."""
         elapsed = _elapsed(self.start_time)
         line = Text()
-        line.append(f"  {self.phase}", style="bold cyan")
-        line.append(f"  {elapsed}", style="dim")
+        t = get_theme()
+        line.append(f"  {self.phase}", style=t.status_phase)
+        line.append(f"  {elapsed}", style=t.status_elapsed)
         return line
 
     def _render_full(self) -> ConsoleRenderable:
@@ -501,7 +511,8 @@ class RunDashboard:
         if all_done:
             parts.append(self._render_done_banner())
 
-        border = "green" if all_done else "dim"
+        t = get_theme()
+        border = t.panel_border_done if all_done else t.panel_border_active
         return Panel(
             Group(*parts),
             title="[bold]agents[/bold]",
@@ -518,13 +529,14 @@ class RunDashboard:
             padding=(0, 1),
             expand=False,
         )
+        t = get_theme()
         tbl.add_column(width=2, no_wrap=True)
-        tbl.add_column(style="bold", no_wrap=True, max_width=_MAX_TASK_NAME)
-        tbl.add_column(style="dim", no_wrap=True, max_width=14)
-        tbl.add_column(style="dim", no_wrap=True, max_width=30)  # activity
+        tbl.add_column(style=t.col_task_name, no_wrap=True, max_width=_MAX_TASK_NAME)
+        tbl.add_column(style=t.col_secondary, no_wrap=True, max_width=14)
+        tbl.add_column(style=t.col_secondary, no_wrap=True, max_width=30)  # activity
         if self.verbose:
-            tbl.add_column(style="dim", justify="right", no_wrap=True, width=5)
-        tbl.add_column(style="dim", justify="right", no_wrap=True, width=6)
+            tbl.add_column(style=t.col_secondary, justify="right", no_wrap=True, width=5)
+        tbl.add_column(style=t.col_secondary, justify="right", no_wrap=True, width=6)
 
         for name, info in self.subtasks.items():
             if self.verbose:
@@ -535,27 +547,27 @@ class RunDashboard:
 
     def _add_compact_row(self, tbl: Table, name: str, info: dict) -> None:
         badge, name_text, agent = self._base_row_cells(name, info)
-        style = _ROW_STYLES.get(info.get("status", "pending"), "")
+        style = _row_styles().get(info.get("status", "pending"), "")
         activity = Text(self._task_activity(name, info), style=style)
         elapsed = _elapsed_since(info.get("started_at"), info.get("finished_at"))
         tbl.add_row(badge, name_text, agent, activity, elapsed)
 
     def _add_verbose_row(self, tbl: Table, name: str, info: dict) -> None:
         badge, name_text, agent = self._base_row_cells(name, info)
-        style = _ROW_STYLES.get(info.get("status", "pending"), "")
+        style = _row_styles().get(info.get("status", "pending"), "")
         activity = Text(self._task_activity(name, info), style=style)
         pane_str = f"#{info['pane_id']}" if info.get("pane_id") is not None else ""
         elapsed = _elapsed_since(info.get("started_at"), info.get("finished_at"))
         tbl.add_row(badge, name_text, agent, activity, pane_str, elapsed)
         prompt_line = self.dispatch_prompts.get(name)
         if prompt_line and info.get("status") in ("running", "done"):
-            detail = Text(f"  {_truncate(prompt_line, 60)}", style="dim italic")
+            detail = Text(f"  {_truncate(prompt_line, 60)}", style=get_theme().col_detail_italic)
             tbl.add_row(Text(""), detail)
 
     def _base_row_cells(self, name: str, info: dict) -> tuple[Text, Text, Text]:
         status = info.get("status", "pending")
-        badge_char, badge_style = _STATUS_BADGES.get(status, ("\u25cb", "dim"))
-        row_style = _ROW_STYLES.get(status, "")
+        badge_char, badge_style = _status_badges().get(status, ("\u25cb", "dim"))
+        row_style = _row_styles().get(status, "")
         return (
             Text(badge_char, style=badge_style),
             Text(_truncate(name, _MAX_TASK_NAME), style=row_style),
@@ -586,14 +598,15 @@ class RunDashboard:
         partial_chars = " \u258f\u258e\u258d\u258c\u258b\u258a\u2589\u2588"
         partial_idx = int(remainder * 8)
 
-        bar_color = "green" if done == total else "cyan"
+        t = get_theme()
+        bar_color = t.progress_complete if done == total else t.progress_active
         progress = Text("  ")
         progress.append("\u2588" * filled_full, style=bar_color)
         if filled_full < bar_width:
             progress.append(partial_chars[partial_idx], style=bar_color)
-            progress.append("\u2591" * (bar_width - filled_full - 1), style="dim")
-        progress.append(f" {done}/{total}", style="bold")
-        progress.append(f"  {elapsed}", style="dim")
+            progress.append("\u2591" * (bar_width - filled_full - 1), style=t.progress_empty)
+        progress.append(f" {done}/{total}", style=t.progress_count)
+        progress.append(f"  {elapsed}", style=t.progress_elapsed)
 
         status_parts = []
         if counts.get("running"):
@@ -604,10 +617,10 @@ class RunDashboard:
             status_parts.append(f"{counts['pending']} queued")
         if status_parts:
             joined = " \u2022 ".join(status_parts)
-            progress.append(f"  {joined}", style="dim")
+            progress.append(f"  {joined}", style=t.progress_detail)
 
         if self._monitor_count > 0:
-            progress.append(f"  [{self._monitor_count} checks]", style="dim")
+            progress.append(f"  [{self._monitor_count} checks]", style=t.progress_detail)
 
         return progress, done, total
 
@@ -620,7 +633,7 @@ class RunDashboard:
             secs = int((end or now) - start)
             segments.append(f"{phase}: {secs}s")
         line = Text("  ")
-        line.append(" | ".join(segments), style="dim")
+        line.append(" | ".join(segments), style=get_theme().banner_detail)
         return line
 
     def _render_done_banner(self) -> ConsoleRenderable:
@@ -630,10 +643,11 @@ class RunDashboard:
 
         # Summary metrics line
         summary = Text("  ")
-        summary.append("\u2714 ALL DONE", style="bold green")
-        summary.append(f"  {elapsed}", style="dim")
+        t = get_theme()
+        summary.append("\u2714 ALL DONE", style=t.banner_done_label)
+        summary.append(f"  {elapsed}", style=t.banner_done_elapsed)
         if self.metrics.acceleration_ratio is not None:
-            summary.append(f"  {self.metrics.acceleration_ratio:.1f}x", style="bold cyan")
+            summary.append(f"  {self.metrics.acceleration_ratio:.1f}x", style=t.banner_done_accel)
         parts.append(summary)
 
         # Detailed metrics (only when we have meaningful data)
@@ -648,6 +662,7 @@ class RunDashboard:
     def _done_detail_lines(self, wall_seconds: float) -> list[Text]:
         lines: list[Text] = []
         m = self.metrics
+        detail = get_theme().banner_detail
 
         # Time saved
         est_total = sum(m.estimated_human_minutes.values())
@@ -657,7 +672,7 @@ class RunDashboard:
             line.append(
                 f"saved ~{_format_duration(saved)}"
                 f" ({est_total}m est \u2192 {_format_duration(wall_seconds)})",
-                style="dim",
+                style=detail,
             )
             lines.append(line)
 
@@ -668,7 +683,7 @@ class RunDashboard:
             line.append(
                 f"tokens: {_format_tokens(m.total_input_tokens)} in"
                 f" \u00b7 {_format_tokens(m.total_output_tokens)} out",
-                style="dim",
+                style=detail,
             )
             lines.append(line)
 
@@ -678,7 +693,7 @@ class RunDashboard:
             peak = _max_concurrent(self.subtasks)
             if peak > 1:
                 line = Text("  ")
-                line.append(f"peak concurrency: {peak} agents", style="dim")
+                line.append(f"peak concurrency: {peak} agents", style=detail)
                 lines.append(line)
 
         return lines
