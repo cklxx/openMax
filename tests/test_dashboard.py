@@ -432,3 +432,57 @@ def test_done_banner_task_count():
     output = _render_to_string(dash)
     assert "2/2 tasks" in output
     dash.stop()
+
+
+# ── Accessible mode (OPENMAX_ACCESSIBLE=1) ───────────────────────
+
+
+def test_accessible_mode_shows_labels(monkeypatch):
+    """When OPENMAX_ACCESSIBLE=1, status badges include text labels."""
+    monkeypatch.setenv("OPENMAX_ACCESSIBLE", "1")
+    dash = RunDashboard("test goal")
+    dash.start()
+    now = time.time()
+    dash.update_subtask("t1", "claude", 1, "running", started_at=now)
+    dash.update_subtask("t2", "codex", 2, "done", started_at=now, finished_at=now)
+    dash.update_subtask("t3", "codex", 3, "error", started_at=now, finished_at=now)
+    dash.update_subtask("t4", "codex", 4, "pending")
+
+    output = _render_to_string(dash)
+    assert "RUN" in output
+    assert "DONE" in output
+    assert "FAIL" in output
+    assert "WAIT" in output
+    dash.stop()
+
+
+def test_compact_mode_no_labels(monkeypatch):
+    """Default mode (no env var) does not include text labels."""
+    monkeypatch.delenv("OPENMAX_ACCESSIBLE", raising=False)
+    dash = RunDashboard("test goal")
+    dash.start()
+    now = time.time()
+    dash.update_subtask("t1", "claude", 1, "running", started_at=now)
+
+    output = _render_to_string(dash)
+    assert "RUN" not in output
+    dash.stop()
+
+
+def test_session_summary_accessible_labels(monkeypatch):
+    """render_session_summary includes labels in accessible mode."""
+    monkeypatch.setenv("OPENMAX_ACCESSIBLE", "1")
+    now = time.monotonic()
+    subtasks = {
+        "fix-auth": {
+            "agent": "claude",
+            "status": "done",
+            "pane_id": 1,
+            "started_at": now,
+            "finished_at": now + 60,
+        },
+    }
+    metrics = SessionMetrics()
+    panel = render_session_summary(subtasks, metrics, wall_seconds=60)
+    output = _render_panel_to_string(panel)
+    assert "DONE" in output

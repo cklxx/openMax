@@ -6,12 +6,17 @@ import time
 
 from textual.widgets import Static
 
+from openmax.formatting import _ACCESSIBLE_LABELS, is_accessible_mode
 from openmax.tui.bridge import DashboardState
 from openmax.tui.dag import STATUS_SYMBOLS
 
 
 def _task_icon(status: str) -> str:
-    return STATUS_SYMBOLS.get(status, "?")
+    icon = STATUS_SYMBOLS.get(status, "?")
+    if is_accessible_mode():
+        label = _ACCESSIBLE_LABELS.get(status, "")
+        return f"{icon} {label}" if label else icon
+    return icon
 
 
 def _elapsed_str(started: float | None, finished: float | None) -> str:

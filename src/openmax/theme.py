@@ -14,16 +14,16 @@ class Theme:
     """Semantic color and style tokens for all openMax UI surfaces."""
 
     # ── Status badge colors (dashboard subtask dots) ─────────────
-    status_running: str = "yellow"
-    status_done: str = "green"
-    status_error: str = "red"
-    status_pending: str = "dim"
+    status_running: str = "bold yellow"
+    status_done: str = "dim green"
+    status_error: str = "bold underline red"
+    status_pending: str = "dim italic"
 
     # ── Row styles (dashboard subtask rows) ──────────────────────
     row_running: str = "bold"
     row_done: str = "dim strike"
     row_error: str = "bold red"
-    row_pending: str = "dim"
+    row_pending: str = "dim italic"
 
     # ── Session status colors (CLI runs / inspect) ───────────────
     session_completed: str = "green"

@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 
 from openmax.theme import get_theme
+
+
+def is_accessible_mode() -> bool:
+    """Check if accessible mode is enabled via OPENMAX_ACCESSIBLE=1."""
+    return os.environ.get("OPENMAX_ACCESSIBLE", "0") == "1"
 
 
 def format_relative_time(value: str | None) -> str:
@@ -44,6 +50,19 @@ def format_tokens(count: int | None) -> str:
     return str(count)
 
 
+_ACCESSIBLE_LABELS: dict[str, str] = {
+    "done": "DONE",
+    "completed": "DONE",
+    "running": "RUN",
+    "active": "RUN",
+    "pending": "WAIT",
+    "error": "FAIL",
+    "failed": "FAIL",
+    "partial": "PART",
+    "aborted": "STOP",
+}
+
+
 def _status_icons() -> dict[str, tuple[str, str]]:
     t = get_theme()
     return {
@@ -60,17 +79,29 @@ def _status_icons() -> dict[str, tuple[str, str]]:
 
 
 def status_icon(status: str | None) -> str:
-    """Return a Rich-markup status icon: ✔ green, ✘ red, ● cyan, etc."""
+    """Return a Rich-markup status icon: ✔ green, ✘ red, ● cyan, etc.
+
+    When OPENMAX_ACCESSIBLE=1, appends a text label (e.g. "● RUN").
+    """
     if not status:
         fallback = get_theme().icon_pending
-        return f"[{fallback}]\u25cb[/{fallback}]"
-    icon, style = _status_icons().get(status.lower(), ("\u25cb", get_theme().icon_pending))
-    return f"[{style}]{icon}[/{style}]"
+        label = " WAIT" if is_accessible_mode() else ""
+        return f"[{fallback}]\u25cb{label}[/{fallback}]"
+    key = status.lower()
+    icon, style = _status_icons().get(key, ("\u25cb", get_theme().icon_pending))
+    label = f" {_ACCESSIBLE_LABELS.get(key, '')}" if is_accessible_mode() else ""
+    return f"[{style}]{icon}{label}[/{style}]"
 
 
 def status_icon_plain(status: str | None) -> str:
-    """Return a plain status icon without Rich markup."""
+    """Return a plain status icon without Rich markup.
+
+    When OPENMAX_ACCESSIBLE=1, appends a text label.
+    """
     if not status:
-        return "\u25cb"
-    icon, _ = _status_icons().get(status.lower(), ("\u25cb", ""))
+        return "\u25cb WAIT" if is_accessible_mode() else "\u25cb"
+    key = status.lower()
+    icon, _ = _status_icons().get(key, ("\u25cb", ""))
+    if is_accessible_mode():
+        return f"{icon} {_ACCESSIBLE_LABELS.get(key, '')}"
     return icon
