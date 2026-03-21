@@ -51,11 +51,17 @@ class DashboardBridge:
     def __init__(self, goal: str) -> None:
         self._state = DashboardState(goal=goal)
         self._lock = threading.Lock()
+        self._version = 0
+
+    @property
+    def version(self) -> int:
+        return self._version
 
     def update_phase(self, phase: str, pct: int | None = None) -> None:
         with self._lock:
             self._state.phase = phase
             self._state.phase_pct = pct
+            self._version += 1
 
     def update_subtask(
         self,
@@ -85,10 +91,12 @@ class DashboardBridge:
                 finished_at=mono_finished,
                 estimated_minutes=estimated_minutes,
             )
+            self._version += 1
 
     def update_pane_activity(self, pane_id: int, last_line: str) -> None:
         with self._lock:
             self._state.pane_activity[pane_id] = last_line
+            self._version += 1
 
     def add_tool_event(self, text: str, category: str = "system") -> None:
         with self._lock:
@@ -97,6 +105,7 @@ class DashboardBridge:
             )
             if len(self._state.tool_events) > _MAX_TOOL_EVENTS:
                 self._state.tool_events = self._state.tool_events[-_MAX_TOOL_EVENTS:]
+            self._version += 1
 
     def set_session_metrics(
         self,
@@ -111,20 +120,24 @@ class DashboardBridge:
             self._state.total_output_tokens = total_output_tokens
             self._state.acceleration_ratio = acceleration_ratio
             self._state.critical_path_seconds = critical_path_seconds
+            self._version += 1
 
     def add_log(self, line: str) -> None:
         with self._lock:
             self._state.log_lines.append(line)
             if len(self._state.log_lines) > _MAX_LOG_LINES:
                 self._state.log_lines = self._state.log_lines[-_MAX_LOG_LINES:]
+            self._version += 1
 
     def set_dispatch_prompt(self, name: str, prompt: str) -> None:
         with self._lock:
             self._state.dispatch_prompts[name] = prompt
+            self._version += 1
 
     def bump_monitor_count(self) -> None:
         with self._lock:
             self._state.monitor_count += 1
+            self._version += 1
 
     def get_snapshot(self) -> DashboardState:
         """Return a deep copy of current state for safe reading without lock."""

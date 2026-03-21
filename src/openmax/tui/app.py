@@ -42,6 +42,7 @@ class OpenMaxApp(App):
     def __init__(self, bridge: DashboardBridge) -> None:
         super().__init__()
         self._bridge = bridge
+        self._last_version = -1
 
     def compose(self) -> ComposeResult:
         yield Horizontal(
@@ -55,6 +56,9 @@ class OpenMaxApp(App):
         self.set_interval(0.5, self._refresh_dashboard)
 
     def _refresh_dashboard(self) -> None:
+        if self._bridge.version == self._last_version:
+            return
+        self._last_version = self._bridge.version
         state = self._bridge.get_snapshot()
         self.query_one(TaskListWidget).refresh_from_state(state)
         self.query_one(LogViewerWidget).refresh_from_state(state)

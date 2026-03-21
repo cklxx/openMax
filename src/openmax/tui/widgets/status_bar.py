@@ -6,6 +6,7 @@ import time
 
 from textual.widgets import Static
 
+from openmax.dashboard import _format_tokens
 from openmax.tui.bridge import DashboardState
 
 _BLOCK_FULL = "\u2588"
@@ -21,8 +22,12 @@ def _phase_bar(phase: str, pct: int | None) -> str:
 
 def _task_counts(state: DashboardState) -> str:
     total = len(state.subtasks)
-    done = sum(1 for t in state.subtasks.values() if t.status == "done")
-    errors = sum(1 for t in state.subtasks.values() if t.status == "error")
+    done = errors = 0
+    for t in state.subtasks.values():
+        if t.status == "done":
+            done += 1
+        elif t.status == "error":
+            errors += 1
     return f"{done}/{total} done  {errors} err"
 
 
@@ -44,5 +49,5 @@ class StatusBarWidget(Static):
         phase = _phase_bar(state.phase, state.phase_pct)
         counts = _task_counts(state)
         tokens = state.total_input_tokens + state.total_output_tokens
-        tok_str = f"{tokens / 1000:.1f}k" if tokens else "0"
+        tok_str = _format_tokens(tokens)
         self.update(f"{phase}  {elapsed:.0f}s  {counts}  tokens: {tok_str}")

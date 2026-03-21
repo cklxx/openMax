@@ -7,12 +7,11 @@ import time
 from textual.widgets import Static
 
 from openmax.tui.bridge import DashboardState
-
-_STATUS_ICONS = {"done": "\u2713", "running": "\u25cf", "pending": "\u25cb", "error": "\u2717"}
+from openmax.tui.dag import STATUS_SYMBOLS
 
 
 def _task_icon(status: str) -> str:
-    return _STATUS_ICONS.get(status, "?")
+    return STATUS_SYMBOLS.get(status, "?")
 
 
 def _elapsed_str(started: float | None, finished: float | None) -> str:

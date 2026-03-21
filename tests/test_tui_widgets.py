@@ -12,9 +12,8 @@ from openmax.tui.widgets import (
     LogViewerWidget,
     StatusBarWidget,
     TaskListWidget,
-    _elapsed_str,
-    _task_icon,
 )
+from openmax.tui.widgets.task_list import _elapsed_str, _task_icon
 
 # -- Unit tests for helpers --
 
