@@ -3,3 +3,7 @@
 from openmax.tui.bridge import DashboardBridge, DashboardState, TuiDashboard
 
 __all__ = ["DashboardBridge", "DashboardState", "TuiDashboard"]
+from openmax.tui.bridge import TuiDashboard
+from openmax.tui.dag import render_dag
+
+__all__ = ["TuiDashboard", "render_dag"]
