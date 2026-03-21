@@ -6,7 +6,7 @@ import time
 
 from textual.widgets import Static
 
-from openmax.dashboard import _format_tokens
+from openmax.formatting import estimate_cost_usd, format_cost, format_tokens_short
 from openmax.tui.bridge import DashboardState
 
 _BLOCK_FULL = "\u2588"
@@ -49,5 +49,7 @@ class StatusBarWidget(Static):
         phase = _phase_bar(state.phase, state.phase_pct)
         counts = _task_counts(state)
         tokens = state.total_input_tokens + state.total_output_tokens
-        tok_str = _format_tokens(tokens)
-        self.update(f"{phase}  {elapsed:.0f}s  {counts}  tokens: {tok_str}")
+        tok_str = format_tokens_short(tokens)
+        cost = estimate_cost_usd(state.total_input_tokens, state.total_output_tokens)
+        cost_str = format_cost(cost)
+        self.update(f"{phase}  {elapsed:.0f}s  {counts}  \u2b07 {tok_str} tokens \u00b7 {cost_str}")

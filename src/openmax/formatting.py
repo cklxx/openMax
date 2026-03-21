@@ -6,6 +6,37 @@ from datetime import datetime, timezone
 
 from openmax.theme import get_theme
 
+# Cost per 1k tokens (USD) — Claude Sonnet estimate.
+_INPUT_COST_PER_1K = 0.003
+_OUTPUT_COST_PER_1K = 0.015
+
+
+def estimate_cost_usd(input_tokens: int, output_tokens: int) -> float:
+    """Estimate session cost in USD from token counts."""
+    return (input_tokens * _INPUT_COST_PER_1K + output_tokens * _OUTPUT_COST_PER_1K) / 1000
+
+
+def format_cost(usd: float | None) -> str:
+    """Format a USD cost: 0.123 → '$0.12', None → '$0.00'."""
+    if usd is None or usd < 0:
+        return "$0.00"
+    if usd == 0:
+        return "$0.00"
+    if usd < 0.01:
+        return f"${usd:.3f}"
+    return f"${usd:.2f}"
+
+
+def format_tokens_short(count: int | None) -> str:
+    """Format token count compactly: 12500 → '12.5k', None → '—'."""
+    if count is None or count < 0:
+        return "\u2014"
+    if count >= 1_000_000:
+        return f"{count / 1_000_000:.1f}M"
+    if count >= 1_000:
+        return f"{count / 1_000:.1f}k"
+    return str(count)
+
 
 def format_relative_time(value: str | None) -> str:
     """Format an ISO timestamp as relative time: '2h ago', 'yesterday', 'Mar 15'."""

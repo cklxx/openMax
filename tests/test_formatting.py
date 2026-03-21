@@ -5,8 +5,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from openmax.formatting import (
+    estimate_cost_usd,
+    format_cost,
     format_relative_time,
     format_tokens,
+    format_tokens_short,
     status_icon,
     status_icon_plain,
 )
@@ -71,6 +74,61 @@ class TestFormatTokens:
 
     def test_millions(self):
         assert format_tokens(1_500_000) == "1.5M"
+
+
+class TestFormatCost:
+    def test_none_returns_zero(self):
+        assert format_cost(None) == "$0.00"
+
+    def test_negative_returns_zero(self):
+        assert format_cost(-1.0) == "$0.00"
+
+    def test_zero(self):
+        assert format_cost(0.0) == "$0.00"
+
+    def test_small_cost_three_decimals(self):
+        assert format_cost(0.005) == "$0.005"
+
+    def test_normal_cost_two_decimals(self):
+        assert format_cost(1.234) == "$1.23"
+
+    def test_large_cost(self):
+        assert format_cost(12.5) == "$12.50"
+
+
+class TestFormatTokensShort:
+    def test_none_returns_dash(self):
+        assert format_tokens_short(None) == "\u2014"
+
+    def test_negative_returns_dash(self):
+        assert format_tokens_short(-1) == "\u2014"
+
+    def test_zero(self):
+        assert format_tokens_short(0) == "0"
+
+    def test_small(self):
+        assert format_tokens_short(500) == "500"
+
+    def test_thousands(self):
+        assert format_tokens_short(12500) == "12.5k"
+
+    def test_millions(self):
+        assert format_tokens_short(2_500_000) == "2.5M"
+
+
+class TestEstimateCostUsd:
+    def test_zero_tokens(self):
+        assert estimate_cost_usd(0, 0) == 0.0
+
+    def test_input_only(self):
+        cost = estimate_cost_usd(1_000_000, 0)
+        assert cost > 0
+        assert abs(cost - 3.0) < 0.01
+
+    def test_output_more_expensive(self):
+        input_cost = estimate_cost_usd(1000, 0)
+        output_cost = estimate_cost_usd(0, 1000)
+        assert output_cost > input_cost
 
 
 class TestStatusIcon:

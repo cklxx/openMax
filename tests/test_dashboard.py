@@ -97,7 +97,7 @@ def test_done_banner_shows_acceleration():
 
 
 def test_done_banner_shows_tokens():
-    """Token counts appear in done banner when set."""
+    """Token counts and cost appear in done banner when set."""
     dash = RunDashboard("test goal")
     dash.start()
     now = time.time()
@@ -106,6 +106,7 @@ def test_done_banner_shows_tokens():
 
     output = _render_to_string(dash)
     assert "58.0k tokens" in output
+    assert "$" in output
     dash.stop()
 
 
@@ -380,6 +381,35 @@ def test_progress_shows_eta_when_enough_done():
         dash.update_subtask(f"run-{i}", "claude", 10 + i, "running", started_at=now)
     output = _render_to_string(dash)
     assert "ETA" in output
+    dash.stop()
+
+
+# ── Real-time cost in progress line ──────────────────────────────
+
+
+def test_progress_line_shows_cost_when_tokens_set():
+    """Progress line shows token count and cost during execution."""
+    dash = RunDashboard("test goal")
+    dash.start()
+    now = time.time()
+    dash.update_subtask("t1", "claude", 1, "running", started_at=now)
+    dash.set_session_metrics(total_input_tokens=10000, total_output_tokens=5000)
+
+    output = _render_to_string(dash)
+    assert "tokens" in output
+    assert "$" in output
+    dash.stop()
+
+
+def test_progress_line_no_cost_when_zero_tokens():
+    """No token/cost info in progress line when tokens are zero."""
+    dash = RunDashboard("test goal")
+    dash.start()
+    now = time.time()
+    dash.update_subtask("t1", "claude", 1, "running", started_at=now)
+
+    output = _render_to_string(dash)
+    assert "$" not in output
     dash.stop()
 
 

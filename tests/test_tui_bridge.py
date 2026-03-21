@@ -83,6 +83,31 @@ def test_set_session_metrics():
     assert snap.acceleration_ratio == 2.5
 
 
+def test_set_session_metrics_computes_cost():
+    bridge = DashboardBridge("g")
+    bridge.set_session_metrics(total_input_tokens=10000, total_output_tokens=5000)
+    snap = bridge.get_snapshot()
+    assert snap.total_cost_usd > 0
+
+
+def test_set_session_metrics_with_task_tokens():
+    bridge = DashboardBridge("g")
+    bridge.set_session_metrics(
+        total_input_tokens=10000,
+        total_output_tokens=5000,
+        task_tokens={"auth": 8000, "tests": 7000},
+    )
+    snap = bridge.get_snapshot()
+    assert snap.task_tokens == {"auth": 8000, "tests": 7000}
+
+
+def test_task_tokens_default_empty():
+    bridge = DashboardBridge("g")
+    snap = bridge.get_snapshot()
+    assert snap.task_tokens == {}
+    assert snap.total_cost_usd == 0.0
+
+
 def test_set_dispatch_prompt():
     bridge = DashboardBridge("g")
     bridge.set_dispatch_prompt("auth", "implement auth service")
