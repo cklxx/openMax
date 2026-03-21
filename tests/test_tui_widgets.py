@@ -13,7 +13,7 @@ from openmax.tui.widgets import (
     StatusBarWidget,
     TaskListWidget,
 )
-from openmax.tui.widgets.task_list import _elapsed_str, _task_icon
+from openmax.tui.widgets.task_list import _elapsed_str, _progress_bar, _task_icon
 
 # -- Unit tests for helpers --
 
@@ -44,6 +44,24 @@ def test_elapsed_str_running():
     assert result.endswith("s")
     val = int(result.rstrip("s"))
     assert 4 <= val <= 7
+
+
+def test_progress_bar_running_with_pct():
+    result = _progress_bar(52, "running")
+    assert "52%" in result
+    assert "\u2588" in result
+
+
+def test_progress_bar_done_shows_check():
+    assert _progress_bar(100, "done") == "\u2714"
+
+
+def test_progress_bar_no_pct_running():
+    assert _progress_bar(None, "running") == "[\u00b7\u00b7\u00b7]"
+
+
+def test_progress_bar_no_pct_pending():
+    assert _progress_bar(None, "pending") == ""
 
 
 # -- Widget refresh_from_state tests (unit, no Textual app) --
@@ -79,7 +97,8 @@ class TestTaskListWidget:
                     started_at=100.0,
                     finished_at=110.0,
                 ),
-            }
+            },
+            task_progress={"auth": 42},
         )
         w = TaskListWidget()
         w.refresh_from_state(state)

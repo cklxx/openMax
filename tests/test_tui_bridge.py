@@ -190,3 +190,44 @@ def test_tui_dashboard_delegates_to_bridge():
     assert snap.monitor_count == 1
     assert snap.total_input_tokens == 100
     assert snap.pane_activity[1] == "output"
+
+
+# ── Task progress ────────────────────────────────────────────────
+
+
+def test_update_task_progress():
+    bridge = DashboardBridge("g")
+    bridge.update_task_progress("auth", 42)
+    snap = bridge.get_snapshot()
+    assert snap.task_progress["auth"] == 42
+
+
+def test_task_progress_clamps():
+    bridge = DashboardBridge("g")
+    bridge.update_task_progress("a", -10)
+    bridge.update_task_progress("b", 200)
+    snap = bridge.get_snapshot()
+    assert snap.task_progress["a"] == 0
+    assert snap.task_progress["b"] == 100
+
+
+def test_task_progress_deep_copy():
+    bridge = DashboardBridge("g")
+    bridge.update_task_progress("t", 50)
+    snap = bridge.get_snapshot()
+    snap.task_progress["t"] = 99
+    assert bridge.get_snapshot().task_progress["t"] == 50
+
+
+def test_tui_dashboard_delegates_task_progress():
+    from openmax.tui.bridge import TuiDashboard
+
+    dash = TuiDashboard.__new__(TuiDashboard)
+    dash._bridge = DashboardBridge("g")
+    dash._verbose = False
+    dash._app = None
+    dash._thread = None
+
+    dash.update_task_progress("auth", 75)
+    snap = dash._bridge.get_snapshot()
+    assert snap.task_progress["auth"] == 75

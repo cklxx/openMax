@@ -79,6 +79,7 @@ class DashboardProtocol(Protocol):
         estimated_minutes: int | None = None,
     ) -> None: ...
 
+    def update_task_progress(self, name: str, pct: int) -> None: ...
     def update_pane_activity(self, pane_id: int, last_line: str) -> None: ...
     def add_tool_event(self, text: str, category: str = "system") -> None: ...
 
@@ -145,6 +146,21 @@ def _format_tokens(count: int) -> str:
     if count >= 1_000:
         return f"{count / 1_000:.1f}k"
     return str(count)
+
+
+def _render_progress_bar(pct: int | None, status: str) -> str:
+    """Compact progress bar: [████░░] 52% — max ~14 chars."""
+    if status == "done":
+        return "\u2714"
+    if status == "error":
+        return "\u2718"
+    if pct is None:
+        return "[\u00b7\u00b7\u00b7]" if status == "running" else ""
+    pct = max(0, min(100, pct))
+    bar_w = 6
+    filled = int(pct / 100 * bar_w)
+    bar = "\u2588" * filled + "\u2591" * (bar_w - filled)
+    return f"[{bar}] {pct}%"
 
 
 def print_phase_divider(phase: str) -> None:
@@ -332,6 +348,7 @@ class RunDashboard:
         self.phase = "starting"
         self.subtasks: dict[str, dict] = {}
         self.pane_activity: dict[int, str] = {}
+        self.task_progress: dict[str, int] = {}
         self.dispatch_prompts: dict[str, str] = {}
         self.tool_events: list[dict] = []
         self.phase_times: dict[str, tuple[float, float | None]] = {}
@@ -454,6 +471,10 @@ class RunDashboard:
         self._ensure_live()
         self._refresh()
 
+    def update_task_progress(self, name: str, pct: int) -> None:
+        self.task_progress[name] = max(0, min(100, pct))
+        self._refresh()
+
     def set_session_metrics(
         self,
         *,
@@ -554,6 +575,7 @@ class RunDashboard:
         tbl.add_column(style=t.col_task_name, no_wrap=True, max_width=_MAX_TASK_NAME)
         tbl.add_column(style=t.col_secondary, no_wrap=True, max_width=14)
         tbl.add_column(style=t.col_secondary, no_wrap=True, max_width=activity_width)
+        tbl.add_column(style=t.col_secondary, no_wrap=True, width=14)
         if self.verbose:
             tbl.add_column(style=t.col_secondary, justify="right", no_wrap=True, width=5)
         tbl.add_column(style=t.col_secondary, justify="right", no_wrap=True, width=6)
@@ -566,7 +588,7 @@ class RunDashboard:
         for name, info in sorted_items:
             group = _STATUS_SORT_ORDER.get(info.get("status", "pending"), 9)
             if prev_group is not None and group != prev_group and group >= 2:
-                col_count = 6 if self.verbose else 5
+                col_count = 7 if self.verbose else 6
                 tbl.add_row(*[Text("")] * col_count)
             prev_group = group
             if self.verbose:
@@ -580,8 +602,9 @@ class RunDashboard:
         status = info.get("status", "pending")
         style = _row_styles().get(status, "")
         activity = Text(self._task_activity(name, info, activity_width), style=style)
+        progress = _render_progress_bar(self.task_progress.get(name), status)
         elapsed = _elapsed_since(info.get("started_at"), info.get("finished_at"))
-        tbl.add_row(badge, name_text, agent, activity, elapsed)
+        tbl.add_row(badge, name_text, agent, activity, progress, elapsed)
         if status == "error":
             self._add_error_detail(tbl, info)
 
@@ -590,9 +613,10 @@ class RunDashboard:
         status = info.get("status", "pending")
         style = _row_styles().get(status, "")
         activity = Text(self._task_activity(name, info, activity_width), style=style)
+        progress = _render_progress_bar(self.task_progress.get(name), status)
         pane_str = f"#{info['pane_id']}" if info.get("pane_id") is not None else ""
         elapsed = _elapsed_since(info.get("started_at"), info.get("finished_at"))
-        tbl.add_row(badge, name_text, agent, activity, pane_str, elapsed)
+        tbl.add_row(badge, name_text, agent, activity, progress, pane_str, elapsed)
         prompt_line = self.dispatch_prompts.get(name)
         if prompt_line and status in ("running", "done"):
             detail = Text(f"  {_truncate(prompt_line, 60)}", style=get_theme().col_detail_italic)
