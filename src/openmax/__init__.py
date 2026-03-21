@@ -1,3 +1,3 @@
 """openMax - Multi AI Agent orchestration hub."""
 
-__version__ = "0.5.48"
+__version__ = "0.5.49"

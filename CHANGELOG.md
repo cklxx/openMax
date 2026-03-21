@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.49
+
+- **Simplify**: Version-gated TUI refresh — skip `deepcopy` when bridge state hasn't changed, reducing GC pressure
+- **Simplify**: Deduplicate status icons (consolidated from 3 copies to 1 shared `STATUS_SYMBOLS`)
+- **Simplify**: Single-pass task counting in status bar, reuse `_format_tokens` from dashboard module
+- **Simplify**: Remove private helpers from widget package `__all__`
+
 ## 0.5.48
 
 - **Feature**: Textual TUI Dashboard — interactive terminal UI with task list, DAG dependency graph, live log viewer, keyboard navigation, and progress bar
