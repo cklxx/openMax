@@ -30,10 +30,18 @@ _MAX_TASK_NAME = 24
 
 # Status indicators for subtask states.
 _STATUS_BADGES: dict[str, tuple[str, str]] = {
-    "running": ("\u25cf", "yellow"),  # ●
-    "done": ("\u2713", "green"),  # ✓
-    "error": ("\u2717", "red"),  # ✗
+    "running": ("\u25c9", "yellow"),  # ◉
+    "done": ("\u2714", "green"),  # ✔
+    "error": ("\u2718", "red"),  # ✘
     "pending": ("\u25cb", "dim"),  # ○
+}
+
+# Sort priority: running first, pending, done, error last.
+_STATUS_SORT_ORDER: dict[str, int] = {
+    "running": 0,
+    "pending": 1,
+    "done": 2,
+    "error": 3,
 }
 
 _ROW_STYLES: dict[str, str] = {
@@ -510,7 +518,17 @@ class RunDashboard:
             padding=(0, 1),
         )
 
+    def _activity_max_width(self) -> int:
+        """Responsive activity column width based on terminal size."""
+        width = console.size.width if console.size else 100
+        if width < 100:
+            return 30
+        if width > 160:
+            return 80
+        return 60
+
     def _build_subtask_table(self) -> Table:
+        activity_width = self._activity_max_width()
         tbl = Table(
             show_header=False,
             show_edge=False,
@@ -521,36 +539,53 @@ class RunDashboard:
         tbl.add_column(width=2, no_wrap=True)
         tbl.add_column(style="bold", no_wrap=True, max_width=_MAX_TASK_NAME)
         tbl.add_column(style="dim", no_wrap=True, max_width=14)
-        tbl.add_column(style="dim", no_wrap=True, max_width=30)  # activity
+        tbl.add_column(style="dim", no_wrap=True, max_width=activity_width)
         if self.verbose:
             tbl.add_column(style="dim", justify="right", no_wrap=True, width=5)
         tbl.add_column(style="dim", justify="right", no_wrap=True, width=6)
 
-        for name, info in self.subtasks.items():
+        sorted_items = sorted(
+            self.subtasks.items(),
+            key=lambda kv: _STATUS_SORT_ORDER.get(kv[1].get("status", "pending"), 9),
+        )
+        prev_group: int | None = None
+        for name, info in sorted_items:
+            group = _STATUS_SORT_ORDER.get(info.get("status", "pending"), 9)
+            if prev_group is not None and group != prev_group and group >= 2:
+                col_count = 6 if self.verbose else 5
+                tbl.add_row(*[Text("")] * col_count)
+            prev_group = group
             if self.verbose:
                 self._add_verbose_row(tbl, name, info)
             else:
-                self._add_compact_row(tbl, name, info)
+                self._add_compact_row(tbl, name, info, activity_width)
         return tbl
 
-    def _add_compact_row(self, tbl: Table, name: str, info: dict) -> None:
+    def _add_compact_row(self, tbl: Table, name: str, info: dict, activity_width: int) -> None:
         badge, name_text, agent = self._base_row_cells(name, info)
-        style = _ROW_STYLES.get(info.get("status", "pending"), "")
-        activity = Text(self._task_activity(name, info), style=style)
+        status = info.get("status", "pending")
+        style = _ROW_STYLES.get(status, "")
+        activity = Text(self._task_activity(name, info, activity_width), style=style)
         elapsed = _elapsed_since(info.get("started_at"), info.get("finished_at"))
         tbl.add_row(badge, name_text, agent, activity, elapsed)
+        if status == "error":
+            self._add_error_detail(tbl, info)
 
     def _add_verbose_row(self, tbl: Table, name: str, info: dict) -> None:
         badge, name_text, agent = self._base_row_cells(name, info)
-        style = _ROW_STYLES.get(info.get("status", "pending"), "")
-        activity = Text(self._task_activity(name, info), style=style)
+        status = info.get("status", "pending")
+        style = _ROW_STYLES.get(status, "")
+        activity_width = self._activity_max_width()
+        activity = Text(self._task_activity(name, info, activity_width), style=style)
         pane_str = f"#{info['pane_id']}" if info.get("pane_id") is not None else ""
         elapsed = _elapsed_since(info.get("started_at"), info.get("finished_at"))
         tbl.add_row(badge, name_text, agent, activity, pane_str, elapsed)
         prompt_line = self.dispatch_prompts.get(name)
-        if prompt_line and info.get("status") in ("running", "done"):
+        if prompt_line and status in ("running", "done"):
             detail = Text(f"  {_truncate(prompt_line, 60)}", style="dim italic")
             tbl.add_row(Text(""), detail)
+        if status == "error":
+            self._add_error_detail(tbl, info)
 
     def _base_row_cells(self, name: str, info: dict) -> tuple[Text, Text, Text]:
         status = info.get("status", "pending")
@@ -562,7 +597,21 @@ class RunDashboard:
             Text(info.get("agent", ""), style=row_style),
         )
 
-    def _task_activity(self, name: str, info: dict) -> str:
+    def _add_error_detail(self, tbl: Table, info: dict) -> None:
+        """Add expanded error detail lines below an error row."""
+        error_text = info.get("error") or info.get("last_output") or ""
+        if not error_text:
+            pane_id = info.get("pane_id")
+            if pane_id is not None:
+                error_text = self.pane_activity.get(pane_id, "")
+        if not error_text:
+            return
+        lines = error_text.strip().splitlines()[:3]
+        for line in lines:
+            detail = Text(f"    {_truncate(line.strip(), 80)}", style="dim red")
+            tbl.add_row(Text(""), detail)
+
+    def _task_activity(self, name: str, info: dict, max_len: int = 60) -> str:
         status = info.get("status", "pending")
         if status == "done":
             return "done"
@@ -570,7 +619,7 @@ class RunDashboard:
             return ""
         pane_id = info.get("pane_id")
         if pane_id is not None and pane_id in self.pane_activity:
-            return _truncate(self.pane_activity[pane_id], 30)
+            return _truncate(self.pane_activity[pane_id], max_len)
         return ""
 
     def _build_progress_line(self) -> tuple[Text, int, int]:
