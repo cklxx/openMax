@@ -14,6 +14,7 @@ from openmax.dashboard import (
     _format_duration,
     _format_tokens,
     _max_concurrent,
+    _render_progress_bar,
     _truncate,
     render_session_summary,
 )
@@ -432,3 +433,79 @@ def test_done_banner_task_count():
     output = _render_to_string(dash)
     assert "2/2 tasks" in output
     dash.stop()
+
+
+# ── Progress bar helper ───────────────────────────────────────────
+
+
+def test_progress_bar_done():
+    assert _render_progress_bar(50, "done") == "\u2714"
+
+
+def test_progress_bar_error():
+    assert _render_progress_bar(50, "error") == "\u2718"
+
+
+def test_progress_bar_running_no_pct():
+    assert _render_progress_bar(None, "running") == "[\u00b7\u00b7\u00b7]"
+
+
+def test_progress_bar_pending_no_pct():
+    assert _render_progress_bar(None, "pending") == ""
+
+
+def test_progress_bar_half():
+    result = _render_progress_bar(50, "running")
+    assert "50%" in result
+    assert "\u2588" in result
+    assert "\u2591" in result
+
+
+def test_progress_bar_full():
+    result = _render_progress_bar(100, "running")
+    assert "100%" in result
+
+
+def test_progress_bar_clamps_negative():
+    result = _render_progress_bar(-10, "running")
+    assert "0%" in result
+
+
+def test_progress_bar_clamps_over_100():
+    result = _render_progress_bar(200, "running")
+    assert "100%" in result
+
+
+# ── Per-task progress in dashboard rendering ──────────────────────
+
+
+def test_task_progress_rendered_in_table():
+    """Task progress bar appears in the rendered subtask table."""
+    dash = RunDashboard("test goal")
+    dash.start()
+    dash.update_subtask("fix-auth", "claude", 1, "running", started_at=time.time())
+    dash.update_task_progress("fix-auth", 52)
+
+    output = _render_to_string(dash)
+    assert "52%" in output
+    dash.stop()
+
+
+def test_task_progress_indeterminate_when_missing():
+    """Running task with no progress shows indeterminate indicator."""
+    dash = RunDashboard("test goal")
+    dash.start()
+    dash.update_subtask("fix-auth", "claude", 1, "running", started_at=time.time())
+
+    output = _render_to_string(dash)
+    assert "[\u00b7\u00b7\u00b7]" in output
+    dash.stop()
+
+
+def test_task_progress_clamps_values():
+    """Values outside 0-100 are clamped."""
+    dash = RunDashboard("test goal")
+    dash.update_task_progress("t1", -5)
+    assert dash.task_progress["t1"] == 0
+    dash.update_task_progress("t1", 150)
+    assert dash.task_progress["t1"] == 100

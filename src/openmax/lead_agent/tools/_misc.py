@@ -443,6 +443,7 @@ async def wait_for_agent_message(args: dict[str, Any]) -> dict[str, Any]:
         if msg.type == "progress" and runtime.dashboard is not None:
             pct = msg.raw.get("pct", 0)
             text = msg.raw.get("msg", "")
+            runtime.dashboard.update_task_progress(msg.task, pct)
             runtime.dashboard.update_pane_activity(
                 _pane_id_for_task(msg.task) or -1,
                 f"{pct}% — {text}",

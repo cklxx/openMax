@@ -36,6 +36,7 @@ class DashboardState:
     pane_activity: dict[int, str] = field(default_factory=dict)
     tool_events: list[dict] = field(default_factory=list)
     dispatch_prompts: dict[str, str] = field(default_factory=dict)
+    task_progress: dict[str, int] = field(default_factory=dict)
     log_lines: list[str] = field(default_factory=list)
     monitor_count: int = 0
     start_time: float = field(default_factory=time.monotonic)
@@ -92,6 +93,11 @@ class DashboardBridge:
                 finished_at=mono_finished,
                 estimated_minutes=estimated_minutes,
             )
+            self._version += 1
+
+    def update_task_progress(self, name: str, pct: int) -> None:
+        with self._lock:
+            self._state.task_progress[name] = max(0, min(100, pct))
             self._version += 1
 
     def update_pane_activity(self, pane_id: int, last_line: str) -> None:
@@ -205,6 +211,9 @@ class TuiDashboard:
             finished_at=finished_at,
             estimated_minutes=estimated_minutes,
         )
+
+    def update_task_progress(self, name: str, pct: int) -> None:
+        self._bridge.update_task_progress(name, pct)
 
     def update_pane_activity(self, pane_id: int, last_line: str) -> None:
         self._bridge.update_pane_activity(pane_id, last_line)
