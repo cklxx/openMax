@@ -928,15 +928,12 @@ def runs(status: str | None, limit: int) -> None:
 
     tbl = _make_table(expand=True)
     t = get_theme()
-    tbl.add_column("Session", style=t.cli_col_bold, no_wrap=True)
     tbl.add_column("", width=2, no_wrap=True)
-    tbl.add_column("Session", style="bold", no_wrap=True)
+    tbl.add_column("Session", style=t.cli_col_bold, no_wrap=True)
     tbl.add_column("Status", no_wrap=True)
     tbl.add_column("Phase", style=t.cli_col_dim, no_wrap=True)
     tbl.add_column("%", justify="right", no_wrap=True)
-    tbl.add_column("Updated", style=t.cli_col_dim, no_wrap=True)
-    tbl.add_column("Task", max_width=36, no_wrap=True, overflow="ellipsis")
-    tbl.add_column("Updated", style="dim", no_wrap=True, justify="right")
+    tbl.add_column("Updated", style=t.cli_col_dim, no_wrap=True, justify="right")
     tbl.add_column("Task", max_width=40, no_wrap=True, overflow="ellipsis")
 
     for meta in sessions:
@@ -982,8 +979,7 @@ def inspect(session_id: str) -> None:
     # Header
     console.print(
         f"{status_icon(meta.status)} [bold]{meta.session_id}[/bold]  "
-        f"[{_STATUS_STYLES.get(meta.status, 'white')}]{meta.status}"
-        f"[/{_STATUS_STYLES.get(meta.status, 'white')}]"
+        f"[{status_style}]{meta.status}[/{status_style}]"
     )
     console.print(f"  [dim]task:[/dim]      {meta.task}")
     console.print(f"  [dim]workspace:[/dim] {meta.cwd}")
@@ -1038,30 +1034,19 @@ def inspect(session_id: str) -> None:
     # Subtasks table
     if plan.subtasks:
         console.print()
-        tbl = _make_table(title="Subtasks", title_style=get_theme().cli_col_bold, expand=True)
         th = get_theme()
+        tbl = _make_table(title="Subtasks", title_style=th.cli_col_bold, expand=True)
+        tbl.add_column("", width=2, no_wrap=True)
         tbl.add_column("Name", style=th.cli_col_bold)
         tbl.add_column("Status")
         tbl.add_column("Agent", style=th.cli_col_dim)
-        tbl.add_column("Pane", justify="right", style=th.cli_col_dim)
         tbl.add_column("Elapsed", justify="right", style=th.cli_col_dim)
         tbl.add_column(
             "Notes", style=th.cli_col_dim, max_width=40, no_wrap=True, overflow="ellipsis"
         )
 
         for task in plan.subtasks:
-            st_style = _subtask_status_styles().get(task.status, get_theme().subtask_default)
-            pane_str = str(task.pane_id) if task.pane_id is not None else "-"
-        tbl = _make_table(title="Subtasks", title_style="bold", expand=True)
-        tbl.add_column("", width=2, no_wrap=True)
-        tbl.add_column("Name", style="bold")
-        tbl.add_column("Status")
-        tbl.add_column("Agent", style="dim")
-        tbl.add_column("Elapsed", justify="right", style="dim")
-        tbl.add_column("Notes", style="dim", max_width=40, no_wrap=True, overflow="ellipsis")
-
-        for task in plan.subtasks:
-            st_style = _SUBTASK_STATUS_STYLES.get(task.status, "white")
+            st_style = _subtask_status_styles().get(task.status, th.subtask_default)
             elapsed = _inspect_elapsed(task)
             notes = (task.completion_notes or "")[:40] if hasattr(task, "completion_notes") else ""
             tbl.add_row(

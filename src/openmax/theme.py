@@ -45,6 +45,14 @@ class Theme:
     progress_count: str = "bold"
     progress_elapsed: str = "dim"
     progress_detail: str = "dim"
+    progress_eta: str = "bold yellow"
+    progress_spinner: str = "cyan"
+
+    # ── Error detail (expanded error lines) ────────────────────
+    error_detail: str = "dim red"
+
+    # ── Done banner variations ─────────────────────────────────
+    banner_warn_label: str = "bold yellow"
 
     # ── Phase divider ────────────────────────────────────────────
     phase_rule: str = "dim cyan"
