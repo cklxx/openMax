@@ -23,6 +23,7 @@ from openmax.agent_registry import AgentConfigError, load_agent_registry
 from openmax.auth import has_claude_auth, run_claude_setup_token
 from openmax.config import fetch_anthropic_models, get_model, set_model
 from openmax.doctor import render_results, run_checks
+from openmax.formatting import format_relative_time, status_icon
 from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
 from openmax.lead_agent.types import TaskStatus
 from openmax.loop_session import LoopIteration, LoopSessionStore, build_loop_context
@@ -928,11 +929,15 @@ def runs(status: str | None, limit: int) -> None:
     tbl = _make_table(expand=True)
     t = get_theme()
     tbl.add_column("Session", style=t.cli_col_bold, no_wrap=True)
+    tbl.add_column("", width=2, no_wrap=True)
+    tbl.add_column("Session", style="bold", no_wrap=True)
     tbl.add_column("Status", no_wrap=True)
     tbl.add_column("Phase", style=t.cli_col_dim, no_wrap=True)
     tbl.add_column("%", justify="right", no_wrap=True)
     tbl.add_column("Updated", style=t.cli_col_dim, no_wrap=True)
     tbl.add_column("Task", max_width=36, no_wrap=True, overflow="ellipsis")
+    tbl.add_column("Updated", style="dim", no_wrap=True, justify="right")
+    tbl.add_column("Task", max_width=40, no_wrap=True, overflow="ellipsis")
 
     for meta in sessions:
         latest_phase = meta.latest_phase or "-"
@@ -947,12 +952,13 @@ def runs(status: str | None, limit: int) -> None:
         status_style = _status_styles().get(meta.status, get_theme().cli_session_default)
 
         tbl.add_row(
+            status_icon(meta.status),
             meta.session_id[:16],
             f"[{status_style}]{meta.status}[/{status_style}]",
             latest_phase,
             _format_completion(completion),
-            _format_timestamp(meta.updated_at, short=True),
-            meta.task[:50],
+            format_relative_time(meta.updated_at),
+            meta.task[:50] + ("…" if len(meta.task) > 50 else ""),
         )
 
     console.print(tbl)
@@ -974,12 +980,16 @@ def inspect(session_id: str) -> None:
     status_style = _status_styles().get(meta.status, get_theme().cli_session_default)
 
     # Header
-    console.print(f"[bold]{meta.session_id}[/bold]  [{status_style}]{meta.status}[/{status_style}]")
+    console.print(
+        f"{status_icon(meta.status)} [bold]{meta.session_id}[/bold]  "
+        f"[{_STATUS_STYLES.get(meta.status, 'white')}]{meta.status}"
+        f"[/{_STATUS_STYLES.get(meta.status, 'white')}]"
+    )
     console.print(f"  [dim]task:[/dim]      {meta.task}")
     console.print(f"  [dim]workspace:[/dim] {meta.cwd}")
     console.print(
         f"  [dim]created:[/dim]   {_format_timestamp(meta.created_at)}  "
-        f"[dim]updated:[/dim] {_format_timestamp(meta.updated_at)}"
+        f"[dim]updated:[/dim] {format_relative_time(meta.updated_at)}"
     )
     console.print(
         f"  [dim]phase:[/dim]     {plan.latest_phase or 'unknown'}  "
@@ -1042,13 +1052,23 @@ def inspect(session_id: str) -> None:
         for task in plan.subtasks:
             st_style = _subtask_status_styles().get(task.status, get_theme().subtask_default)
             pane_str = str(task.pane_id) if task.pane_id is not None else "-"
+        tbl = _make_table(title="Subtasks", title_style="bold", expand=True)
+        tbl.add_column("", width=2, no_wrap=True)
+        tbl.add_column("Name", style="bold")
+        tbl.add_column("Status")
+        tbl.add_column("Agent", style="dim")
+        tbl.add_column("Elapsed", justify="right", style="dim")
+        tbl.add_column("Notes", style="dim", max_width=40, no_wrap=True, overflow="ellipsis")
+
+        for task in plan.subtasks:
+            st_style = _SUBTASK_STATUS_STYLES.get(task.status, "white")
             elapsed = _inspect_elapsed(task)
             notes = (task.completion_notes or "")[:40] if hasattr(task, "completion_notes") else ""
             tbl.add_row(
+                status_icon(task.status),
                 task.name,
                 f"[{st_style}]{task.status}[/{st_style}]",
                 task.agent_type,
-                pane_str,
                 elapsed,
                 notes,
             )
