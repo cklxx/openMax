@@ -1521,7 +1521,7 @@ def setup(status: bool) -> None:
 @click.option("--global", "global_", is_flag=True, default=False, help="Install globally")
 @click.option("--cwd", default=None, help="Project root for project-level install")
 def install_skill(global_: bool, cwd: str | None) -> None:
-    """Install openMax as a /openmax skill for Claude Code.
+    """Install openMax skills (/openmax, /codex) for Claude Code.
 
     Default: installs to .claude/commands/ in the current project.
     With --global: installs to ~/.claude/commands/ (available in all projects).
@@ -1529,10 +1529,11 @@ def install_skill(global_: bool, cwd: str | None) -> None:
     from openmax.skills import global_commands_dir, install, project_commands_dir
 
     target = global_commands_dir() if global_ else project_commands_dir(cwd)
-    link = install(target)
+    links = install(target)
     scope = "global" if global_ else "project"
-    console.print(f"[green]Installed ({scope}):[/green] {link}")
-    console.print('[dim]Invoke in Claude Code:[/dim] [bold]/openmax[/bold] "your task"')
+    for link in links:
+        console.print(f"[green]Installed ({scope}):[/green] {link}")
+    console.print("[dim]Invoke in Claude Code:[/dim] [bold]/openmax[/bold] or [bold]/codex[/bold]")
 
 
 @main.command()

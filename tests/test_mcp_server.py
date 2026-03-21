@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import subprocess
+
 from openmax.mailbox import SessionMailbox
-from openmax.mcp_server import report_done, report_progress
+from openmax.mcp_server import execute_with_codex, report_done, report_progress
 
 
 def test_report_done_sends_message_to_mailbox(monkeypatch, tmp_path):
@@ -125,6 +127,53 @@ def test_explicit_session_id_overrides_env(monkeypatch, tmp_path):
         assert message.raw["task"] == "API task"
     finally:
         mailbox.stop()
+
+
+def test_execute_with_codex_returns_result(monkeypatch):
+    monkeypatch.setattr("openmax.mcp_server.shutil.which", lambda _name: "/usr/bin/codex")
+
+    def fake_run(cmd, *, cwd, capture_output, text, timeout):
+        return subprocess.CompletedProcess(cmd, returncode=0, stdout="Changes applied", stderr="")
+
+    monkeypatch.setattr("openmax.mcp_server.subprocess.run", fake_run)
+    result = execute_with_codex("implement feature", cwd="/tmp")
+
+    assert result["ok"] is True
+    assert "Changes applied" in result["output"]
+    assert result["exit_code"] == 0
+
+
+def test_execute_with_codex_empty_task():
+    result = execute_with_codex("   ")
+    assert result["ok"] is False
+    assert result["error"] == "task is required"
+
+
+def test_execute_with_codex_not_installed(monkeypatch):
+    monkeypatch.setattr("openmax.mcp_server.shutil.which", lambda _name: None)
+    result = execute_with_codex("do something", cwd="/tmp")
+    assert result["ok"] is False
+    assert "codex CLI not found" in result["error"]
+
+
+def test_execute_with_codex_invalid_approval_mode(monkeypatch):
+    monkeypatch.setattr("openmax.mcp_server.shutil.which", lambda _name: "/usr/bin/codex")
+    result = execute_with_codex("task", approval_mode="yolo")
+    assert result["ok"] is False
+    assert "invalid approval_mode" in result["error"]
+
+
+def test_execute_with_codex_timeout(monkeypatch):
+    monkeypatch.setattr("openmax.mcp_server.shutil.which", lambda _name: "/usr/bin/codex")
+
+    def fake_run(cmd, *, cwd, capture_output, text, timeout):
+        raise subprocess.TimeoutExpired(cmd, timeout)
+
+    monkeypatch.setattr("openmax.mcp_server.subprocess.run", fake_run)
+    result = execute_with_codex("slow task", cwd="/tmp", timeout_seconds=10)
+
+    assert result["ok"] is False
+    assert "timed out" in result["error"]
 
 
 def test_report_progress_falls_back_to_env_when_session_id_is_empty(monkeypatch, tmp_path):

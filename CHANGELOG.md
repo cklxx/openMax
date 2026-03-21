@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.47
+
+- **Feature**: `execute_with_codex` MCP tool — Claude plans, Codex implements; synchronous `codex exec` call with output capture, timeout, and approval mode control
+- **Feature**: `/codex` skill — plan-then-execute workflow for Claude Code users (`openmax install-skill` now installs both `/openmax` and `/codex`)
+- **Refactor**: `skills.py` supports multiple skill files; `install-skill` CLI installs all skills at once
+
 ## 0.5.46
 
 - **Feature**: sub-agent prompt restructure — identity block (task name + session_id) now placed at the top of agent prompts so agents know who they are even if prompt is truncated

@@ -1,9 +1,12 @@
-"""MCP server for sub-agents to report progress back to the lead agent."""
+"""MCP server — progress reporting + Codex execution tools."""
 
 from __future__ import annotations
 
 import logging
 import os
+import shutil
+import subprocess
+import time
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -119,6 +122,60 @@ def report_progress(task: str, pct: int, msg: str, session_id: str = "") -> dict
         session_id,
         soft_fail=True,
     )
+
+
+_CODEX_APPROVAL_MODES = frozenset({"auto-edit", "full-auto"})
+
+
+@mcp.tool(
+    description=(
+        "Execute a coding task with Codex CLI. "
+        "Claude plans the approach, then delegates implementation to Codex. "
+        "Returns the full output and exit status."
+    ),
+    structured_output=True,
+)
+def execute_with_codex(
+    task: str,
+    cwd: str = "",
+    approval_mode: str = "auto-edit",
+    timeout_seconds: int = 300,
+) -> dict[str, Any]:
+    task_text = _normalize_required_text(task)
+    if task_text is None:
+        return _error_result("task is required")
+    if not shutil.which("codex"):
+        return _error_result("codex CLI not found. Install: npm i -g @openai/codex")
+    if approval_mode not in _CODEX_APPROVAL_MODES:
+        return _error_result(f"invalid approval_mode: {approval_mode!r}")
+
+    effective_cwd = cwd.strip() or os.getcwd()
+    return _run_codex(task_text, effective_cwd, approval_mode, timeout_seconds)
+
+
+def _run_codex(task: str, cwd: str, approval_mode: str, timeout: int) -> dict[str, Any]:
+    cmd = ["codex", "exec", "-a", approval_mode, task]
+    start = time.monotonic()
+    try:
+        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False,
+            "output": "",
+            "exit_code": -1,
+            "elapsed_seconds": round(time.monotonic() - start, 2),
+            "error": f"timed out after {timeout}s",
+        }
+    elapsed = round(time.monotonic() - start, 2)
+    output = ((proc.stdout or "") + (proc.stderr or "")).strip()
+    ok = proc.returncode == 0
+    return {
+        "ok": ok,
+        "output": output,
+        "exit_code": proc.returncode,
+        "elapsed_seconds": elapsed,
+        "error": "" if ok else f"exit code {proc.returncode}",
+    }
 
 
 def main() -> None:
