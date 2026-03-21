@@ -90,15 +90,17 @@ No mainstream framework (Claude Teams / Kimi Swarm / LangGraph / CrewAI) has sol
 |--------|-------|
 | done | 22 |
 | removed | 4 |
-| pending | 1 |
-| **total** | **27** |
+| pending | 3 |
+| **total** | **29** |
 
-### Remaining (P3)
+### Remaining
 
-| ID | Title | Notes |
-|----|-------|-------|
-| 2.2 | Load Balancing | No queue management or agent load distribution |
-| 9.2 | Acceptance Confirmation | Post-verification user approval gate |
+| ID | Title | Pri | Notes |
+|----|-------|-----|-------|
+| 12.1 | Pane Early-Exit Diagnostics | P1 | Detect when agent pane exits immediately after creation (e.g. binary crash, config error). Capture exit output before pane disappears, report diagnostic to lead agent instead of blindly sending prompt to dead pane. |
+| 12.2 | Textual TUI Dashboard | P1 | Interactive terminal UI with Textual: task list, DAG dependency view, live log stream, keyboard navigation. See `.openmax/briefs/tui-dashboard-implementation.md` |
+| 2.2 | Load Balancing | P3 | No queue management or agent load distribution |
+| 9.2 | Acceptance Confirmation | P3 | Post-verification user approval gate |
 
 ---
 

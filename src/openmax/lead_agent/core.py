@@ -20,7 +20,7 @@ from claude_agent_sdk import (
 
 from openmax import __version__
 from openmax.agent_registry import AgentRegistry, built_in_agent_registry
-from openmax.dashboard import RunDashboard, print_agent_text
+from openmax.dashboard import create_dashboard, print_agent_text
 from openmax.lead_agent.formatting import _format_tool_use, tool_category
 from openmax.lead_agent.runtime import (
     LeadAgentRuntime,
@@ -232,6 +232,7 @@ def run_lead_agent(
     loop_context: str | None = None,
     plan_confirm: bool = True,
     verbose: bool = False,
+    tui: bool = True,
 ) -> PlanResult:
     """Run the lead agent synchronously (wraps async), with retry on transient API errors."""
     for attempt in range(_MAX_TRANSIENT_RETRIES + 1):
@@ -250,6 +251,7 @@ def run_lead_agent(
                 loop_context,
                 plan_confirm,
                 verbose,
+                tui,
             )
         except _TransientAPIError:
             if attempt >= _MAX_TRANSIENT_RETRIES:
@@ -274,9 +276,10 @@ async def _run_lead_agent_async(
     loop_context: str | None = None,
     plan_confirm: bool = True,
     verbose: bool = False,
+    tui: bool = True,
 ) -> PlanResult:
     normalized_cwd = str(Path(cwd).resolve())
-    dashboard = RunDashboard(task, verbose=verbose)
+    dashboard = create_dashboard(task, verbose=verbose, tui=tui)
     runtime = LeadAgentRuntime(
         cwd=cwd,
         plan=PlanResult(goal=task),

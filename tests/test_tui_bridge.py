@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 
-from openmax.tui.bridge import DashboardBridge, DashboardState, SubtaskInfo
+from openmax.tui.bridge import DashboardBridge
 
 
 def test_initial_state():
