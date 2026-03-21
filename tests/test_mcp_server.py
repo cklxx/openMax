@@ -59,6 +59,17 @@ def test_report_done_returns_error_without_session_env(monkeypatch):
     }
 
 
+def test_report_progress_soft_fails_without_session_id(monkeypatch):
+    """report_progress returns ok with warning instead of hard error when session_id is missing."""
+    monkeypatch.delenv("OPENMAX_SESSION_ID", raising=False)
+
+    result = report_progress("API task", 50, "halfway done")
+
+    assert result["ok"] is True
+    assert "warning" in result
+    assert "no session_id" in result["warning"]
+
+
 def test_report_progress_rejects_invalid_pct(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENMAX_SESSION_ID", "mcp-invalid-pct")
     mailbox = SessionMailbox("mcp-invalid-pct", tmp_path)

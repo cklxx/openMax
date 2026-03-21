@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
 from openmax.mailbox import send_mailbox_payload
+
+log = logging.getLogger(__name__)
 
 mcp = FastMCP(
     "openmax",
@@ -43,9 +46,17 @@ def _resolve_session_id(explicit: str) -> str | None:
     return _current_session_id()
 
 
-def _send_tool_payload(payload: dict[str, Any], session_id: str = "") -> dict[str, Any]:
+def _send_tool_payload(
+    payload: dict[str, Any],
+    session_id: str = "",
+    *,
+    soft_fail: bool = False,
+) -> dict[str, Any]:
     session_id = _resolve_session_id(session_id)
     if not session_id:
+        if soft_fail:
+            log.warning("report_progress called without session_id — progress not forwarded")
+            return {"ok": True, "warning": "no session_id, progress not forwarded"}
         return _error_result(
             "session_id is required: pass it as a parameter, or ensure "
             "OPENMAX_SESSION_ID is set in the environment"
@@ -54,13 +65,19 @@ def _send_tool_payload(payload: dict[str, Any], session_id: str = "") -> dict[st
     try:
         send_mailbox_payload(session_id, payload)
     except (FileNotFoundError, OSError) as exc:
+        if soft_fail:
+            log.warning("report_progress delivery failed: %s", exc)
+            return {"ok": True, "warning": f"delivery failed: {exc}"}
         return _error_result(str(exc))
 
     return {"ok": True, "session_id": session_id, "payload": payload}
 
 
 @mcp.tool(
-    description="Report that a sub-task is complete. Pass session_id from the task brief.",
+    description=(
+        "Report that a sub-task is complete. "
+        "Pass session_id from the '## Your Task (openMax)' section of your prompt."
+    ),
     structured_output=True,
 )
 def report_done(task: str, summary: str, session_id: str = "") -> dict[str, Any]:
@@ -79,7 +96,10 @@ def report_done(task: str, summary: str, session_id: str = "") -> dict[str, Any]
 
 
 @mcp.tool(
-    description="Report progress. Pass session_id from the task brief.",
+    description=(
+        "Report progress on a sub-task. "
+        "Pass session_id from the '## Your Task (openMax)' section of your prompt."
+    ),
     structured_output=True,
 )
 def report_progress(task: str, pct: int, msg: str, session_id: str = "") -> dict[str, Any]:
@@ -97,6 +117,7 @@ def report_progress(task: str, pct: int, msg: str, session_id: str = "") -> dict
     return _send_tool_payload(
         {"type": "progress", "task": task_name, "pct": pct, "msg": status_msg},
         session_id,
+        soft_fail=True,
     )
 
 

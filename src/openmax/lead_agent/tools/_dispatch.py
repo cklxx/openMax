@@ -15,11 +15,13 @@ from openmax.lead_agent.tools._helpers import (
     _CHECKPOINT_PROTOCOL,
     _append_session_event,
     _build_blackboard_block,
+    _build_identity_block,
     _build_role_context,
     _build_subagent_context,
     _extract_smart_output,
     _file_protocol_section,
     _read_subtask_report_for_pane,
+    _resolve_session_id,
     _runtime,
     _safe_launch_pane,
     _tool_response,
@@ -240,7 +242,11 @@ def _setup_branch_isolation_sync(cwd: str, task_name: str) -> tuple[str | None, 
     return None, branch_err, ""
 
 
-async def _setup_branch_isolation(runtime: Any, task_name: str) -> tuple[str | None, str]:
+async def _setup_branch_isolation(
+    runtime: Any,
+    task_name: str,
+    session_id: str | None = None,
+) -> tuple[str | None, str]:
     """Create per-agent branch + worktree. Returns (branch_name, agent_cwd)."""
     if runtime.integration_branch is None:
         runtime.integration_branch = await anyio.to_thread.run_sync(
@@ -252,7 +258,7 @@ async def _setup_branch_isolation(runtime: Any, task_name: str) -> tuple[str | N
             lambda: _setup_branch_isolation_sync(runtime.cwd, task_name)
         )
     if branch_name and wt_path:
-        inject_claude_md(wt_path, task_name)
+        inject_claude_md(wt_path, task_name, session_id=session_id)
         console.print(f"  [dim]{P}  branch {branch_name} → {wt_path}[/dim]")
         return branch_name, wt_path
     if err:
@@ -265,20 +271,23 @@ def _build_full_prompt(
     branch_name: str | None,
     agent_cwd: str,
     task_name: str,
-    brief_file: Any,
     rep_file: Any,
     role_context: str = "",
+    session_id: str | None = None,
 ) -> str:
+    identity = _build_identity_block(task_name, session_id)
     context_block = _build_subagent_context(branch_name=branch_name, agent_cwd=agent_cwd)
-    if context_block:
-        prompt = prompt + context_block
     blackboard_block = _build_blackboard_block(agent_cwd)
+    parts = [identity, prompt]
+    if context_block:
+        parts.append(context_block)
     if blackboard_block:
-        prompt = prompt + blackboard_block
+        parts.append(blackboard_block)
     if role_context:
-        prompt = prompt + "\n\n" + role_context
-    prompt = prompt + _CHECKPOINT_PROTOCOL.format(task_name=task_name)
-    return prompt + _file_protocol_section(brief_file, rep_file, agent_cwd)
+        parts.append("\n\n" + role_context)
+    parts.append(_CHECKPOINT_PROTOCOL.format(task_name=task_name))
+    parts.append(_file_protocol_section(rep_file, agent_cwd))
+    return "".join(parts)
 
 
 def _dispatch_failure_response(
@@ -358,9 +367,10 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     agent_type = _resolve_agent_type(runtime, agent_type)
     agent_type, adapter = _resolve_adapter(runtime, agent_type)
 
-    branch_name, agent_cwd = await _setup_branch_isolation(runtime, task_name)
+    session_id = _resolve_session_id()
+    branch_name, agent_cwd = await _setup_branch_isolation(runtime, task_name, session_id)
 
-    brief_file = write_brief(agent_cwd, task_name, prompt)
+    write_brief(agent_cwd, task_name, prompt)
     if agent_cwd != runtime.cwd:
         write_brief(runtime.cwd, task_name, prompt)
     rep_file = report_path(agent_cwd, task_name)
@@ -371,9 +381,9 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         branch_name,
         agent_cwd,
         task_name,
-        brief_file,
         rep_file,
         role_context=role_context,
+        session_id=session_id,
     )
 
     cost_estimate = estimate_task_cost(len(prompt), agent_type)

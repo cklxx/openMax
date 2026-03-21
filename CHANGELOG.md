@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.46
+
+- **Feature**: sub-agent prompt restructure — identity block (task name + session_id) now placed at the top of agent prompts so agents know who they are even if prompt is truncated
+- **Feature**: explicit MCP callback examples with pre-filled `session_id` in both prompt and CLAUDE.md — agents no longer have to guess the correct parameters
+- **Fix**: `report_progress` no longer hard-fails when `session_id` is missing — returns `ok: true` with a warning instead, preventing agent workflow interruption
+- **Cleanup**: condensed File Protocol section — removed redundant brief reference and verbose report template (already in CLAUDE.md)
+
 ## 0.5.45
 
 - **Feature**: auto agent selection — `agent_type` is now optional in `dispatch_agent`; system auto-infers from `role` (reviewer/challenger/debugger→claude-code, writer→codex) when both agents are available

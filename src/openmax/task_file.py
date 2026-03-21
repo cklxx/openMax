@@ -134,14 +134,31 @@ done | error | partial
 This report is read by the orchestrator — always write it before finishing.\
 """
 
+_MCP_CALLBACK_INSTRUCTION = """\
 
-def inject_claude_md(cwd: str, task_name: str) -> None:
-    """Append file-protocol instructions to CLAUDE.md in the agent's cwd.
+After writing the report, notify the lead agent (REQUIRED):
+  report_done(task="{task_name}", summary="<one-line>", session_id="{session_id}")
 
-    Claude Code auto-loads CLAUDE.md, making this more reliable than
-    prompt injection alone.
-    """
+For mid-task progress updates:
+  report_progress(task="{task_name}", pct=<0-100>, msg="...", session_id="{session_id}")
+
+These are MCP tools from the `openmax` server. Always include session_id.\
+"""
+
+
+def inject_claude_md(
+    cwd: str,
+    task_name: str,
+    *,
+    session_id: str | None = None,
+) -> None:
+    """Append file-protocol + MCP callback instructions to CLAUDE.md."""
     instruction = _REPORT_INSTRUCTION.format(task_name=task_name)
+    if session_id:
+        instruction += _MCP_CALLBACK_INSTRUCTION.format(
+            task_name=task_name,
+            session_id=session_id,
+        )
     block = f"\n\n# openMax Task: {task_name}\n\n{instruction}\n"
     claude_md = Path(cwd) / "CLAUDE.md"
     if claude_md.exists():

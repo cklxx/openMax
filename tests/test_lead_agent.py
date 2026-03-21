@@ -121,7 +121,8 @@ def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
     st = runtime.plan.subtasks[0]
     assert st.name == "API"
     assert st.agent_type == "generic"
-    assert st.prompt.startswith("Implement API")
+    assert "## Your Task (openMax)" in st.prompt
+    assert "Implement API" in st.prompt
     assert "## File Protocol (openMax)" in st.prompt
     assert 'session_id="lead-test"' in st.prompt
     assert st.status == TaskStatus.RUNNING
@@ -129,7 +130,7 @@ def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
     assert st.started_at is not None
     assert len(runtime.pane_mgr.sent) == 1
     assert runtime.pane_mgr.sent[0][0] == 101
-    assert runtime.pane_mgr.sent[0][1].startswith("Implement API")
+    assert "Implement API" in runtime.pane_mgr.sent[0][1]
 
     _teardown_session(token)
 
@@ -291,7 +292,7 @@ def test_dispatch_agent_uses_configured_custom_agent(monkeypatch, tmp_path):
     ]
     assert len(runtime.pane_mgr.sent) == 1
     assert runtime.pane_mgr.sent[0][0] == 101
-    assert runtime.pane_mgr.sent[0][1].startswith("Implement API")
+    assert "Implement API" in runtime.pane_mgr.sent[0][1]
 
     _teardown_session(token)
 

@@ -511,45 +511,43 @@ def _read_subtask_report_for_pane(pane_id: int) -> str | None:
     return None
 
 
-def _file_protocol_section(brief_file: Path, rep_file: Path, cwd: str) -> str:
-    """Build the file protocol instructions to append to agent prompts."""
-    brief_rel = brief_file.relative_to(cwd)
-    report_rel = rep_file.relative_to(cwd)
-
-    session_id: str | None = None
+def _resolve_session_id() -> str | None:
     try:
         rt = _runtime()
         if rt.session_meta:
-            session_id = rt.session_meta.session_id
+            return rt.session_meta.session_id
     except RuntimeError:
         pass
+    return None
 
-    mailbox_line = ""
+
+def _build_identity_block(task_name: str, session_id: str | None) -> str:
+    """Build identity + communication block — placed at the top of agent prompts."""
+    lines = [
+        f"\n\n## Your Task (openMax)\n\n- Task: {task_name}\n- Session: {session_id or 'unknown'}",
+    ]
+
     if session_id:
-        mailbox_line = (
-            "\n\nAlso notify the lead agent when done"
-            " (REQUIRED — do this after writing the report):\n"
-            "Use the MCP tool `report_done` with your task name and a one-line summary.\n"
-            "For mid-task progress, use the MCP tool `report_progress` with `task`, "
-            "`pct`, and `msg`.\n"
-            f'Always pass `session_id="{session_id}"` when calling these MCP tools.'
+        lines.append(
+            f"\n\n## Communication (REQUIRED)\n\n"
+            f"During work — periodically report progress:\n"
+            f'  report_progress(task="{task_name}", pct=<0-100>, '
+            f'msg="...", session_id="{session_id}")\n\n'
+            f"When done — AFTER writing your report file:\n"
+            f'  report_done(task="{task_name}", summary="...", '
+            f'session_id="{session_id}")\n\n'
+            f"These are MCP tools from the `openmax` server. Always include session_id."
         )
+
+    return "".join(lines)
+
+
+def _file_protocol_section(rep_file: Path, cwd: str) -> str:
+    """Build the file protocol instructions to append to agent prompts."""
+    report_rel = rep_file.relative_to(cwd)
 
     return (
         f"\n\n## File Protocol (openMax)\n\n"
-        f"Your full task brief is saved at: `{brief_rel}`\n\n"
-        f"When you finish, write a completion report to: "
-        f"`{report_rel}`\n\n"
-        f"Report format:\n"
-        f"```\n"
-        f"## Status\n"
-        f"done | error | partial\n\n"
-        f"## Summary\n"
-        f"<What was accomplished>\n\n"
-        f"## Changes\n"
-        f"- <file>: <what changed>\n\n"
-        f"## Test Results\n"
-        f"<pass/fail details>\n"
-        f"```"
-        f"{mailbox_line}"
+        f"When done, write a completion report to `{report_rel}` with sections: "
+        f"Status (done|error|partial), Summary, Changes, Test Results."
     )
