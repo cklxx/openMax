@@ -37,6 +37,7 @@ class DashboardState:
     tool_events: list[dict] = field(default_factory=list)
     dispatch_prompts: dict[str, str] = field(default_factory=dict)
     log_lines: list[str] = field(default_factory=list)
+    task_dependencies: dict[str, list[str]] = field(default_factory=dict)
     monitor_count: int = 0
     start_time: float = field(default_factory=time.monotonic)
     # session metrics
@@ -128,6 +129,11 @@ class DashboardBridge:
             self._state.log_lines.append(line)
             if len(self._state.log_lines) > _MAX_LOG_LINES:
                 self._state.log_lines = self._state.log_lines[-_MAX_LOG_LINES:]
+            self._version += 1
+
+    def set_task_dependencies(self, deps: dict[str, list[str]]) -> None:
+        with self._lock:
+            self._state.task_dependencies = deps
             self._version += 1
 
     def set_dispatch_prompt(self, name: str, prompt: str) -> None:
@@ -226,6 +232,9 @@ class TuiDashboard:
             acceleration_ratio=acceleration_ratio,
             critical_path_seconds=critical_path_seconds,
         )
+
+    def set_task_dependencies(self, deps: dict[str, list[str]]) -> None:
+        self._bridge.set_task_dependencies(deps)
 
     def set_dispatch_prompt(self, name: str, prompt: str) -> None:
         self._bridge.set_dispatch_prompt(name, prompt)

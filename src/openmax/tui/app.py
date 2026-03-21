@@ -65,5 +65,4 @@ class OpenMaxApp(App):
         self.query_one(StatusBarWidget).refresh_from_state(state)
 
     def action_toggle_dag(self) -> None:
-        state = self._bridge.get_snapshot()
-        self.push_screen(DagScreen(state))
+        self.push_screen(DagScreen(self._bridge))
