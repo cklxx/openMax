@@ -293,13 +293,13 @@ def _format_completion(value: int | None) -> str:
 
 
 def _inspect_elapsed(task) -> str:
-    """Compute elapsed string from a SubtaskState's started_at/finished_at (epoch floats)."""
+    """Compute elapsed string from a SubtaskState's started_at/ended_at datetimes."""
     start = getattr(task, "started_at", None)
-    end = getattr(task, "finished_at", None)
-    if not start:
+    end = getattr(task, "ended_at", None)
+    if start is None:
         return "-"
-    ref = end or time.time()
-    secs = max(0, int(ref - start))
+    ref = end or datetime.now(timezone.utc)
+    secs = max(0, int((ref - start).total_seconds()))
     m, s = divmod(secs, 60)
     return f"{m}:{s:02d}" if m else f"{s}s"
 

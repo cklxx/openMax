@@ -58,6 +58,8 @@ class SubtaskState:
     pane_id: int | None = None
     pane_history: list[int] = field(default_factory=list)
     branch_name: str | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
 
 
 @dataclass
@@ -161,6 +163,15 @@ class ReconstructedPlan:
     completion_pct: int | None = None
     report_notes: str | None = None
     outcome_summary: str | None = None
+
+    @property
+    def average_task_duration_seconds(self) -> float:
+        durations = [
+            (t.ended_at - t.started_at).total_seconds()
+            for t in self.subtasks
+            if t.status == "done" and t.started_at is not None and t.ended_at is not None
+        ]
+        return sum(durations) / len(durations) if durations else 0.0
 
 
 @dataclass
@@ -434,6 +445,7 @@ def _on_dispatch_agent(state: _ReconstructionState, payload: dict[str, Any], ts:
         status="running",
         pane_id=resolved_pane_id,
         pane_history=pane_history,
+        started_at=_parse_timestamp(ts),
     )
     pane_suffix = _pane_suffix(state.tasks[name].pane_id)
     state.recent_activity.append(
@@ -460,6 +472,7 @@ def _on_mark_task_done(state: _ReconstructionState, payload: dict[str, Any], ts:
     if task is None:
         task = SubtaskState(name=name, agent_type="unknown", prompt="", status="done")
     task.status = "done"
+    task.ended_at = _parse_timestamp(ts)
     state.tasks[name] = task
     state.recent_activity.append(f"Marked '{name}' done")
 

@@ -817,3 +817,90 @@ def test_run_scorecard_total_tool_calls(tmp_path):
 
     assert scorecard.total_tool_calls == 4
     assert "tool_calls=4" in scorecard.surface_details
+
+
+# ── average_task_duration_seconds ──────────────────────────────────────────
+
+
+def test_avg_task_duration_multiple_done(tmp_path):
+    """Multiple done subtasks → correct mean duration."""
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("avg-dur-multi", "Goal", str(tmp_path))
+
+    store.append_event(
+        meta,
+        "tool.dispatch_agent",
+        {"task_name": "A", "agent_type": "codex", "prompt": "do A", "pane_id": 1},
+    )
+    store.append_event(
+        meta,
+        "tool.dispatch_agent",
+        {"task_name": "B", "agent_type": "codex", "prompt": "do B", "pane_id": 2},
+    )
+    store.append_event(meta, "tool.mark_task_done", {"task_name": "A"})
+    store.append_event(meta, "tool.mark_task_done", {"task_name": "B"})
+
+    snapshot = store.load_snapshot("avg-dur-multi")
+    avg = snapshot.plan.average_task_duration_seconds
+    assert isinstance(avg, float)
+    assert avg > 0.0
+
+
+def test_avg_task_duration_no_done_subtasks(tmp_path):
+    """No done subtasks → 0.0."""
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("avg-dur-none", "Goal", str(tmp_path))
+
+    store.append_event(
+        meta,
+        "tool.dispatch_agent",
+        {"task_name": "X", "agent_type": "codex", "prompt": "do X", "pane_id": 1},
+    )
+
+    snapshot = store.load_snapshot("avg-dur-none")
+    assert snapshot.plan.average_task_duration_seconds == 0.0
+
+
+def test_avg_task_duration_mix_done_and_running(monkeypatch, tmp_path):
+    """Only done subtasks are counted; running ones are excluded."""
+    timestamps = iter(
+        [
+            "2026-03-13T12:00:00+00:00",  # dispatch A
+            "2026-03-13T12:00:00+00:00",  # dispatch B
+            "2026-03-13T12:01:00+00:00",  # mark A done (60s)
+        ]
+    )
+    monkeypatch.setattr(session_runtime, "utc_now_iso", lambda: next(timestamps))
+
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("avg-dur-mix", "Goal", str(tmp_path))
+
+    store.append_event(
+        meta,
+        "tool.dispatch_agent",
+        {"task_name": "A", "agent_type": "codex", "prompt": "do A", "pane_id": 1},
+    )
+    store.append_event(
+        meta,
+        "tool.dispatch_agent",
+        {"task_name": "B", "agent_type": "codex", "prompt": "do B", "pane_id": 2},
+    )
+    store.append_event(meta, "tool.mark_task_done", {"task_name": "A"})
+
+    snapshot = store.load_snapshot("avg-dur-mix")
+    assert snapshot.plan.average_task_duration_seconds == 60.0
+
+
+def test_avg_task_duration_done_missing_started_at(tmp_path):
+    """Done subtask without started_at (e.g. marked done without dispatch) → skipped."""
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("avg-dur-no-start", "Goal", str(tmp_path))
+
+    # Mark done without dispatch → subtask has no started_at
+    store.append_event(meta, "tool.mark_task_done", {"task_name": "orphan"})
+
+    snapshot = store.load_snapshot("avg-dur-no-start")
+    orphan = snapshot.plan.subtasks[0]
+    assert orphan.status == "done"
+    assert orphan.started_at is None
+    assert snapshot.plan.average_task_duration_seconds == 0.0
