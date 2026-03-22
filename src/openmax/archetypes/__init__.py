@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import logging
 import pathlib
 
@@ -38,7 +39,6 @@ def _parse_yaml_archetype(data: dict) -> Archetype:
         name=data["name"],
         display_name=data.get("display_name", data["name"]),
         description=data.get("description", ""),
-        indicators=data.get("indicators", []),
         subtask_templates=templates,
         planning_hints=data.get("planning_hints", []),
         anti_patterns=data.get("anti_patterns", []),
@@ -80,8 +80,9 @@ def _collect_yaml_archetypes(arch_dir: pathlib.Path) -> list[Archetype]:
     return results
 
 
+@functools.lru_cache(maxsize=8)
 def get_all_archetypes(cwd: str) -> list[Archetype]:
-    """Return built-in + custom archetypes."""
+    """Return built-in + custom archetypes (cached per cwd)."""
     return BUILT_IN_ARCHETYPES + load_custom_archetypes(cwd)
 
 

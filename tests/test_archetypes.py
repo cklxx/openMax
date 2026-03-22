@@ -23,20 +23,18 @@ from openmax.archetypes._base import (
 
 class TestSubtaskTemplateDefaults:
     def test_defaults_applied(self):
-        t = SubtaskTemplate(name="build", description="Build it", files_pattern="src/*.py")
+        t = SubtaskTemplate(name="build", description="Build it")
         assert t.dependencies == []
-        assert t.agent_type == "claude-code"
         assert t.estimated_minutes == 5
 
 
 class TestArchetypeCreation:
     def test_all_fields(self):
-        templates = [SubtaskTemplate(name="s1", description="d", files_pattern="*")]
+        templates = [SubtaskTemplate(name="s1", description="d")]
         arch = Archetype(
             name="test",
             display_name="Test Arch",
             description="A test archetype",
-            indicators=["setup.py", "pyproject.toml"],
             subtask_templates=templates,
             planning_hints=["hint1"],
             anti_patterns=["anti1"],
@@ -84,12 +82,11 @@ class TestClassifyTask:
 # --- match_archetype ---
 
 
-def _make_archetype(name: str, indicators: list[str] | None = None) -> Archetype:
+def _make_archetype(name: str) -> Archetype:
     return Archetype(
         name=name,
         display_name=name.title(),
         description=f"Test {name}",
-        indicators=indicators or [],
     )
 
 
@@ -100,35 +97,20 @@ class TestMatchArchetype:
         assert result is not None
         assert result.name == "web"
 
-    def test_matches_by_file_indicators(self):
-        arch = _make_archetype("web", indicators=["package.json"])
-        result = match_archetype("do something", [arch], ["package.json", "src/"])
-        assert result is not None
-        assert result.name == "web"
-
     def test_returns_none_when_no_archetypes(self):
         assert match_archetype("anything", []) is None
 
     def test_returns_none_when_confidence_too_low(self):
-        arch = _make_archetype("web", indicators=["very_specific_file.xyz"])
+        arch = _make_archetype("web")
         result = match_archetype("unrelated task", [arch])
         assert result is None
 
-    def test_combines_task_and_file_scores(self):
-        web = _make_archetype("web", indicators=["index.html"])
-        cli = _make_archetype("cli", indicators=["cli.py"])
-        result = match_archetype(
-            "build a web page",
-            [web, cli],
-            project_files=["index.html"],
-        )
+    def test_task_keywords_determine_match(self):
+        web = _make_archetype("web")
+        cli = _make_archetype("cli")
+        result = match_archetype("build a web page", [web, cli])
         assert result is not None
         assert result.name == "web"
-
-    def test_none_project_files_handled(self):
-        arch = _make_archetype("web", indicators=["package.json"])
-        result = match_archetype("build React app", [arch], project_files=None)
-        assert result is not None
 
 
 # --- Built-in archetypes ---
@@ -143,7 +125,6 @@ class TestBuiltInArchetypes:
             assert arch.name
             assert arch.display_name
             assert arch.description
-            assert len(arch.indicators) >= 3
 
     def test_all_have_subtask_templates(self):
         for arch in BUILT_IN_ARCHETYPES:
@@ -172,12 +153,9 @@ class TestLoadCustomArchetypes:
             name: custom
             display_name: Custom Archetype
             description: A test archetype
-            indicators:
-              - custom.yaml
             subtask_templates:
               - name: step1
                 description: First step
-                files_pattern: "src/**/*.py"
             planning_hints:
               - Do the thing
             anti_patterns:
@@ -206,6 +184,7 @@ class TestLoadCustomArchetypes:
 
 class TestGetAllArchetypes:
     def test_includes_builtins(self, tmp_path):
+        get_all_archetypes.cache_clear()
         result = get_all_archetypes(str(tmp_path))
         assert len(result) >= 5
 
@@ -242,12 +221,10 @@ class TestFormatSubtaskHints:
             name="test",
             display_name="Test",
             description="test",
-            indicators=[],
             subtask_templates=[
                 SubtaskTemplate(
                     name="step2",
                     description="Second",
-                    files_pattern="*",
                     dependencies=["step1"],
                 )
             ],

@@ -7,24 +7,20 @@ from dataclasses import dataclass, field
 class SubtaskTemplate:
     name: str
     description: str
-    files_pattern: str  # glob pattern like "src/**/*.py"
     dependencies: list[str] = field(default_factory=list)
-    agent_type: str = "claude-code"
     estimated_minutes: int = 5
 
 
 @dataclass
 class Archetype:
-    name: str  # e.g. "web_app", "cli_tool"
+    name: str
     display_name: str
     description: str
-    indicators: list[str]  # file patterns/keywords that signal this archetype
     subtask_templates: list[SubtaskTemplate] = field(default_factory=list)
     planning_hints: list[str] = field(default_factory=list)
     anti_patterns: list[str] = field(default_factory=list)
 
 
-# Category keywords with weights for task classification
 _CATEGORY_KEYWORDS: dict[str, list[tuple[str, float]]] = {
     "web": [
         ("frontend", 1.0),
@@ -96,41 +92,18 @@ def classify_task(task: str) -> dict[str, float]:
     return {cat: _score_category(task_lower, kws) for cat, kws in _CATEGORY_KEYWORDS.items()}
 
 
-def _indicator_score(archetype: Archetype, project_files: list[str]) -> float:
-    """Count how many archetype indicators match project files."""
-    files_lower = [f.lower() for f in project_files]
-    return sum(1.0 for ind in archetype.indicators if any(ind.lower() in f for f in files_lower))
-
-
-def _task_score(archetype: Archetype, scores: dict[str, float]) -> float:
-    """Map archetype name to its classification score."""
-    return scores.get(archetype.name, 0.0)
-
-
-def _combined_score(
-    archetype: Archetype,
-    scores: dict[str, float],
-    project_files: list[str],
-) -> float:
-    task_s = _task_score(archetype, scores)
-    file_s = _indicator_score(archetype, project_files) if project_files else 0.0
-    return task_s + file_s
-
-
 _MIN_CONFIDENCE = 0.5
 
 
 def match_archetype(
     task: str,
     archetypes: list[Archetype],
-    project_files: list[str] | None = None,
 ) -> Archetype | None:
-    """Find best archetype via task classification + file indicators."""
+    """Find best archetype via keyword-weighted task classification."""
     if not archetypes:
         return None
     scores = classify_task(task)
-    files = project_files or []
-    ranked = _rank_archetypes(archetypes, scores, files)
+    ranked = _rank_archetypes(archetypes, scores)
     if not ranked or ranked[0][1] < _MIN_CONFIDENCE:
         return None
     return ranked[0][0]
@@ -139,8 +112,7 @@ def match_archetype(
 def _rank_archetypes(
     archetypes: list[Archetype],
     scores: dict[str, float],
-    files: list[str],
 ) -> list[tuple[Archetype, float]]:
-    pairs = [(a, _combined_score(a, scores, files)) for a in archetypes]
+    pairs = [(a, scores.get(a.name, 0.0)) for a in archetypes]
     pairs.sort(key=lambda p: p[1], reverse=True)
     return pairs
