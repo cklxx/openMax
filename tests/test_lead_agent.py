@@ -2274,8 +2274,8 @@ def test_archetype_section_returns_none_when_module_missing(monkeypatch):
         return original_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", _block_archetypes)
-    result = lead_agent_core._archetype_section("add login", "/tmp/proj")
-    assert result is None
+    ctx, arch = lead_agent_core._match_archetype("add login", "/tmp/proj")
+    assert ctx is None
 
 
 def test_archetype_section_returns_none_on_no_match(monkeypatch):
@@ -2284,8 +2284,8 @@ def test_archetype_section_returns_none_on_no_match(monkeypatch):
 
     monkeypatch.setattr(
         mod,
-        "_archetype_section",
-        mod._archetype_section,  # keep real function
+        "_match_archetype",
+        mod._match_archetype,  # keep real function
     )
     # Patch at import level inside the function (lazy import)
     import types
@@ -2296,8 +2296,8 @@ def test_archetype_section_returns_none_on_no_match(monkeypatch):
     fake_mod.format_archetype_context = lambda a, t: ""
     monkeypatch.setitem(__import__("sys").modules, "openmax.archetypes", fake_mod)
 
-    result = lead_agent_core._archetype_section("random task", "/tmp")
-    assert result is None
+    ctx, arch = lead_agent_core._match_archetype("random task", "/tmp")
+    assert ctx is None
 
 
 def test_archetype_section_returns_context_on_match(monkeypatch):
@@ -2311,9 +2311,9 @@ def test_archetype_section_returns_context_on_match(monkeypatch):
     fake_mod.format_archetype_context = lambda a, t: "## Matched Archetype\nweb-app"
     monkeypatch.setitem(sys.modules, "openmax.archetypes", fake_mod)
 
-    result = lead_agent_core._archetype_section("build web app", "/tmp")
-    assert result is not None
-    assert "Matched Archetype" in result
+    ctx, arch = lead_agent_core._match_archetype("build web app", "/tmp")
+    assert ctx is not None
+    assert "Matched Archetype" in ctx
 
 
 def test_archetype_section_catches_runtime_errors(monkeypatch):
@@ -2327,16 +2327,16 @@ def test_archetype_section_catches_runtime_errors(monkeypatch):
     fake_mod.format_archetype_context = lambda a, t: ""
     monkeypatch.setitem(sys.modules, "openmax.archetypes", fake_mod)
 
-    result = lead_agent_core._archetype_section("task", "/tmp")
-    assert result is None
+    ctx, arch = lead_agent_core._match_archetype("task", "/tmp")
+    assert ctx is None
 
 
 def test_build_lead_prompt_includes_archetype(monkeypatch):
     """_build_lead_prompt includes archetype context when available."""
     monkeypatch.setattr(
         lead_agent_core,
-        "_archetype_section",
-        lambda task, cwd: "## Matched Archetype\ntest-archetype",
+        "_match_archetype",
+        lambda task, cwd: ("## Matched Archetype\ntest-archetype", "fake"),
     )
     monkeypatch.setattr(lead_agent_core, "_gather_project_snapshot", lambda *a, **kw: "")
 
@@ -2347,7 +2347,7 @@ def test_build_lead_prompt_includes_archetype(monkeypatch):
 
 def test_build_lead_prompt_skips_empty_archetype(monkeypatch):
     """_build_lead_prompt omits archetype section when None."""
-    monkeypatch.setattr(lead_agent_core, "_archetype_section", lambda task, cwd: None)
+    monkeypatch.setattr(lead_agent_core, "_match_archetype", lambda task, cwd: (None, None))
     monkeypatch.setattr(lead_agent_core, "_gather_project_snapshot", lambda *a, **kw: "")
 
     prompt = lead_agent_core._build_lead_prompt("do stuff", "/tmp", None, None)

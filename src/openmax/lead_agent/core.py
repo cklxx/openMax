@@ -193,19 +193,19 @@ def _agent_strategy_hint(allowed: list[str]) -> str:
     return f"Prefer '{allowed[0]}' for all tasks."
 
 
-def _archetype_section(task: str, cwd: str) -> str | None:
-    """Match task to an archetype and return formatted context, or None."""
+def _match_archetype(task: str, cwd: str) -> tuple[str | None, object]:
+    """Match task to an archetype. Returns (formatted_context, archetype_obj)."""
     try:
         from openmax.archetypes import format_archetype_context, get_all_archetypes, match_archetype
 
         archetypes = get_all_archetypes(cwd)
         match = match_archetype(task, archetypes)
         if match is None:
-            return None
+            return None, None
         section = format_archetype_context(match, task)
-        return section if section else None
+        return (section if section else None), match
     except Exception:
-        return None
+        return None, None
 
 
 def _build_lead_prompt(
@@ -223,7 +223,7 @@ def _build_lead_prompt(
     if snapshot:
         parts.append(f"## Project State\n{snapshot}")
 
-    archetype_ctx = _archetype_section(task, cwd)
+    archetype_ctx, _ = _match_archetype(task, cwd)
     if archetype_ctx:
         parts.append(archetype_ctx)
 
@@ -422,6 +422,9 @@ async def _run_lead_agent_async(
         )
         if model:
             options.model = model
+
+        _, matched_arch = _match_archetype(task, cwd)
+        runtime.matched_archetype = matched_arch
 
         prompt = _build_lead_prompt(
             task,

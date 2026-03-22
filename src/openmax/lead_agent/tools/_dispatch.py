@@ -204,6 +204,17 @@ async def _setup_branch_isolation(
     return None, runtime.cwd
 
 
+def _get_archetype_hints(runtime: Any, task_name: str) -> str:
+    """Get archetype-specific hints for a subtask, or empty string."""
+    try:
+        from openmax.archetypes import format_subtask_hints
+
+        arch = getattr(runtime, "matched_archetype", None)
+        return format_subtask_hints(arch) if arch else ""
+    except Exception:
+        return ""
+
+
 def _build_full_prompt(
     prompt: str,
     branch_name: str | None,
@@ -315,6 +326,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     rep_file = report_path(agent_cwd, task_name)
 
     role_context = _build_role_context(role)
+    hints = _get_archetype_hints(runtime, task_name)
     prompt = _build_full_prompt(
         prompt,
         branch_name,
@@ -323,6 +335,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         rep_file,
         role_context=role_context,
         session_id=session_id,
+        archetype_hints=hints,
     )
 
     cost_estimate = estimate_task_cost(len(prompt), agent_type)
