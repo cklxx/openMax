@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.6
+
+- **Fix**: Verification pane sets `PYTHONPATH=src/` so pytest can import the project without `pip install -e .` — eliminates first-attempt test failures
+
 ## 0.6.5
 
 - **Fix**: Verification pane now runs in project cwd — previously launched without cwd, causing import errors and wrong-directory lint failures

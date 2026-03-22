@@ -250,6 +250,12 @@ async def _run_single_check(
     )
     shell_cmd = ["bash", "-c", wrapped_cmd]
 
+    # Ensure src/ is on PYTHONPATH so editable-installed packages are importable
+    src_dir = str(Path(runtime.cwd) / "src")
+    env: dict[str, str] = {}
+    if Path(src_dir).is_dir():
+        env["PYTHONPATH"] = src_dir
+
     task_name = f"verify-{label}"
     pane, launch_err = _safe_launch_pane(
         runtime,
@@ -258,6 +264,7 @@ async def _run_single_check(
         agent_type="command",
         title=f"openMax: verify {label}",
         cwd=runtime.cwd,
+        env=env,
     )
     if pane is None:
         console.print(f"  [bold red]✗[/bold red]  verification launch failed: {launch_err}")
