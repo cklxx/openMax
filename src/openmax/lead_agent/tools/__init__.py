@@ -7,8 +7,10 @@ import time as time
 
 import anyio as anyio
 
+from openmax.lead_agent.tools._branch import _sanitize_branch_name as _sanitize_branch_name
 from openmax.lead_agent.tools._dispatch import _check_budget_warning as _check_budget_warning
 from openmax.lead_agent.tools._dispatch import dispatch_agent, read_pane_output, send_text_to_pane
+from openmax.lead_agent.tools._error_context import extract_error_context as extract_error_context
 from openmax.lead_agent.tools._helpers import _append_session_event as _append_session_event
 from openmax.lead_agent.tools._helpers import _compress_context as _compress_context
 from openmax.lead_agent.tools._misc import (
@@ -33,7 +35,6 @@ from openmax.lead_agent.tools._planning import (
 from openmax.lead_agent.tools._planning import record_phase_anchor as record_phase_anchor
 from openmax.lead_agent.tools._report import report_completion
 from openmax.lead_agent.tools._shared import read_shared_context_tool, update_shared_context
-from openmax.lead_agent.tools._verify import _sanitize_branch_name as _sanitize_branch_name
 from openmax.lead_agent.tools._verify import merge_agent_branch, run_verification
 
 ALL_TOOLS = [
@@ -41,8 +42,11 @@ ALL_TOOLS = [
     check_checkpoints,
     check_conflicts,
     dispatch_agent,
+    find_files_tool,
+    grep_files_tool,
     mark_task_done,
     merge_agent_branch,
+    read_file_tool,
     read_pane_output,
     read_shared_context_tool,
     read_task_report,

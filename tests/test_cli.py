@@ -151,11 +151,13 @@ def test_run_uses_headless_backend_without_checking_kaku(monkeypatch, tmp_path):
 
 def test_run_uses_kaku_backend_by_default(monkeypatch, tmp_path):
     ensure_calls: list[str] = []
+    monkeypatch.setattr("openmax.terminal.is_kaku_available", lambda: True)
     monkeypatch.setattr(
         cli,
         "ensure_kaku",
         lambda: ensure_calls.append("called") or True,
     )
+    monkeypatch.setattr(cli, "resolve_pane_backend_name", lambda name=None: "kaku")
     monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
 
     captured: dict[str, object] = {}

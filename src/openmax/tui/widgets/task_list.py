@@ -103,7 +103,7 @@ class TaskListWidget(Static):
         lines: list[str] = []
         for i, (name, info) in enumerate(self._state.subtasks.items()):
             icon = _task_icon(info.status)
-            pct = state.task_progress.get(info.name)
+            pct = self._state.task_progress.get(info.name)
             prog = _progress_bar(pct, info.status)
             elapsed = _elapsed_str(info.started_at, info.finished_at)
             lines.append(f"{icon} {info.name:<20s} {prog:<14s} {info.agent:<10s} {elapsed}")

@@ -3,9 +3,9 @@
 from openmax.lead_agent.tools._dispatch import (
     _RETRY_CONTEXT_MAX_CHARS,
     _build_retry_prompt,
-    extract_error_context,
     get_stuck_threshold,
 )
+from openmax.lead_agent.tools._error_context import extract_error_context
 from openmax.stats import SessionStats
 
 

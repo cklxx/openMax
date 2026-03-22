@@ -539,6 +539,8 @@ def test_task_progress_clamps_values():
     assert dash.task_progress["t1"] == 0
     dash.update_task_progress("t1", 150)
     assert dash.task_progress["t1"] == 100
+
+
 # ── Accessible mode (OPENMAX_ACCESSIBLE=1) ───────────────────────
 
 

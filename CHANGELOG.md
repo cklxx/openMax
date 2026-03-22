@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.1
+
+- **Perf**: Lead agent prompt compressed 25% (263→196 lines) — deduplicated rules, unified agent types/roles, removed contradictions
+- **Perf**: MCP tool descriptions shortened ~20% — less token overhead per turn
+- **Fix**: Registered `find_files`, `grep_files`, `read_file` into lead agent ALL_TOOLS (were implemented but never exposed)
+- **Feat**: Lead agent can now do lightweight file exploration directly instead of dispatching research agents for simple queries
+- **Feat**: New monitor signals: "Output but no commit" and "Unresponsive >5min" for better agent lifecycle tracking
+- **Feat**: Explicit decision authority framework — reversible decisions made immediately, irreversible escalated to user
+- **Refactor**: Extracted `_error_context.py` (66 lines) and `_branch.py` (139 lines) from oversized modules
+
 ## 0.6.0
 
 - **Breaking**: CLI command semantic restructure — 17 commands consolidated to 12 visible commands with grouped help output

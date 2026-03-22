@@ -103,9 +103,8 @@ def _check_and_report_anomaly() -> str | None:
 
 @tool(
     "report_completion",
-    "Report overall goal completion percentage and summary. Call exactly once "
-    "when all tasks are done. Describe what was delivered, not what was attempted. "
-    "This records a phase anchor for session tracking.",
+    "Report final completion. Call once when all tasks are done. "
+    "Describe what was delivered, not attempted.",
     {"completion_pct": int, "notes": str},
 )
 async def report_completion(args: dict[str, Any]) -> dict[str, Any]:

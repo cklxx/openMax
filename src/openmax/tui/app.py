@@ -91,8 +91,7 @@ class OpenMaxApp(App):
         self.query_one(StatusBarWidget).refresh_from_state(state)
 
     def action_toggle_dag(self) -> None:
-        state = self._bridge.get_snapshot()
-        self.push_screen(DagScreen(state))
+        self.push_screen(DagScreen(self._bridge))
 
     def action_cursor_down(self) -> None:
         self.query_one(TaskListWidget).move_cursor(1)
@@ -136,4 +135,3 @@ class OpenMaxApp(App):
 
     def action_show_help(self) -> None:
         self.push_screen(HelpScreen())
-        self.push_screen(DagScreen(self._bridge))

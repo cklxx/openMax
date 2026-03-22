@@ -25,11 +25,8 @@ from openmax.output import P, console
 
 @tool(
     "ask_user",
-    "Ask the human operator a question and wait for their answer. "
-    "Use when the goal is genuinely ambiguous or you need a decision "
-    "only the user can make. Do NOT use for routine confirmations. "
-    "Pass choices as a list of options \u2014 the user can pick by number "
-    "or type a free-form answer.",
+    "Ask the human operator a question. Only for genuinely ambiguous or "
+    "irreversible decisions. Pass choices as a list of options.",
     {"question": str, "choices": list},
 )
 async def ask_user(args: dict[str, Any]) -> dict[str, Any]:
@@ -72,9 +69,7 @@ async def ask_user(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "wait",
-    "Wait for a specified number of seconds before continuing. "
-    "Use between monitoring rounds: 10-15s for simple tasks, 30-45s for complex ones. "
-    "Increase if the agent is making steady progress.",
+    "Wait N seconds. Fallback for non-session monitoring. Prefer wait_for_agent_message instead.",
     {"seconds": int},
 )
 async def wait_tool(args: dict[str, Any]) -> dict[str, Any]:
@@ -85,9 +80,8 @@ async def wait_tool(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "run_command",
-    "Run a CLI command in a terminal pane. For build/test/git/servers — "
-    "NOT for code exploration (dispatch agents for that). "
-    "Set interactive=true for long-running programs, false (default) for one-shot.",
+    "Run a shell command in a pane. For build/test/git/servers. "
+    "Set interactive=true for long-running programs.",
     {
         "command": str,
         "task_name": str,
@@ -238,8 +232,7 @@ async def list_managed_panes(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "read_task_report",
-    "Read a sub-agent's completion report file. Returns the structured report "
-    "if the agent wrote one, or null if no report exists yet.",
+    "Read a sub-agent's completion report from .openmax/reports/.",
     {"task_name": str},
 )
 async def read_task_report(args: dict[str, Any]) -> dict[str, Any]:
@@ -252,9 +245,7 @@ async def read_task_report(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "find_files",
-    "Search for files by glob pattern in the working directory. "
-    "Returns matching file paths instantly (no pane needed). Max 200 results. "
-    "Examples: '**/*.md', 'src/**/*.py', '**/roadmap*', 'docs/**'.",
+    "Glob search for files. Max 200 results. Examples: '**/*.md', 'src/**/*.py'.",
     {"pattern": str, "path": str},
 )
 async def find_files_tool(args: dict[str, Any]) -> dict[str, Any]:
@@ -287,9 +278,8 @@ async def find_files_tool(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "grep_files",
-    "Search file contents for a regex pattern. Returns matching lines with "
-    "file paths and line numbers instantly (no pane needed). Max 100 matches. "
-    "Use glob param to filter files (e.g. '**/*.py').",
+    "Regex search across file contents. Returns matching lines with paths. "
+    "Use glob param to filter files.",
     {"pattern": str, "glob": str, "max_results": int},
 )
 async def grep_files_tool(args: dict[str, Any]) -> dict[str, Any]:
@@ -342,8 +332,7 @@ async def grep_files_tool(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "read_file",
-    "Read a file from the working directory. Returns file content instantly "
-    "(no pane needed, max 2000 lines). Specify offset/limit for large files.",
+    "Read a file (max 2000 lines). Use offset/limit for large files.",
     {"path": str, "offset": int, "limit": int},
 )
 async def read_file_tool(args: dict[str, Any]) -> dict[str, Any]:
@@ -416,11 +405,8 @@ def _auto_done_for_exited_panes(runtime: Any) -> dict[str, Any] | None:
 
 @tool(
     "wait_for_agent_message",
-    "Wait for a message from a sub-agent via the session mailbox. "
-    "Returns immediately when a message arrives, or after timeout. "
-    "On timeout, checks for panes that exited without sending a message "
-    "and synthesizes a done signal for them. "
-    "Use this instead of wait() as the primary monitoring primitive.",
+    "Primary monitoring primitive. Wait for a mailbox message from a sub-agent. "
+    "Returns on message or timeout. Auto-detects exited panes on timeout.",
     {"timeout": int},
 )
 async def wait_for_agent_message(args: dict[str, Any]) -> dict[str, Any]:

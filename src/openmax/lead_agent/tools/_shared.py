@@ -16,8 +16,7 @@ from openmax.task_file import append_shared_context, read_shared_context
 
 @tool(
     "update_shared_context",
-    "Append an update to the shared blackboard visible to all agents. "
-    "Use after key architectural decisions so subsequent agents inherit context.",
+    "Append to the shared blackboard. Use after key decisions for agent coordination.",
     {
         "type": "object",
         "properties": {
@@ -36,8 +35,7 @@ async def update_shared_context(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "read_shared_context",
-    "Read the shared blackboard. Call before dispatching dependent agents "
-    "to include relevant prior decisions in their briefs.",
+    "Read the shared blackboard. Check before dispatching dependent agents.",
     {},
 )
 async def read_shared_context_tool(args: dict[str, Any]) -> dict[str, Any]:

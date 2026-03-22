@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import hashlib
-import re
 import time
 from typing import Any
 
 import anyio
 from claude_agent_sdk import tool
 
+from openmax.lead_agent.tools._branch import (
+    _create_agent_branch,
+    _get_integration_branch,
+    _git_lock,
+    _sanitize_branch_name,
+)
 from openmax.lead_agent.tools._costing import estimate_task_cost
+from openmax.lead_agent.tools._error_context import extract_error_context
 from openmax.lead_agent.tools._helpers import (
     _CHECKPOINT_PROTOCOL,
     _append_session_event,
@@ -29,12 +35,6 @@ from openmax.lead_agent.tools._helpers import (
     _upsert_subtask,
     _wait_and_send_prompt,
     strip_terminal_noise,
-)
-from openmax.lead_agent.tools._verify import (
-    _create_agent_branch,
-    _get_integration_branch,
-    _git_lock,
-    _sanitize_branch_name,
 )
 from openmax.lead_agent.types import SubTask, TaskStatus
 from openmax.output import P, console
@@ -59,68 +59,6 @@ def get_stuck_threshold(stats: SessionStats | None = None) -> int:
     else:
         threshold = base
     return int(clamp(threshold, 2, 10))
-
-
-_ANSI_ESC_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\].*?\x07")
-_ERROR_MARKERS = ("Error", "FAILED", "Traceback", "panic:", "FATAL", "Exception", "[ERROR]")
-_CONTEXT_BEFORE = 5
-
-
-def _strip_ansi(text: str) -> str:
-    return _ANSI_ESC_RE.sub("", text)
-
-
-def _find_error_blocks(lines: list[str]) -> list[tuple[int, int]]:
-    """Find (start, end) ranges for each error block in lines."""
-    blocks: list[tuple[int, int]] = []
-    for i, line in enumerate(lines):
-        if not any(m in line for m in _ERROR_MARKERS):
-            continue
-        start = max(0, i - _CONTEXT_BEFORE)
-        end = i + 1
-        while end < len(lines) and lines[end].strip():
-            end += 1
-        blocks.append((start, end))
-    return _merge_overlapping(blocks)
-
-
-def _merge_overlapping(blocks: list[tuple[int, int]]) -> list[tuple[int, int]]:
-    if not blocks:
-        return []
-    merged = [blocks[0]]
-    for start, end in blocks[1:]:
-        if start <= merged[-1][1]:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-        else:
-            merged.append((start, end))
-    return merged
-
-
-def extract_error_context(output: str, max_chars: int = 2000) -> str:
-    """Extract syntax-aware error context from agent output.
-
-    Scans for error markers, extracts surrounding context, strips ANSI.
-    Falls back to last 20 lines when no markers are found.
-    """
-    if not output:
-        return ""
-    cleaned = _strip_ansi(output)
-    lines = cleaned.splitlines()
-    blocks = _find_error_blocks(lines)
-    if not blocks:
-        return "\n".join(lines[-20:])[:max_chars]
-    parts: list[str] = []
-    total = 0
-    for start, end in blocks:
-        chunk = "\n".join(lines[start:end])
-        if total + len(chunk) > max_chars:
-            remaining = max_chars - total
-            if remaining > 0:
-                parts.append(chunk[:remaining])
-            break
-        parts.append(chunk)
-        total += len(chunk) + 4  # account for separator
-    return "\n---\n".join(parts)[:max_chars]
 
 
 def _check_budget_warning(task_name: str, used: int, budget: int) -> str | None:
@@ -319,10 +257,8 @@ def _dispatch_failure_response(
 
 @tool(
     "dispatch_agent",
-    "Dispatch a sub-task to an AI agent in a terminal pane. "
-    "The prompt is the agent's ONLY context \u2014 include file paths, constraints, "
-    "and any knowledge it cannot discover on its own. "
-    "All agents share one window with smart grid layout. Returns pane_id.",
+    "Dispatch a sub-task to an AI agent. Include file paths, constraints, "
+    "and context in the prompt — it is the agent's only briefing. Returns pane_id.",
     {
         "type": "object",
         "properties": {
@@ -489,9 +425,8 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "read_pane_output",
-    "Read agent pane output. If pane_id is given, returns ~100 tail lines with "
-    "stuck/exited detection. If pane_id is omitted or -1, lists all managed panes "
-    "and their states (replaces list_managed_panes).",
+    "Read agent output. With pane_id: ~100 tail lines + stuck/exited status. "
+    "With pane_id=-1: lists all panes and states.",
     {"pane_id": int},
 )
 async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
@@ -576,8 +511,7 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "send_text_to_pane",
-    "Send text to an agent pane. Use to answer agent questions, correct drift, "
-    "or give follow-up instructions. Text is pasted and submitted automatically.",
+    "Send text to an agent pane. For answering questions or giving follow-up instructions.",
     {"pane_id": int, "text": str},
 )
 async def send_text_to_pane(args: dict[str, Any]) -> dict[str, Any]:

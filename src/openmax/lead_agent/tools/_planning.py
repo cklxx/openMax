@@ -139,10 +139,7 @@ def _prompt_plan_confirmation(
 
 @tool(
     "submit_plan",
-    "Submit a structured task decomposition before dispatching "
-    "agents. Validates dependencies (no cycles) and parallel "
-    "groups (no conflicts). Call this after planning and before "
-    "any dispatch_agent calls.",
+    "Submit task decomposition plan. Validates deps and parallel groups. Call before dispatch.",
     {
         "type": "object",
         "properties": {
@@ -259,8 +256,8 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "transition_phase",
-    "Transition between workflow phases. Validates from_phase matches current, "
-    "gate_summary is descriptive. Records phase.anchor event and updates session phase.",
+    "Move between workflow phases (research→plan→implement→verify). "
+    "Requires gate_summary ≥20 chars.",
     {
         "type": "object",
         "properties": {
@@ -318,8 +315,7 @@ async def transition_phase(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "check_checkpoints",
-    "Check for pending agent checkpoints — decision forks where sub-agents are waiting. "
-    "Include in every monitoring round.",
+    "Check for pending agent decision forks. Include in every monitoring round.",
     {},
 )
 async def check_checkpoints(args: dict[str, Any]) -> dict[str, Any]:
@@ -342,8 +338,7 @@ async def check_checkpoints(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "resolve_checkpoint",
-    "Resolve a pending agent checkpoint: delete the file, record the decision on the "
-    "blackboard, and send the decision to the agent's pane so it can continue.",
+    "Resolve a pending checkpoint. Records decision on blackboard and sends to agent.",
     {
         "type": "object",
         "properties": {
@@ -367,8 +362,7 @@ async def resolve_checkpoint(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "mark_task_done",
-    "Mark a sub-task as completed. Call only after verifying the agent has "
-    "committed its changes and output looks correct.",
+    "Mark a sub-task as completed. Call after verifying agent committed.",
     {"task_name": str, "notes": str},
 )
 async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:

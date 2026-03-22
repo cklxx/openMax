@@ -118,26 +118,6 @@ class TestTaskListWidget:
         w.refresh_from_state(state)
 
     def test_refresh_with_tasks(self):
-        state = _make_state(
-            subtasks={
-                "auth": SubtaskInfo(
-                    name="auth",
-                    agent="claude",
-                    pane_id=1,
-                    status="running",
-                    started_at=100.0,
-                ),
-                "api": SubtaskInfo(
-                    name="api",
-                    agent="codex",
-                    pane_id=2,
-                    status="done",
-                    started_at=100.0,
-                    finished_at=110.0,
-                ),
-            },
-            task_progress={"auth": 42},
-        )
         w = TaskListWidget()
         w.refresh_from_state(_two_task_state())
 

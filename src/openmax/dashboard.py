@@ -23,8 +23,13 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-from openmax.formatting import estimate_cost_usd, format_cost, format_tokens_short
-from openmax.formatting import _ACCESSIBLE_LABELS, is_accessible_mode
+from openmax.formatting import (
+    _ACCESSIBLE_LABELS,
+    estimate_cost_usd,
+    format_cost,
+    format_tokens_short,
+    is_accessible_mode,
+)
 from openmax.output import console
 from openmax.theme import get_theme
 
