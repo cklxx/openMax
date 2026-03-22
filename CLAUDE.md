@@ -12,7 +12,7 @@
 
 ## About
 
-openMax is a multi-AI-agent orchestration hub. It dispatches interactive AI agents (Claude Code, Codex, OpenCode) into terminal panes, monitors them, and reports results.
+openMax is a multi-AI-agent orchestration system for extreme parallel acceleration. It decomposes tasks using domain-aware Project Archetypes, dispatches AI agents (Claude Code, Codex, OpenCode) into isolated terminal panes with branch-per-agent git isolation, monitors them via mailbox-based signaling, and merges results automatically.
 
 ---
 

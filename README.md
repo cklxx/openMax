@@ -5,7 +5,7 @@
 <h1 align="center">openMax</h1>
 
 <p align="center">
-  <strong>Multi AI Agent orchestration hub</strong>
+  <strong>One command. Multiple AI agents. Extreme parallel acceleration.</strong>
 </p>
 
 <p align="center">
@@ -16,9 +16,9 @@
 
 ---
 
-One command, multiple AI agents, one window.
+Say what you want. openMax figures out how to split the work, dispatches AI agents ([Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), [OpenCode](https://github.com/opencode-ai/opencode)) into parallel terminal panes, monitors them, and merges the results. Built-in **Project Archetypes** give the lead agent domain-aware decomposition strategies — it knows how to split a web app, CLI tool, API service, or library without you telling it.
 
-openMax breaks down your task, dispatches agents ([Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), [OpenCode](https://github.com/opencode-ai/opencode)) into terminal panes, monitors progress, and intervenes when needed. Works with [Kaku](https://github.com/niceda/kaku) on macOS and [tmux](https://github.com/tmux/tmux) on any platform.
+Works with [Kaku](https://github.com/niceda/kaku) on macOS and [tmux](https://github.com/tmux/tmux) on any platform.
 
 ## Architecture
 
@@ -321,6 +321,38 @@ openMax uses a **lead agent** that has no direct access to files or code. Instea
 | `report_completion` | Finalize and report results |
 
 **Cleanup:** On exit (normal completion, Ctrl-C, or SIGTERM), all managed panes are killed automatically. Use `--keep-panes` to keep them open.
+
+## Project Archetypes
+
+openMax recognizes common project types and automatically applies the right decomposition strategy:
+
+| Archetype | Detected when | Decomposition |
+|-----------|--------------|---------------|
+| **Web App** | "web app", "full-stack", "SPA" | schema → API + frontend (parallel) → auth → tests |
+| **CLI Tool** | "CLI", "command-line", "terminal tool" | arg parsing → core logic → output formatting → tests |
+| **API Service** | "API", "REST", "microservice" | endpoints → middleware + auth (parallel) → models → tests |
+| **Library** | "library", "package", "SDK" | core module → public API → docs + tests → packaging |
+| **Refactor** | "refactor", "migrate", "restructure" | analysis → transform → update callers → tests |
+
+Each archetype includes planning hints, common failure modes, and anti-patterns — injected directly into agent briefs.
+
+**Custom archetypes:** Add `.openmax/archetypes/*.yaml` to your project:
+
+```yaml
+name: my_archetype
+display_name: My Custom Type
+description: Custom project type
+indicators: ["my-pattern"]
+subtask_templates:
+  - name: step-1
+    description: "First step"
+    files_pattern: "src/**/*.py"
+    estimated_minutes: 10
+planning_hints:
+  - "Check X before Y"
+anti_patterns:
+  - "Don't do Z"
+```
 
 ## Best Practice: Let Your Agent Call openMax
 
