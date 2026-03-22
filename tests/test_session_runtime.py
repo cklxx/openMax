@@ -393,7 +393,7 @@ def test_session_store_derives_run_scorecard_from_existing_session_data(monkeypa
     )
     assert (
         snapshot.plan.scorecard.surface_details
-        == "subtasks=1/1 done | interventions=1 | startup_failure=n/a"
+        == "subtasks=1/1 done | tool_calls=4 | interventions=1 | startup_failure=n/a"
     )
 
 
@@ -429,7 +429,7 @@ def test_session_store_derives_failed_scorecard_for_startup_failure(monkeypatch,
     assert snapshot.plan.scorecard.surface_summary == "status=failed | completion=n/a | duration=5s"
     assert (
         snapshot.plan.scorecard.surface_details
-        == "subtasks=0/0 done | interventions=0 | startup_failure=authentication"
+        == "subtasks=0/0 done | tool_calls=0 | interventions=0 | startup_failure=authentication"
     )
 
 
@@ -790,3 +790,30 @@ def test_session_duration_same_timestamp():
     ts = "2026-03-13T12:00:00+00:00"
     events = [_make_event("a", ts), _make_event("b", ts), _make_event("c", ts)]
     assert _compute_session_duration(events) == 0.0
+
+
+def test_run_scorecard_total_tool_calls(tmp_path):
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("session-tools", "Count tools", str(tmp_path))
+
+    store.append_event(meta, "session.started", {"task": meta.task})
+    store.append_event(
+        meta,
+        "phase.anchor",
+        anchor_payload(phase="plan", summary="Planning", tasks=[]),
+    )
+    store.append_event(meta, "usage.tokens", {"input_tokens": 10, "output_tokens": 5})
+    store.append_event(
+        meta,
+        "tool.dispatch_agent",
+        {"task_name": "t1", "agent_type": "codex", "prompt": "do it", "pane_id": 1},
+    )
+    store.append_event(meta, "tool.mark_task_done", {"task_name": "t1"})
+    store.append_event(meta, "tool.read_pane_output", {"pane_id": 1})
+    store.append_event(meta, "tool.dispatch_agent.failed", {"error": "boom"})
+
+    snapshot = store.load_snapshot("session-tools")
+    scorecard = snapshot.plan.scorecard
+
+    assert scorecard.total_tool_calls == 4
+    assert "tool_calls=4" in scorecard.surface_details

@@ -110,6 +110,7 @@ class RunScorecard:
     manual_intervention_count: int
     total_input_tokens: int = 0
     total_output_tokens: int = 0
+    total_tool_calls: int = 0
     completion_pct: int | None = None
     startup_failure_category: str | None = None
     critical_path_seconds: float | None = None
@@ -142,6 +143,7 @@ class RunScorecard:
         return " | ".join(
             [
                 f"subtasks={self.done_subtask_count}/{self.subtask_count} done",
+                f"tool_calls={self.total_tool_calls}",
                 f"interventions={self.manual_intervention_count}",
                 "startup_failure=" + (self.startup_failure_category or "n/a"),
             ]
@@ -961,6 +963,7 @@ def _build_run_scorecard(
             total_input_tokens += _coerce_int(ev.payload.get("input_tokens")) or 0
             total_output_tokens += _coerce_int(ev.payload.get("output_tokens")) or 0
 
+    total_tool_calls = sum(1 for ev in events if ev.event_type.startswith("tool."))
     done_subtask_count = sum(1 for task in tasks if task.status == "done")
     session_duration_seconds = _compute_session_duration(events)
     cp_seconds, accel_ratio = _compute_acceleration_ratio(events)
@@ -978,6 +981,7 @@ def _build_run_scorecard(
         manual_intervention_count=manual_intervention_count,
         total_input_tokens=total_input_tokens,
         total_output_tokens=total_output_tokens,
+        total_tool_calls=total_tool_calls,
         completion_pct=completion_pct,
         startup_failure_category=startup_failure_category,
         critical_path_seconds=cp_seconds,
