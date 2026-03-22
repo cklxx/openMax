@@ -106,7 +106,7 @@ _SNAPSHOT_CHAR_CAP = 500
 _SNAPSHOT_TIMEOUT = 3
 
 
-def _gather_project_snapshot(cwd: str) -> str:
+def _gather_project_snapshot(cwd: str, *, minimal: bool = False) -> str:
     """Return a compact project-state block (git + dir tree). Empty on failure."""
     try:
         sections: list[str] = []
@@ -130,14 +130,20 @@ def _gather_project_snapshot(cwd: str) -> str:
             branch = branch_result.stdout.strip() if branch_result.returncode == 0 else "unknown"
             dirty_lines = [line for line in git_result.stdout.splitlines() if line.strip()]
             dirty_count = len(dirty_lines)
-            header = f"Branch: {branch}"
-            if dirty_count:
-                header += f" | {dirty_count} uncommitted file{'s' if dirty_count != 1 else ''}"
-            sections.append(header)
-            for line in dirty_lines[:15]:
-                sections.append(f"  {line}")
-            if dirty_count > 15:
-                sections.append(f"  ... and {dirty_count - 15} more")
+            if dirty_count == 0:
+                sections.append(f"Branch: {branch} (clean)")
+            else:
+                sections.append(
+                    f"Branch: {branch} | {dirty_count} uncommitted file"
+                    f"{'s' if dirty_count != 1 else ''}"
+                )
+                for line in dirty_lines[:15]:
+                    sections.append(f"  {line}")
+                if dirty_count > 15:
+                    sections.append(f"  ... and {dirty_count - 15} more")
+
+        if minimal:
+            return "\n".join(sections)
 
         # Shallow directory tree (depth 2, dirs only)
         tree_lines: list[str] = []
@@ -146,7 +152,6 @@ def _gather_project_snapshot(cwd: str) -> str:
             if depth >= 2:
                 dirs.clear()
                 continue
-            # Skip hidden dirs and common noise
             dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d != "__pycache__")
             if depth == 0:
                 continue
@@ -156,7 +161,7 @@ def _gather_project_snapshot(cwd: str) -> str:
             if subdirs:
                 entry += f" — {subdirs}"
             tree_lines.append(entry)
-            if len(tree_lines) >= 30:
+            if len(tree_lines) >= 12:
                 break
 
         if tree_lines:
@@ -198,8 +203,8 @@ def _build_lead_prompt(
 ) -> str:
     parts = [f"## Goal\n{task}", f"Working directory: {cwd}"]
 
-    # Project snapshot (git + structure)
-    snapshot = _gather_project_snapshot(cwd)
+    # Project snapshot — minimal on resume (structure already known)
+    snapshot = _gather_project_snapshot(cwd, minimal=bool(resume_context))
     if snapshot:
         parts.append(f"## Project State\n{snapshot}")
 

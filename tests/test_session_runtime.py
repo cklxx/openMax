@@ -142,7 +142,7 @@ def test_context_builder_compacts_large_history_and_keeps_open_tasks(tmp_path):
     assert len(result.text) <= 320
     assert result.compaction_summary is not None
     assert "still-open" in result.text
-    assert "Completed subtasks count" in result.text
+    assert "Done: 18 subtask(s)" in result.text
 
 
 def test_session_store_reconstructs_startup_failure_activity(tmp_path):

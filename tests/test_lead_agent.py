@@ -121,9 +121,9 @@ def test_dispatch_agent_persists_event(monkeypatch, tmp_path):
     st = runtime.plan.subtasks[0]
     assert st.name == "API"
     assert st.agent_type == "generic"
-    assert "## Your Task (openMax)" in st.prompt
+    assert "## openMax Task" in st.prompt
     assert "Implement API" in st.prompt
-    assert "## File Protocol (openMax)" in st.prompt
+    assert "completion report" in st.prompt
     assert 'session_id="lead-test"' in st.prompt
     assert st.status == TaskStatus.RUNNING
     assert st.pane_id == 101
@@ -142,23 +142,23 @@ def test_format_tool_use_humanizes_all_openmax_tools():
             "mcp__openmax__dispatch_agent",
             {"task_name": "API routes", "agent_type": "codex"},
         )
-        == "Starting agent for API routes via codex"
+        == "Starting API routes via codex"
     )
     assert (
         _format_tool_use(
             "mcp__openmax__read_pane_output",
             {"pane_id": 12},
         )
-        == "Checking progress in pane 12"
+        == "Checking pane 12"
     )
     assert (
         _format_tool_use(
             "mcp__openmax__send_text_to_pane",
             {"pane_id": 12, "text": "Please rerun the failing tests with logs"},
         )
-        == "Sending follow-up to pane 12: Please rerun the failing tests with logs"
+        == "Sending to pane 12"
     )
-    assert _format_tool_use("mcp__openmax__list_managed_panes", {}) == "Reviewing active panes"
+    assert _format_tool_use("mcp__openmax__list_managed_panes", {}) == "Reviewing panes"
     assert (
         _format_tool_use(
             "mcp__openmax__mark_task_done",
@@ -175,21 +175,21 @@ def test_format_tool_use_humanizes_all_openmax_tools():
                 "completion_pct": 20,
             },
         )
-        == "Saving planning checkpoint (20%): Defined the delivery plan and split the work."
+        == "Anchor: planning (20%)"
     )
     assert (
         _format_tool_use(
             "mcp__openmax__report_completion",
             {"completion_pct": 100, "notes": "Everything finished and verified."},
         )
-        == "Publishing completion update (100%): Everything finished and verified."
+        == "Completion (100%): Everything finished and verified."
     )
     assert (
         _format_tool_use(
             "mcp__openmax__wait",
             {"seconds": 45},
         )
-        == "Waiting 45s before the next check"
+        == "Waiting 45s"
     )
 
 
@@ -551,7 +551,7 @@ def test_format_tool_use_run_verification():
         "mcp__openmax__run_verification",
         {"check_type": "lint", "command": "ruff check src/"},
     )
-    assert result == "Running verification: lint"
+    assert result == "Verifying: lint"
 
 
 def test_read_pane_output_returns_json_with_stuck_false(monkeypatch, tmp_path):
@@ -1155,7 +1155,7 @@ def test_format_tool_use_check_conflicts():
     from openmax.lead_agent.formatting import _format_tool_use
 
     result = _format_tool_use("mcp__openmax__check_conflicts", {})
-    assert result == "Checking for git conflicts"
+    assert result == "Checking git conflicts"
 
 
 def test_mark_task_done_sets_finished_at(tmp_path):

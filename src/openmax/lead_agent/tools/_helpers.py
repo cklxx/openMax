@@ -30,25 +30,9 @@ _CHECKPOINT_PROTOCOL = """
 
 ## Checkpoint Protocol
 
-If you reach a decision fork where multiple approaches are valid and the choice
-has significant downstream impact, write a structured request:
-
-File: `.openmax/checkpoints/{task_name}.md`
-
-```markdown
-## Decision needed
-<what you are trying to decide>
-
-## Options
-1. <option A> — pros/cons
-2. <option B> — pros/cons
-
-## My recommendation
-<which option and why>
-```
-
-Then pause and wait — do NOT proceed until you receive a decision via message.
-Only use this for genuine forks; use your judgment for routine implementation choices.
+For significant decision forks: write `.openmax/checkpoints/{task_name}.md`
+with sections "Decision needed", "Options" (pros/cons), "My recommendation".
+Then pause and wait for a decision. Routine choices are yours to make.
 """
 
 
@@ -523,31 +507,20 @@ def _resolve_session_id() -> str | None:
 
 def _build_identity_block(task_name: str, session_id: str | None) -> str:
     """Build identity + communication block — placed at the top of agent prompts."""
-    lines = [
-        f"\n\n## Your Task (openMax)\n\n- Task: {task_name}\n- Session: {session_id or 'unknown'}",
-    ]
-
+    sid = session_id or "unknown"
+    block = f"\n\n## openMax Task\n\nTask: {task_name} | Session: {sid}"
     if session_id:
-        lines.append(
-            f"\n\n## Communication (REQUIRED)\n\n"
-            f"During work — periodically report progress:\n"
-            f'  report_progress(task="{task_name}", pct=<0-100>, '
-            f'msg="...", session_id="{session_id}")\n\n'
-            f"When done — AFTER writing your report file:\n"
-            f'  report_done(task="{task_name}", summary="...", '
-            f'session_id="{session_id}")\n\n'
-            f"These are MCP tools from the `openmax` server. Always include session_id."
+        block += (
+            f'\n\nUse MCP tools from `openmax` server with session_id="{sid}":\n'
+            f'- report_progress(task="{task_name}", pct=<0-100>, msg="...")\n'
+            f'- report_done(task="{task_name}", summary="...") — call AFTER writing report file'
         )
-
-    return "".join(lines)
+    return block
 
 
 def _file_protocol_section(rep_file: Path, cwd: str) -> str:
     """Build the file protocol instructions to append to agent prompts."""
     report_rel = rep_file.relative_to(cwd)
-
     return (
-        f"\n\n## File Protocol (openMax)\n\n"
-        f"When done, write a completion report to `{report_rel}` with sections: "
-        f"Status (done|error|partial), Summary, Changes, Test Results."
+        f"\n\nWrite completion report to `{report_rel}` (Status, Summary, Changes, Test Results)."
     )

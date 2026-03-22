@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.2
+
+- **Fix**: Pre-existing TUI bridge test failure (stale assertion from copy-paste)
+- **Perf**: Resume context budget halved (12K→6K chars), activity filtered to key events only
+- **Perf**: Project snapshot minimal mode on resume — skips directory tree and tooling detection
+- **Perf**: Clean repos show one-line `Branch: main (clean)` instead of full snapshot
+- **Perf**: Sub-agent prompt injection compressed: checkpoint protocol 22→3 lines, identity block 13→7 lines, file protocol 5→1 line
+- **Perf**: Formatting module data-driven rewrite (220→147 lines) — format spec table replaces 133-line if-else chain
+- **Perf**: Directory tree capped at 12 entries (was 30)
+
 ## 0.6.1
 
 - **Perf**: Lead agent prompt compressed 25% (263→196 lines) — deduplicated rules, unified agent types/roles, removed contradictions

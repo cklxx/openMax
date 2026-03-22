@@ -14,7 +14,7 @@ from typing import Any, Literal
 from openmax._paths import default_sessions_dir, utc_now_iso
 
 SCHEMA_VERSION = 1
-DEFAULT_CONTEXT_CHAR_BUDGET = 12_000
+DEFAULT_CONTEXT_CHAR_BUDGET = 6_000
 
 TaskStatusLiteral = Literal["pending", "running", "done", "error"]
 
@@ -664,40 +664,42 @@ class ContextBuilder:
         plan = snapshot.plan
         open_tasks = [task for task in plan.subtasks if task.status != "done"]
         done_tasks = [task for task in plan.subtasks if task.status == "done"]
-        anchors = plan.anchors[-5:]
+        anchors = plan.anchors[-3:]
 
         sections = [
-            f"Resuming prior lead session '{snapshot.meta.session_id}'.",
-            f"Previous goal: {snapshot.meta.task}",
-            f"Latest recorded phase: {plan.latest_phase or 'unknown'}",
+            f"Resuming session '{snapshot.meta.session_id}'.",
+            f"Goal: {snapshot.meta.task}",
+            f"Phase: {plan.latest_phase or 'unknown'}",
         ]
 
         if anchors:
             anchor_lines = [
-                f"- {anchor.phase} @ {anchor.timestamp}: {anchor.summary or 'no summary'}"
-                for anchor in anchors
+                f"- {anchor.phase}: {(anchor.summary or 'no summary')[:120]}" for anchor in anchors
             ]
-            sections.append("Phase anchors:\n" + "\n".join(anchor_lines))
+            sections.append("Anchors:\n" + "\n".join(anchor_lines))
 
         if open_tasks:
             task_lines = [
-                f"- **Action required** {task.name} [{task.status}]"
-                f" via {task.agent_type}"
+                f"- {task.name} [{task.status}] via {task.agent_type}"
                 + (f" pane={task.pane_id}" if task.pane_id is not None else "")
                 for task in open_tasks
             ]
             sections.append("Open subtasks:\n" + "\n".join(task_lines))
 
         if done_tasks:
-            sections.append(
-                "Completed subtasks:\n"
-                + "\n".join(f"- {task.name}" for task in done_tasks[:10])
-                + (f"\n- ... and {len(done_tasks) - 10} more" if len(done_tasks) > 10 else "")
-            )
+            sections.append(f"Completed: {len(done_tasks)} subtask(s)")
 
         if plan.recent_activity:
-            recent_lines = "\n".join(f"- {item}" for item in plan.recent_activity[-12:])
-            sections.append("Recent workflow activity:\n" + recent_lines)
+            key_activity = [
+                item
+                for item in plan.recent_activity[-20:]
+                if any(
+                    kw in item
+                    for kw in ("error", "Error", "phase", "done", "fail", "merge", "conflict")
+                )
+            ][-8:]
+            if key_activity:
+                sections.append("Key activity:\n" + "\n".join(f"- {item}" for item in key_activity))
 
         if plan.report_notes:
             sections.append(f"Latest completion note: {plan.report_notes}")
@@ -707,30 +709,18 @@ class ContextBuilder:
             return ContextBuildResult(text=text)
 
         compact_sections = [
-            f"Resuming prior lead session '{snapshot.meta.session_id}'.",
+            f"Resuming session '{snapshot.meta.session_id}'.",
             f"Goal: {snapshot.meta.task}",
-            f"Latest phase: {plan.latest_phase or 'unknown'}",
+            f"Phase: {plan.latest_phase or 'unknown'}",
         ]
         if open_tasks:
             compact_sections.append(
-                "Open subtasks:\n"
-                + "\n".join(
-                    f"- {task.name} [{task.status}] via {task.agent_type}"
-                    for task in open_tasks[:12]
-                )
-            )
-        if anchors:
-            compact_sections.append(
-                "Most recent anchors:\n"
-                + "\n".join(
-                    f"- {anchor.phase}: {(anchor.summary or 'no summary')[:120]}"
-                    for anchor in anchors[-2:]
-                )
+                "Open: " + ", ".join(f"{task.name}[{task.status}]" for task in open_tasks[:8])
             )
         if done_tasks:
-            compact_sections.append(f"Completed subtasks count: {len(done_tasks)}")
+            compact_sections.append(f"Done: {len(done_tasks)} subtask(s)")
         if plan.report_notes:
-            compact_sections.append(f"Latest note: {plan.report_notes[:500]}")
+            compact_sections.append(f"Note: {plan.report_notes[:300]}")
 
         compact_text = "\n\n".join(compact_sections)
         return ContextBuildResult(

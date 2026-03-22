@@ -246,4 +246,3 @@ def test_tui_dashboard_delegates_task_progress():
     dash.update_task_progress("auth", 75)
     snap = dash._bridge.get_snapshot()
     assert snap.task_progress["auth"] == 75
-    assert snap.task_dependencies == {"x": ["y"]}

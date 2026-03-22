@@ -30,6 +30,8 @@ _TOOL_CATEGORIES: dict[str, str] = {
     "read_shared_context": "monitor",
     "check_checkpoints": "monitor",
     "resolve_checkpoint": "intervention",
+    "wait_for_agent_message": "monitor",
+    "read_task_report": "monitor",
 }
 
 _CATEGORY_STYLES: dict[str, str] = {
@@ -41,39 +43,23 @@ _CATEGORY_STYLES: dict[str, str] = {
 
 
 def tool_category(tool_name: str) -> str:
-    """Return the category for a tool name (dispatch/monitor/intervention/system)."""
     normalized = tool_name.removeprefix(_TOOL_NAME_PREFIX)
     return _TOOL_CATEGORIES.get(normalized, "system")
 
 
 def tool_style(category: str) -> str:
-    """Return the Rich style string for a tool category."""
     return _CATEGORY_STYLES.get(category, "dim")
 
 
-def _truncate_text(value: str, limit: int = 72) -> str:
+def _truncate_text(value: str, limit: int = 100) -> str:
     text = " ".join(value.split())
-    if len(text) <= limit:
-        return text
-    return text[: limit - 3].rstrip() + "..."
+    return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
 
 
 def _format_phase_name(phase: str) -> str:
     normalized = phase.strip().lower().replace("_", " ")
-    phase_aliases = {
-        "align": "goal alignment",
-        "plan": "planning",
-        "dispatch": "agent dispatch",
-        "monitor": "monitoring",
-        "report": "final report",
-    }
-    return phase_aliases.get(normalized, normalized or "workflow")
-
-
-def _format_completion_suffix(completion_pct: int | None) -> str:
-    if completion_pct is None:
-        return ""
-    return f" ({completion_pct}%)"
+    aliases = {"align": "goal alignment", "plan": "planning", "report": "final report"}
+    return aliases.get(normalized, normalized or "workflow")
 
 
 def _coerce_tool_int(value: Any) -> int | None:
@@ -84,136 +70,78 @@ def _coerce_tool_int(value: Any) -> int | None:
     return None
 
 
+# Format spec: tool_name -> (template, [key_fields])
+# Template placeholders: {0}, {1}, etc. map to key_fields values
+_TOOL_FORMATS: dict[str, tuple[str, list[str]]] = {
+    "dispatch_agent": ("Starting {0} via {1}", ["task_name", "agent_type"]),
+    "read_pane_output": ("Checking pane {0}", ["pane_id"]),
+    "send_text_to_pane": ("Sending to pane {0}", ["pane_id"]),
+    "mark_task_done": ("Marking {0} done", ["task_name"]),
+    "merge_agent_branch": ("Merging branch for {0}", ["task_name"]),
+    "run_command": ("Running: {0}", ["command"]),
+    "run_verification": ("Verifying: {0}", ["check_type"]),
+    "find_files": ("Finding: {0}", ["pattern"]),
+    "grep_files": ("Searching: {0}", ["pattern"]),
+    "read_file": ("Reading {0}", ["path"]),
+    "transition_phase": ("{0} → {1}", ["from_phase", "to_phase"]),
+    "resolve_checkpoint": ("Resolving checkpoint for {0}", ["task_name"]),
+    "update_shared_context": ("Updating blackboard", []),
+    "read_shared_context": ("Reading blackboard", []),
+    "check_checkpoints": ("Checking checkpoints", []),
+    "check_conflicts": ("Checking git conflicts", []),
+    "list_managed_panes": ("Reviewing panes", []),
+    "wait_for_agent_message": ("Waiting for agent message", []),
+    "read_task_report": ("Reading report for {0}", ["task_name"]),
+}
+
+
 def _format_tool_use(tool_name: str, tool_input: dict[str, Any] | None = None) -> str:
     normalized = tool_name.removeprefix(_TOOL_NAME_PREFIX)
-    tool_input = tool_input or {}
+    inp = tool_input or {}
 
+    # Special cases that need richer logic
     if normalized == "ask_user":
-        question = str(tool_input.get("question", "")).strip()
-        choices = tool_input.get("choices") or []
+        question = str(inp.get("question", "")).strip()
+        choices = inp.get("choices") or []
         if isinstance(choices, str):
             try:
                 choices = json.loads(choices)
             except (json.JSONDecodeError, ValueError):
                 choices = [choices]
         suffix = f" ({len(choices)} choices)" if choices else ""
-        if question:
-            return f"Asking user{suffix}: {_truncate_text(question)}"
-        return "Asking user a question"
-
-    if normalized == "dispatch_agent":
-        task_name = str(tool_input.get("task_name", "")).strip() or "sub-task"
-        agent_type = str(tool_input.get("agent_type", "")).strip() or "default agent"
-        return f"Starting agent for {task_name} via {agent_type}"
+        return f"Asking user{suffix}: {_truncate_text(question)}" if question else "Asking user"
 
     if normalized == "submit_plan":
-        subtasks = tool_input.get("subtasks", [])
+        subtasks = inp.get("subtasks", [])
         count = len(subtasks) if isinstance(subtasks, list) else 0
         return f"Submitting plan with {count} subtasks"
 
-    if normalized == "run_command":
-        command = str(tool_input.get("command", "")).strip()
-        task_name = str(tool_input.get("task_name", "")).strip()
-        label = task_name or command
-        return f"Running command: {_truncate_text(label)}"
-
-    if normalized == "run_verification":
-        check_type = str(tool_input.get("check_type", "")).strip()
-        command = str(tool_input.get("command", "")).strip()
-        label = check_type or command
-        return f"Running verification: {_truncate_text(label)}"
-
-    if normalized == "read_pane_output":
-        pane_id = tool_input.get("pane_id")
-        return (
-            f"Checking progress in pane {pane_id}"
-            if pane_id is not None
-            else "Checking agent progress"
-        )
-
-    if normalized == "send_text_to_pane":
-        pane_id = tool_input.get("pane_id")
-        text = str(tool_input.get("text", "")).strip()
-        preview = _truncate_text(text, limit=56)
-        if pane_id is not None and preview:
-            return f"Sending follow-up to pane {pane_id}: {preview}"
-        if pane_id is not None:
-            return f"Sending follow-up to pane {pane_id}"
-        return "Sending follow-up to an agent"
-
-    if normalized == "find_files":
-        pattern = str(tool_input.get("pattern", "")).strip()
-        return f"Finding files: {pattern}" if pattern else "Finding files"
-
-    if normalized == "grep_files":
-        pattern = str(tool_input.get("pattern", "")).strip()
-        return f"Searching: {_truncate_text(pattern)}" if pattern else "Searching files"
-
-    if normalized == "read_file":
-        path = str(tool_input.get("path", "")).strip()
-        return f"Reading {path}" if path else "Reading a file"
-
-    if normalized == "check_conflicts":
-        return "Checking for git conflicts"
-
-    if normalized == "list_managed_panes":
-        return "Reviewing active panes"
-
-    if normalized == "mark_task_done":
-        task_name = str(tool_input.get("task_name", "")).strip()
-        return f"Marking {task_name} done" if task_name else "Marking a sub-task done"
-
-    if normalized == "merge_agent_branch":
-        task_name = str(tool_input.get("task_name", "")).strip()
-        return f"Merging branch for {task_name}" if task_name else "Merging agent branch"
-
-    if normalized == "record_phase_anchor":
-        phase = _format_phase_name(str(tool_input.get("phase", "")))
-        summary = str(tool_input.get("summary", "")).strip()
-        suffix = _format_completion_suffix(_coerce_tool_int(tool_input.get("completion_pct")))
-        if summary:
-            return f"Saving {phase} checkpoint{suffix}: {_truncate_text(summary)}"
-        return f"Saving {phase} checkpoint{suffix}"
-
-    if normalized == "transition_phase":
-        from_p = str(tool_input.get("from_phase", "")).strip()
-        to_p = str(tool_input.get("to_phase", "")).strip()
-        return f"Transitioning phase: {from_p} \u2192 {to_p}"
-
     if normalized == "report_completion":
-        completion_pct = _coerce_tool_int(tool_input.get("completion_pct"))
-        notes = str(tool_input.get("notes", "")).strip()
-        suffix = _format_completion_suffix(completion_pct)
-        if notes:
-            return f"Publishing completion update{suffix}: {_truncate_text(notes)}"
-        return f"Publishing completion update{suffix}".strip()
+        pct = _coerce_tool_int(inp.get("completion_pct"))
+        notes = str(inp.get("notes", "")).strip()
+        suffix = f" ({pct}%)" if pct is not None else ""
+        return f"Completion{suffix}: {_truncate_text(notes)}" if notes else f"Completion{suffix}"
 
     if normalized == "wait":
-        seconds = _coerce_tool_int(tool_input.get("seconds"))
-        return (
-            f"Waiting {seconds}s before the next check"
-            if seconds
-            else "Waiting before the next check"
-        )
+        seconds = _coerce_tool_int(inp.get("seconds"))
+        return f"Waiting {seconds}s" if seconds else "Waiting"
 
-    if normalized == "update_shared_context":
-        section = str(tool_input.get("section", "")).strip()
-        return f"Updating blackboard: {section}" if section else "Updating shared blackboard"
+    if normalized == "record_phase_anchor":
+        phase = _format_phase_name(str(inp.get("phase", "")))
+        pct = _coerce_tool_int(inp.get("completion_pct"))
+        suffix = f" ({pct}%)" if pct is not None else ""
+        return f"Anchor: {phase}{suffix}"
 
-    if normalized == "read_shared_context":
-        return "Reading shared blackboard"
+    # Data-driven formatting
+    spec = _TOOL_FORMATS.get(normalized)
+    if spec:
+        template, keys = spec
+        values = [_truncate_text(str(inp.get(k, ""))) for k in keys]
+        try:
+            return template.format(*values) if values else template
+        except (IndexError, KeyError):
+            pass
 
-    if normalized == "check_checkpoints":
-        return "Checking for pending agent checkpoints"
-
-    if normalized == "resolve_checkpoint":
-        task_name = str(tool_input.get("task_name", "")).strip()
-        decision = str(tool_input.get("decision", "")).strip()
-        return (
-            f"Resolving checkpoint for {task_name}: {_truncate_text(decision)}"
-            if task_name
-            else "Resolving checkpoint"
-        )
-
+    # Generic fallback
     fallback = normalized.replace("_", " ").strip() or tool_name
     return fallback[:1].upper() + fallback[1:]
