@@ -115,6 +115,7 @@ class RunScorecard:
     critical_path_seconds: float | None = None
     acceleration_ratio: float | None = None
     overhead: OverheadBreakdown | None = None
+    session_duration_seconds: float | None = None
 
     @property
     def surface_summary(self) -> str:
@@ -931,6 +932,13 @@ def _compute_overhead_breakdown(
     )
 
 
+def _compute_session_duration(events: list[LeadEvent]) -> float | None:
+    if not events:
+        return None
+    timestamps = [_parse_timestamp(ev.timestamp) for ev in events]
+    return max(0.0, (max(timestamps) - min(timestamps)).total_seconds())
+
+
 def _build_run_scorecard(
     *,
     meta: SessionMeta,
@@ -954,6 +962,7 @@ def _build_run_scorecard(
             total_output_tokens += _coerce_int(ev.payload.get("output_tokens")) or 0
 
     done_subtask_count = sum(1 for task in tasks if task.status == "done")
+    session_duration_seconds = _compute_session_duration(events)
     cp_seconds, accel_ratio = _compute_acceleration_ratio(events)
     overhead = _compute_overhead_breakdown(
         events,
@@ -974,6 +983,7 @@ def _build_run_scorecard(
         critical_path_seconds=cp_seconds,
         acceleration_ratio=accel_ratio,
         overhead=overhead,
+        session_duration_seconds=session_duration_seconds,
     )
 
 
