@@ -18,6 +18,35 @@ from openmax.archetypes._base import (
     match_archetype,
 )
 
+# --- dataclass construction ---
+
+
+class TestSubtaskTemplateDefaults:
+    def test_defaults_applied(self):
+        t = SubtaskTemplate(name="build", description="Build it", files_pattern="src/*.py")
+        assert t.dependencies == []
+        assert t.agent_type == "claude-code"
+        assert t.estimated_minutes == 5
+
+
+class TestArchetypeCreation:
+    def test_all_fields(self):
+        templates = [SubtaskTemplate(name="s1", description="d", files_pattern="*")]
+        arch = Archetype(
+            name="test",
+            display_name="Test Arch",
+            description="A test archetype",
+            indicators=["setup.py", "pyproject.toml"],
+            subtask_templates=templates,
+            planning_hints=["hint1"],
+            anti_patterns=["anti1"],
+        )
+        assert arch.name == "test"
+        assert arch.display_name == "Test Arch"
+        assert len(arch.subtask_templates) == 1
+        assert arch.planning_hints == ["hint1"]
+
+
 # --- classify_task ---
 
 
@@ -30,6 +59,14 @@ class TestClassifyTask:
     def test_cli_keywords(self):
         scores = classify_task("add a new CLI subcommand with argparse")
         assert scores["cli"] > scores["web"]
+
+    def test_api_keywords(self):
+        scores = classify_task("add a REST endpoint with FastAPI")
+        assert scores["api"] > scores["cli"]
+
+    def test_library_keywords(self):
+        scores = classify_task("publish a Python SDK package to PyPI")
+        assert scores["library"] > scores["web"]
 
     def test_refactor_keywords(self):
         scores = classify_task("refactor the auth module and migrate to new schema")
