@@ -32,6 +32,13 @@ class SessionStats:
     merge_conflict_rate_by_dir: dict[str, float] = field(default_factory=dict)
     avg_task_duration_by_type: dict[str, float] = field(default_factory=dict)
     cost_multiplier_actual_vs_estimated: float = 1.0
+    merges_succeeded: int = 0
+    merges_failed: int = 0
+
+    @property
+    def merge_success_rate(self) -> float:
+        total = self.merges_succeeded + self.merges_failed
+        return self.merges_succeeded / total if total > 0 else 1.0
 
 
 def _global_stats_path() -> Path:
@@ -130,5 +137,7 @@ def update_stats(current: SessionStats, new_data: dict) -> SessionStats:
             ),
             *COST_MULTIPLIER_RANGE,
         ),
+        merges_succeeded=current.merges_succeeded + new_data.get("merges_succeeded", 0),
+        merges_failed=current.merges_failed + new_data.get("merges_failed", 0),
     )
     return updated

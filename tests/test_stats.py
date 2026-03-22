@@ -190,3 +190,60 @@ def test_save_load_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 def test_load_stats_no_project_dir():
     stats = load_stats(None)
     assert isinstance(stats, SessionStats)
+
+
+# --- merge_success_rate ---
+
+
+def test_merge_fields_default_to_zero():
+    stats = SessionStats()
+    assert stats.merges_succeeded == 0
+    assert stats.merges_failed == 0
+
+
+def test_merge_success_rate_no_merges_returns_one():
+    stats = SessionStats()
+    assert stats.merge_success_rate == 1.0
+
+
+def test_merge_success_rate_all_succeeded():
+    stats = SessionStats(merges_succeeded=10, merges_failed=0)
+    assert stats.merge_success_rate == 1.0
+
+
+def test_merge_success_rate_all_failed():
+    stats = SessionStats(merges_succeeded=0, merges_failed=5)
+    assert stats.merge_success_rate == 0.0
+
+
+def test_merge_success_rate_mixed():
+    stats = SessionStats(merges_succeeded=3, merges_failed=1)
+    assert stats.merge_success_rate == pytest.approx(0.75)
+
+
+def test_update_stats_accumulates_merges():
+    current = SessionStats(merges_succeeded=2, merges_failed=1)
+    updated = update_stats(current, {"merges_succeeded": 3, "merges_failed": 2})
+    assert updated.merges_succeeded == 5
+    assert updated.merges_failed == 3
+
+
+def test_update_stats_merges_default_zero_when_missing():
+    current = SessionStats(merges_succeeded=4, merges_failed=1)
+    updated = update_stats(current, {})
+    assert updated.merges_succeeded == 4
+    assert updated.merges_failed == 1
+
+
+def test_load_stats_backward_compat_missing_merge_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Old JSON files without merge fields should load fine via dataclass defaults."""
+    stats_path = tmp_path / ".openmax" / "stats" / "session_stats.json"
+    stats_path.parent.mkdir(parents=True)
+    old_data = {"schema_version": SCHEMA_VERSION, "sessions_count": 5, "updated_at": "x"}
+    stats_path.write_text(json.dumps(old_data))
+    loaded = load_stats(str(tmp_path))
+    assert loaded.sessions_count == 5
+    assert loaded.merges_succeeded == 0
+    assert loaded.merges_failed == 0
