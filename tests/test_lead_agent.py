@@ -2255,3 +2255,153 @@ def test_submit_plan_accepts_agent_type(monkeypatch, tmp_path):
         assert parsed["status"] == "accepted"
     finally:
         _teardown_session(token)
+
+
+# ---------------------------------------------------------------------------
+# Archetype integration tests
+# ---------------------------------------------------------------------------
+
+
+def test_archetype_section_returns_none_when_module_missing(monkeypatch):
+    """_archetype_section gracefully returns None if archetypes module is absent."""
+    import builtins
+
+    original_import = builtins.__import__
+
+    def _block_archetypes(name, *args, **kwargs):
+        if name == "openmax.archetypes" or name.startswith("openmax.archetypes."):
+            raise ImportError("no archetypes")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _block_archetypes)
+    result = lead_agent_core._archetype_section("add login", "/tmp/proj")
+    assert result is None
+
+
+def test_archetype_section_returns_none_on_no_match(monkeypatch):
+    """_archetype_section returns None when match_archetype returns None."""
+    import openmax.lead_agent.core as mod
+
+    monkeypatch.setattr(
+        mod,
+        "_archetype_section",
+        mod._archetype_section,  # keep real function
+    )
+    # Patch at import level inside the function (lazy import)
+    import types
+
+    fake_mod = types.ModuleType("openmax.archetypes")
+    fake_mod.get_all_archetypes = lambda cwd: []
+    fake_mod.match_archetype = lambda task, archs: None
+    fake_mod.format_archetype_context = lambda a, t: ""
+    monkeypatch.setitem(__import__("sys").modules, "openmax.archetypes", fake_mod)
+
+    result = lead_agent_core._archetype_section("random task", "/tmp")
+    assert result is None
+
+
+def test_archetype_section_returns_context_on_match(monkeypatch):
+    """_archetype_section returns formatted context when archetype matches."""
+    import sys
+    import types
+
+    fake_mod = types.ModuleType("openmax.archetypes")
+    fake_mod.get_all_archetypes = lambda cwd: ["fake-archetype"]
+    fake_mod.match_archetype = lambda task, archs: "matched"
+    fake_mod.format_archetype_context = lambda a, t: "## Matched Archetype\nweb-app"
+    monkeypatch.setitem(sys.modules, "openmax.archetypes", fake_mod)
+
+    result = lead_agent_core._archetype_section("build web app", "/tmp")
+    assert result is not None
+    assert "Matched Archetype" in result
+
+
+def test_archetype_section_catches_runtime_errors(monkeypatch):
+    """_archetype_section catches exceptions from archetype functions."""
+    import sys
+    import types
+
+    fake_mod = types.ModuleType("openmax.archetypes")
+    fake_mod.get_all_archetypes = lambda cwd: (_ for _ in ()).throw(RuntimeError("boom"))
+    fake_mod.match_archetype = lambda task, archs: None
+    fake_mod.format_archetype_context = lambda a, t: ""
+    monkeypatch.setitem(sys.modules, "openmax.archetypes", fake_mod)
+
+    result = lead_agent_core._archetype_section("task", "/tmp")
+    assert result is None
+
+
+def test_build_lead_prompt_includes_archetype(monkeypatch):
+    """_build_lead_prompt includes archetype context when available."""
+    monkeypatch.setattr(
+        lead_agent_core,
+        "_archetype_section",
+        lambda task, cwd: "## Matched Archetype\ntest-archetype",
+    )
+    monkeypatch.setattr(lead_agent_core, "_gather_project_snapshot", lambda *a, **kw: "")
+
+    prompt = lead_agent_core._build_lead_prompt("do stuff", "/tmp", None, None)
+    assert "## Matched Archetype" in prompt
+    assert "test-archetype" in prompt
+
+
+def test_build_lead_prompt_skips_empty_archetype(monkeypatch):
+    """_build_lead_prompt omits archetype section when None."""
+    monkeypatch.setattr(lead_agent_core, "_archetype_section", lambda task, cwd: None)
+    monkeypatch.setattr(lead_agent_core, "_gather_project_snapshot", lambda *a, **kw: "")
+
+    prompt = lead_agent_core._build_lead_prompt("do stuff", "/tmp", None, None)
+    assert "Archetype" not in prompt
+
+
+def test_build_full_prompt_includes_archetype_hints():
+    """_build_full_prompt appends archetype_hints when provided."""
+    from unittest.mock import patch
+
+    from openmax.lead_agent.tools._dispatch import _build_full_prompt
+
+    with (
+        patch("openmax.lead_agent.tools._dispatch._build_identity_block", return_value="[ID]"),
+        patch("openmax.lead_agent.tools._dispatch._build_subagent_context", return_value=""),
+        patch("openmax.lead_agent.tools._dispatch._build_blackboard_block", return_value=""),
+        patch(
+            "openmax.lead_agent.tools._dispatch._file_protocol_section",
+            return_value="[FILE]",
+        ),
+    ):
+        result = _build_full_prompt(
+            prompt="do work",
+            branch_name=None,
+            agent_cwd="/tmp",
+            task_name="t1",
+            rep_file=None,
+            archetype_hints="## Hints\nuse TDD",
+        )
+        assert "## Hints" in result
+        assert "use TDD" in result
+
+
+def test_build_full_prompt_omits_empty_archetype_hints():
+    """_build_full_prompt does not add empty archetype_hints."""
+    from unittest.mock import patch
+
+    from openmax.lead_agent.tools._dispatch import _build_full_prompt
+
+    with (
+        patch("openmax.lead_agent.tools._dispatch._build_identity_block", return_value="[ID]"),
+        patch("openmax.lead_agent.tools._dispatch._build_subagent_context", return_value=""),
+        patch("openmax.lead_agent.tools._dispatch._build_blackboard_block", return_value=""),
+        patch(
+            "openmax.lead_agent.tools._dispatch._file_protocol_section",
+            return_value="[FILE]",
+        ),
+    ):
+        result = _build_full_prompt(
+            prompt="do work",
+            branch_name=None,
+            agent_cwd="/tmp",
+            task_name="t1",
+            rep_file=None,
+            archetype_hints="",
+        )
+        assert "Hints" not in result

@@ -193,6 +193,21 @@ def _agent_strategy_hint(allowed: list[str]) -> str:
     return f"Prefer '{allowed[0]}' for all tasks."
 
 
+def _archetype_section(task: str, cwd: str) -> str | None:
+    """Match task to an archetype and return formatted context, or None."""
+    try:
+        from openmax.archetypes import format_archetype_context, get_all_archetypes, match_archetype
+
+        archetypes = get_all_archetypes(cwd)
+        match = match_archetype(task, archetypes)
+        if match is None:
+            return None
+        section = format_archetype_context(match, task)
+        return section if section else None
+    except Exception:
+        return None
+
+
 def _build_lead_prompt(
     task: str,
     cwd: str,
@@ -207,6 +222,10 @@ def _build_lead_prompt(
     snapshot = _gather_project_snapshot(cwd, minimal=bool(resume_context))
     if snapshot:
         parts.append(f"## Project State\n{snapshot}")
+
+    archetype_ctx = _archetype_section(task, cwd)
+    if archetype_ctx:
+        parts.append(archetype_ctx)
 
     if allowed_agents:
         agents_str = ", ".join(allowed_agents)
