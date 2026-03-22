@@ -11,9 +11,16 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import anyio
+import pytest
 from click.testing import CliRunner
 
-from openmax.mailbox import SessionMailbox
+from openmax.mailbox import (
+    _MAX_MSG_BYTES,
+    SessionMailbox,
+    mailbox_socket_path,
+    send_mailbox_message,
+    send_mailbox_payload,
+)
 
 # ---------------------------------------------------------------------------
 # Unit — SessionMailbox
@@ -134,6 +141,242 @@ def test_missing_type_field_discarded(tmp_path: Path) -> None:
             s.sendall(json.dumps({"task": "foo"}).encode())
         result = mb.receive(timeout=0.3)
         assert result is None
+    finally:
+        mb.stop()
+
+
+# ---------------------------------------------------------------------------
+# Unit — mailbox_socket_path / send helpers
+# ---------------------------------------------------------------------------
+
+
+def test_mailbox_socket_path_format() -> None:
+    assert mailbox_socket_path("abc-123") == Path("/tmp/openmax-abc-123.sock")
+
+
+def test_send_mailbox_message_delivers_to_running_mailbox(tmp_path: Path) -> None:
+    mb = SessionMailbox("send-msg", tmp_path)
+    mb.start()
+    try:
+        send_mailbox_message("send-msg", '{"type":"ping","task":"t"}')
+        msg = mb.receive(timeout=2.0)
+        assert msg is not None
+        assert msg.type == "ping"
+    finally:
+        mb.stop()
+
+
+def test_send_mailbox_message_raises_on_missing_socket() -> None:
+    with pytest.raises(FileNotFoundError):
+        send_mailbox_message("nonexistent-session-xyz", '{"type":"x"}')
+
+
+def test_send_mailbox_payload_delivers_dict(tmp_path: Path) -> None:
+    mb = SessionMailbox("send-payload", tmp_path)
+    mb.start()
+    try:
+        send_mailbox_payload("send-payload", {"type": "done", "task": "d"})
+        msg = mb.receive(timeout=2.0)
+        assert msg is not None
+        assert msg.type == "done"
+        assert msg.task == "d"
+    finally:
+        mb.stop()
+
+
+# ---------------------------------------------------------------------------
+# Unit — _handle edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_empty_message_discarded(tmp_path: Path) -> None:
+    mb = SessionMailbox("empty-msg", tmp_path)
+    mb.start()
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.connect(str(mb.socket_path))
+            # send nothing, just close
+        result = mb.receive(timeout=0.3)
+        assert result is None
+    finally:
+        mb.stop()
+
+
+def test_non_dict_json_discarded(tmp_path: Path) -> None:
+    mb = SessionMailbox("non-dict", tmp_path)
+    mb.start()
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.connect(str(mb.socket_path))
+            s.sendall(b"[1,2,3]")
+        result = mb.receive(timeout=0.3)
+        assert result is None
+    finally:
+        mb.stop()
+
+
+def test_unicode_message_handled(tmp_path: Path) -> None:
+    mb = SessionMailbox("unicode-msg", tmp_path)
+    mb.start()
+    try:
+        payload = {"type": "done", "task": "翻译", "msg": "完成 🎉"}
+        _send_msg(mb.socket_path, payload, delay=0.05)
+        msg = mb.receive(timeout=2.0)
+        assert msg is not None
+        assert msg.task == "翻译"
+        assert msg.raw["msg"] == "完成 🎉"
+    finally:
+        mb.stop()
+
+
+def test_invalid_utf8_bytes_discarded(tmp_path: Path) -> None:
+    mb = SessionMailbox("bad-utf8", tmp_path)
+    mb.start()
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.connect(str(mb.socket_path))
+            s.sendall(b"\xff\xfe")
+        result = mb.receive(timeout=0.3)
+        assert result is None
+    finally:
+        mb.stop()
+
+
+def test_oversized_message_handled_gracefully(tmp_path: Path) -> None:
+    mb = SessionMailbox("oversized", tmp_path)
+    mb.start()
+    try:
+        big_value = "x" * (_MAX_MSG_BYTES + 1000)
+        raw = json.dumps({"type": "done", "task": "big", "data": big_value}).encode()
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.connect(str(mb.socket_path))
+            s.sendall(raw)
+        # Oversized → truncated mid-JSON → invalid JSON → discarded (or valid)
+        mb.receive(timeout=0.5)
+    finally:
+        mb.stop()
+
+
+# ---------------------------------------------------------------------------
+# Unit — lifecycle edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_stop_removes_socket_file(tmp_path: Path) -> None:
+    mb = SessionMailbox("stop-rm", tmp_path)
+    mb.start()
+    assert mb.socket_path.exists()
+    mb.stop()
+    assert not mb.socket_path.exists()
+
+
+def test_stop_idempotent(tmp_path: Path) -> None:
+    mb = SessionMailbox("stop-idem", tmp_path)
+    mb.start()
+    mb.stop()
+    mb.stop()  # second call should not raise
+
+
+def test_double_start_replaces_socket(tmp_path: Path) -> None:
+    mb1 = SessionMailbox("double-start", tmp_path)
+    mb1.start()
+    try:
+        mb2 = SessionMailbox("double-start", tmp_path)
+        mb2.start()
+        try:
+            send_mailbox_payload("double-start", {"type": "done", "task": "x"})
+            msg = mb2.receive(timeout=2.0)
+            assert msg is not None
+            assert msg.type == "done"
+        finally:
+            mb2.stop()
+    finally:
+        mb1.stop()
+
+
+def test_receive_after_stop(tmp_path: Path) -> None:
+    mb = SessionMailbox("recv-stop", tmp_path)
+    mb.start()
+    mb.stop()
+    result = mb.receive(timeout=0.1)
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Unit — message ordering and concurrency
+# ---------------------------------------------------------------------------
+
+
+def test_sequential_messages_maintain_order(tmp_path: Path) -> None:
+    mb = SessionMailbox("seq-order", tmp_path)
+    mb.start()
+    try:
+        for i in range(10):
+            _send_msg(mb.socket_path, {"type": "progress", "task": f"t{i}", "seq": i})
+            time.sleep(0.02)  # ensure sequential delivery
+        received = []
+        for _ in range(10):
+            m = mb.receive(timeout=2.0)
+            assert m is not None
+            received.append(m.raw["seq"])
+        assert received == list(range(10))
+    finally:
+        mb.stop()
+
+
+def _send_msg_retry(sock_path: Path, payload: dict[str, Any], retries: int = 3) -> None:
+    """Send with retry to handle backlog pressure."""
+    for attempt in range(retries):
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.connect(str(sock_path))
+                s.sendall(json.dumps(payload).encode())
+            return
+        except ConnectionRefusedError:
+            time.sleep(0.05 * (attempt + 1))
+    raise ConnectionRefusedError(f"failed after {retries} retries")
+
+
+def test_high_concurrency_no_message_loss(tmp_path: Path) -> None:
+    mb = SessionMailbox("high-conc", tmp_path)
+    mb.start()
+    try:
+        threads = []
+        for i in range(20):
+            t = threading.Thread(
+                target=_send_msg_retry,
+                args=(mb.socket_path, {"type": "progress", "task": f"t{i}", "idx": i}),
+                daemon=True,
+            )
+            threads.append(t)
+            t.start()
+        for t in threads:
+            t.join(timeout=10.0)
+        received = []
+        for _ in range(20):
+            m = mb.receive(timeout=3.0)
+            if m is None:
+                break
+            received.append(m)
+        assert len(received) == 20
+    finally:
+        mb.stop()
+
+
+# ---------------------------------------------------------------------------
+# Unit — timeout precision
+# ---------------------------------------------------------------------------
+
+
+def test_receive_timeout_respects_duration(tmp_path: Path) -> None:
+    mb = SessionMailbox("timeout-prec", tmp_path)
+    mb.start()
+    try:
+        start = time.monotonic()
+        result = mb.receive(timeout=0.5)
+        elapsed = time.monotonic() - start
+        assert result is None
+        assert 0.4 <= elapsed <= 1.0
     finally:
         mb.stop()
 
