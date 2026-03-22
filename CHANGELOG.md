@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0
+
+- **Feature**: Project Archetypes — domain-aware task decomposition system
+  - 5 built-in archetypes: `web` (web app), `cli` (CLI tool), `api` (API service), `library` (Python package), `refactor` (codebase restructuring)
+  - Two-stage matching: task classification (greenfield/modification/bugfix) → keyword scoring with ≥2 threshold
+  - Archetype context injected into lead agent prompt — execution phases, brief hints, failure modes
+  - Custom YAML archetypes via `.openmax/archetypes/*.yaml` (project-local) or `~/.config/openmax/archetypes/*.yaml` (global)
+  - Dispatch briefs auto-enriched with archetype-specific hints and anti-patterns
+  - Lead agent prompt updated with "Archetype-Guided Planning" section
+  - 33 new tests (810 total), implemented by openMax itself (3 parallel agents, 13 min)
+
 ## 0.6.6
 
 - **Fix**: Verification pane sets `PYTHONPATH=src/` so pytest can import the project without `pip install -e .` — eliminates first-attempt test failures
