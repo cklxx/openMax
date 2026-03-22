@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.5
+
+- **Fix**: Verification pane now runs in project cwd — previously launched without cwd, causing import errors and wrong-directory lint failures
+
 ## 0.6.4
 
 - **Fix**: Verification pane keeps alive 5s after command completes — prevents exit-before-capture race that caused all verifications to return `inconclusive`

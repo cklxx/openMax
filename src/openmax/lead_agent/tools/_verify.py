@@ -257,6 +257,7 @@ async def _run_single_check(
         purpose=task_name,
         agent_type="command",
         title=f"openMax: verify {label}",
+        cwd=runtime.cwd,
     )
     if pane is None:
         console.print(f"  [bold red]✗[/bold red]  verification launch failed: {launch_err}")
