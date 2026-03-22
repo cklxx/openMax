@@ -165,6 +165,10 @@ class ReconstructedPlan:
     outcome_summary: str | None = None
 
     @property
+    def completed_task_names(self) -> list[str]:
+        return [t.name for t in self.subtasks if t.status == "done"]
+
+    @property
     def has_failures(self) -> bool:
         return any(t.status == "error" for t in self.subtasks)
 
