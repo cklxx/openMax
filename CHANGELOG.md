@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.3
+
+- **Fix**: Verification pane exit race condition — re-read cached output for exit marker when pane dies before capture
+- **Fix**: Verification returns `inconclusive` instead of `timeout` when pane exits without errors, preventing lead agent from misinterpreting results
+- **Feat**: Verification result status table in prompt — mandatory action for each status (pass/fail/inconclusive)
+- **Feat**: Prompt enforces "Never rationalize away a non-pass result" to prevent lead agent from skipping debug cycles
+- **Perf**: "Max 1 sentence between tool calls" (was 2) to reduce narration overhead and turn count
+
 ## 0.6.2
 
 - **Fix**: Pre-existing TUI bridge test failure (stale assertion from copy-paste)

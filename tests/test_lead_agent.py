@@ -522,7 +522,7 @@ def test_run_verification_fail(monkeypatch, tmp_path):
 
 
 def test_run_verification_timeout(monkeypatch, tmp_path):
-    """run_verification returns timeout when no exit marker found."""
+    """run_verification returns inconclusive when no exit marker found."""
     runtime, token, store, _meta = _setup_session(tmp_path)
     _patch_time(monkeypatch)
 
@@ -537,7 +537,7 @@ def test_run_verification_timeout(monkeypatch, tmp_path):
     import json as _json
 
     parsed = _json.loads(result["content"][0]["text"])
-    assert parsed["status"] == "timeout"
+    assert parsed["status"] == "inconclusive"
     assert parsed["exit_code"] is None
 
     _teardown_session(token)

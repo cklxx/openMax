@@ -282,13 +282,29 @@ async def _run_single_check(
             output = text[: match.start()].strip()
             break
         if not runtime.pane_mgr.is_pane_alive(pane.pane_id):
+            # Pane exited — try cached output one more time for exit marker
+            try:
+                text = runtime.pane_mgr.get_text(pane.pane_id)
+            except Exception:
+                pass
+            match = re.search(r"__OPENMAX_EXIT_(\d+)__", text)
+            if match:
+                exit_code = int(match.group(1))
+                output = text[: match.start()].strip()
             break
 
     duration_s = int(time.monotonic() - start_ts)
 
     if exit_code is None:
-        status = "timeout"
-        output = _extract_smart_output(text, tail_lines=50) if text else ""
+        # Pane exited without exit marker — infer from output content
+        smart_out = _extract_smart_output(text, tail_lines=50) if text else ""
+        from openmax.lead_agent.tools._error_context import extract_error_context
+
+        error_ctx = extract_error_context(text) if text else ""
+        markers = ("Error", "FAILED", "Traceback")
+        has_errors = bool(error_ctx and any(m in error_ctx for m in markers))
+        status = "fail" if has_errors else "inconclusive"
+        output = smart_out
     elif exit_code == 0:
         status = "pass"
     else:
@@ -336,6 +352,10 @@ async def _run_single_check(
 
     if status == "pass":
         console.print(f"  [bold green]✓[/bold green]  {label}: pass [dim]({duration_s}s)[/dim]")
+    elif status == "inconclusive":
+        console.print(
+            f"  [bold yellow]?[/bold yellow]  {label}: inconclusive [dim]({duration_s}s)[/dim]"
+        )
     else:
         console.print(f"  [bold red]✗[/bold red]  {label}: FAIL [dim]({duration_s}s)[/dim]")
 
