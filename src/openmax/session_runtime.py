@@ -165,6 +165,10 @@ class ReconstructedPlan:
     outcome_summary: str | None = None
 
     @property
+    def has_failures(self) -> bool:
+        return any(t.status == "error" for t in self.subtasks)
+
+    @property
     def average_task_duration_seconds(self) -> float:
         durations = [
             (t.ended_at - t.started_at).total_seconds()

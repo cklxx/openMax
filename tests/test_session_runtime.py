@@ -904,3 +904,56 @@ def test_avg_task_duration_done_missing_started_at(tmp_path):
     assert orphan.status == "done"
     assert orphan.started_at is None
     assert snapshot.plan.average_task_duration_seconds == 0.0
+
+
+# ── has_failures ───────────────────────────────────────────────────────────
+
+
+def test_has_failures_true_when_error_subtask(tmp_path):
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("has-fail-yes", "Goal", str(tmp_path))
+
+    store.append_event(
+        meta,
+        "phase.anchor",
+        anchor_payload(
+            phase="monitor",
+            summary="Mixed results",
+            tasks=[
+                {
+                    "name": "good-task",
+                    "agent_type": "codex",
+                    "prompt": "do good",
+                    "status": "done",
+                    "pane_id": 1,
+                    "pane_history": [1],
+                },
+                {
+                    "name": "bad-task",
+                    "agent_type": "codex",
+                    "prompt": "do bad",
+                    "status": "error",
+                    "pane_id": 2,
+                    "pane_history": [2],
+                },
+            ],
+        ),
+    )
+
+    snapshot = store.load_snapshot("has-fail-yes")
+    assert snapshot.plan.has_failures is True
+
+
+def test_has_failures_false_when_no_errors(tmp_path):
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("has-fail-no", "Goal", str(tmp_path))
+
+    store.append_event(
+        meta,
+        "tool.dispatch_agent",
+        {"task_name": "t1", "agent_type": "codex", "prompt": "do it", "pane_id": 1},
+    )
+    store.append_event(meta, "tool.mark_task_done", {"task_name": "t1"})
+
+    snapshot = store.load_snapshot("has-fail-no")
+    assert snapshot.plan.has_failures is False
