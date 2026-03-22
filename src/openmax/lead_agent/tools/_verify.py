@@ -245,7 +245,9 @@ async def _run_single_check(
     """Execute one verification command and return its result dict."""
     label = f"{language}:{check_type}" if language else check_type
 
-    wrapped_cmd = f'{command_str}; echo "__OPENMAX_EXIT_$?__"'
+    wrapped_cmd = (
+        f'{command_str}; _exit=$?; echo "__OPENMAX_EXIT_${{_exit}}__"; sleep 5'
+    )
     shell_cmd = ["bash", "-c", wrapped_cmd]
 
     task_name = f"verify-{label}"

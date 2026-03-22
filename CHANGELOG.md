@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.4
+
+- **Fix**: Verification pane keeps alive 5s after command completes — prevents exit-before-capture race that caused all verifications to return `inconclusive`
+
 ## 0.6.3
 
 - **Fix**: Verification pane exit race condition — re-read cached output for exit marker when pane dies before capture
