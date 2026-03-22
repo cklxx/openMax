@@ -1008,3 +1008,54 @@ def test_completed_task_names(tmp_path):
 
     snapshot = store.load_snapshot("completed-names")
     assert snapshot.plan.completed_task_names == ["task-done-1", "task-done-2"]
+
+
+def test_pending_task_count(tmp_path):
+    store = SessionStore(base_dir=tmp_path)
+    meta = store.create_session("pending-count", "Goal", str(tmp_path))
+
+    store.append_event(
+        meta,
+        "phase.anchor",
+        anchor_payload(
+            phase="monitor",
+            summary="Mixed statuses",
+            tasks=[
+                {
+                    "name": "task-done",
+                    "agent_type": "codex",
+                    "prompt": "first",
+                    "status": "done",
+                    "pane_id": 1,
+                    "pane_history": [1],
+                },
+                {
+                    "name": "task-pending",
+                    "agent_type": "codex",
+                    "prompt": "second",
+                    "status": "pending",
+                    "pane_id": 2,
+                    "pane_history": [2],
+                },
+                {
+                    "name": "task-running",
+                    "agent_type": "codex",
+                    "prompt": "third",
+                    "status": "running",
+                    "pane_id": 3,
+                    "pane_history": [3],
+                },
+                {
+                    "name": "task-error",
+                    "agent_type": "codex",
+                    "prompt": "fourth",
+                    "status": "error",
+                    "pane_id": 4,
+                    "pane_history": [4],
+                },
+            ],
+        ),
+    )
+
+    snapshot = store.load_snapshot("pending-count")
+    assert snapshot.plan.pending_task_count == 2

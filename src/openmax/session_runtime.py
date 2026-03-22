@@ -169,6 +169,10 @@ class ReconstructedPlan:
         return [t.name for t in self.subtasks if t.status == "done"]
 
     @property
+    def pending_task_count(self) -> int:
+        return sum(1 for t in self.subtasks if t.status in ("pending", "running"))
+
+    @property
     def has_failures(self) -> bool:
         return any(t.status == "error" for t in self.subtasks)
 
