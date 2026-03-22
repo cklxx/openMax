@@ -19,6 +19,7 @@ from openmax.session_runtime import (
     SessionStore,
     _compute_acceleration_ratio,
     _compute_overhead_breakdown,
+    _compute_session_duration,
     anchor_payload,
     task_hash,
 )
@@ -758,3 +759,34 @@ def test_overhead_breakdown_no_events():
     """Empty events returns None."""
     result = _compute_overhead_breakdown([], 100.0)
     assert result is None
+
+
+# --- session_duration_seconds tests ---
+
+
+def test_session_duration_multiple_events():
+    """Duration from first to last event timestamp."""
+    events = [
+        _make_event("session.started", "2026-03-13T12:00:00+00:00"),
+        _make_event("tool.dispatch_agent", "2026-03-13T12:00:30+00:00"),
+        _make_event("tool.mark_task_done", "2026-03-13T12:01:30+00:00"),
+    ]
+    assert _compute_session_duration(events) == 90.0
+
+
+def test_session_duration_single_event():
+    """Single event yields duration of 0."""
+    events = [_make_event("session.started", "2026-03-13T12:00:00+00:00")]
+    assert _compute_session_duration(events) == 0.0
+
+
+def test_session_duration_empty_events():
+    """Empty events list returns None."""
+    assert _compute_session_duration([]) is None
+
+
+def test_session_duration_same_timestamp():
+    """Multiple events with identical timestamps yield duration of 0."""
+    ts = "2026-03-13T12:00:00+00:00"
+    events = [_make_event("a", ts), _make_event("b", ts), _make_event("c", ts)]
+    assert _compute_session_duration(events) == 0.0
