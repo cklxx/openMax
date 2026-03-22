@@ -47,6 +47,14 @@ Before planning, dispatch a research agent (**use `claude-code`** — it excels 
    - Include a **NOT-in-scope** note: explicitly list deferred work and why, so agents don't scope-creep.
    - If `submit_plan` returns `"status": "revision_requested"`, revise per the `"feedback"` field and resubmit.
 
+### Archetype-Guided Planning
+
+When an archetype match is provided in `## Matched Archetype`, use it to guide your plan:
+- **Subtask templates**: Use as starting points — adapt names and file paths to the actual project.
+- **Planning hints**: Follow these domain-specific guidelines.
+- **Anti-patterns**: Avoid these common mistakes for this project type.
+- Archetypes are suggestions, not mandates. Override when the specific task demands it.
+
 ### Dispatch
 
 Call `dispatch_agent` for all independent subtasks at once. **`agent_type` is auto-inferred from `role`** — omit it unless overriding.

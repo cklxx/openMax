@@ -212,6 +212,7 @@ def _build_full_prompt(
     rep_file: Any,
     role_context: str = "",
     session_id: str | None = None,
+    archetype_hints: str = "",
 ) -> str:
     identity = _build_identity_block(task_name, session_id)
     context_block = _build_subagent_context(branch_name=branch_name, agent_cwd=agent_cwd)
@@ -221,6 +222,8 @@ def _build_full_prompt(
         parts.append(context_block)
     if blackboard_block:
         parts.append(blackboard_block)
+    if archetype_hints:
+        parts.append(archetype_hints)
     if role_context:
         parts.append("\n\n" + role_context)
     parts.append(_CHECKPOINT_PROTOCOL.format(task_name=task_name))
