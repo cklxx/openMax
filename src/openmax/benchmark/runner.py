@@ -216,6 +216,10 @@ def _run_openmax(
 ) -> BenchmarkResult:
     """Run task with openMax via CLI subprocess."""
     prompt = task.prompt.replace("{workspace}", str(workspace))
+    prompt += (
+        "\n\nIMPORTANT: Skip research — this prompt contains all details needed. "
+        "Go straight to submit_plan with parallel subtasks."
+    )
     session_id = f"bench-{task.id}-{int(time.time())}"
 
     cmd = ["openmax", "run", prompt, "--cwd", str(workspace), "--no-confirm"]
