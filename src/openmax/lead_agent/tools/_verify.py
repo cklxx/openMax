@@ -33,6 +33,24 @@ from openmax.project_tools import ProjectTooling, detect_all_tooling
 from openmax.stats import load_stats, save_stats, update_stats
 from openmax.test_parsing import parse_test_output
 
+_VERIFY_POLL_INITIAL = 0.5
+_VERIFY_POLL_BACKOFF = 1.3
+_VERIFY_POLL_MAX = 1.5
+
+
+def _poll_exit_marker(runtime: Any, pane_id: int, prev_text: str) -> tuple[int | None, str, bool]:
+    """Check pane output for exit marker. Returns (exit_code, text, pane_exited)."""
+    try:
+        text = runtime.pane_mgr.get_text(pane_id)
+    except Exception:
+        text = prev_text
+    match = re.search(r"__OPENMAX_EXIT_(\d+)__", text)
+    if match:
+        return int(match.group(1)), text[: match.start()].strip(), True
+    if not runtime.pane_mgr.is_pane_alive(pane_id):
+        return None, text, True
+    return None, text, False
+
 
 def _git_run(
     args: list[str],
@@ -278,27 +296,17 @@ async def _run_single_check(
     output = ""
     text = ""
 
+    poll_interval = _VERIFY_POLL_INITIAL
     while time.monotonic() < deadline:
-        await anyio.sleep(2)
-        try:
-            text = runtime.pane_mgr.get_text(pane.pane_id)
-        except Exception:
-            text = ""
-        match = re.search(r"__OPENMAX_EXIT_(\d+)__", text)
-        if match:
-            exit_code = int(match.group(1))
-            output = text[: match.start()].strip()
+        await anyio.sleep(poll_interval)
+        poll_interval = min(poll_interval * _VERIFY_POLL_BACKOFF, _VERIFY_POLL_MAX)
+        found_code, latest_text, done = _poll_exit_marker(runtime, pane.pane_id, text)
+        text = latest_text or text
+        if found_code is not None:
+            exit_code = found_code
+            output = text
             break
-        if not runtime.pane_mgr.is_pane_alive(pane.pane_id):
-            # Pane exited — try cached output one more time for exit marker
-            try:
-                text = runtime.pane_mgr.get_text(pane.pane_id)
-            except Exception:
-                pass
-            match = re.search(r"__OPENMAX_EXIT_(\d+)__", text)
-            if match:
-                exit_code = int(match.group(1))
-                output = text[: match.start()].strip()
+        if done:
             break
 
     duration_s = int(time.monotonic() - start_ts)
@@ -371,6 +379,24 @@ async def _run_single_check(
     return result
 
 
+async def _run_checks_parallel(
+    runtime: Any,
+    check_type: str,
+    commands: list[tuple[str, str | None]],
+    timeout: int,
+) -> list[dict[str, Any]]:
+    """Run multiple verification commands concurrently in separate panes."""
+    results: list[dict[str, Any]] = [{}] * len(commands)
+
+    async def _run_at(idx: int, cmd: str, lang: str | None) -> None:
+        results[idx] = await _run_single_check(runtime, check_type, cmd, timeout, lang)
+
+    async with anyio.create_task_group() as tg:
+        for i, (cmd, lang) in enumerate(commands):
+            tg.start_soon(_run_at, i, cmd, lang)
+    return results
+
+
 @tool(
     "run_verification",
     "Run lint/test/build check. Auto-detects tooling if command omitted. "
@@ -398,10 +424,7 @@ async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
         result = await _run_single_check(runtime, check_type, cmd, timeout, lang)
         return _tool_response(result)
 
-    results: list[dict[str, Any]] = []
-    for cmd, lang in commands:
-        r = await _run_single_check(runtime, check_type, cmd, timeout, lang)
-        results.append(r)
+    results = await _run_checks_parallel(runtime, check_type, commands, timeout)
 
     overall = "pass" if all(r["status"] == "pass" for r in results) else "fail"
     total_duration = sum(r.get("duration_s", 0) for r in results)
@@ -420,16 +443,45 @@ async def run_verification(args: dict[str, Any]) -> dict[str, Any]:
     return _tool_response(combined)
 
 
-def _do_merge_and_cleanup(
+def _do_merge(
     cwd: str,
     branch: str,
     integration: str,
 ) -> tuple[str, str | None, list[str], str, int]:
-    """Run merge + cleanup synchronously (meant to run in a worker thread)."""
-    status, hash_, files, diff, commit_count = _merge_and_handle_conflicts(cwd, branch, integration)
-    if status in ("merged", "no-op"):
-        _cleanup_agent_branch(cwd, branch)
-    return status, hash_, files, diff, commit_count
+    """Run merge synchronously (meant to run in a worker thread). Cleanup is deferred."""
+    return _merge_and_handle_conflicts(cwd, branch, integration)
+
+
+def _defer_branch_cleanup(runtime: Any, branch: str) -> None:
+    """Queue a branch for deferred cleanup instead of blocking the merge return."""
+    if not hasattr(runtime, "_deferred_branches"):
+        runtime._deferred_branches = []
+    runtime._deferred_branches.append(branch)
+
+
+def cleanup_deferred_branches(runtime: Any) -> None:
+    """Batch-cleanup branches that were deferred during merge."""
+    branches = getattr(runtime, "_deferred_branches", [])
+    for branch in branches:
+        try:
+            _cleanup_agent_branch(runtime.cwd, branch)
+        except Exception:
+            pass
+    runtime._deferred_branches = []
+
+
+async def auto_verify_after_merge(runtime: Any) -> dict[str, Any] | None:
+    """Run lint verification automatically after merge. Returns result or None."""
+    commands = _resolve_commands(runtime.cwd, "lint", None)
+    if not commands:
+        return None
+    try:
+        results = await _run_checks_parallel(runtime, "lint", commands, timeout=120)
+        overall = "pass" if all(r["status"] == "pass" for r in results) else "fail"
+        return {"status": overall, "results": results}
+    except Exception as exc:
+        console.print(f"  [yellow]![/yellow]  Auto-verify failed: {exc}")
+        return None
 
 
 @tool(
@@ -450,10 +502,12 @@ async def merge_agent_branch(args: dict[str, Any]) -> dict[str, Any]:
     try:
         async with _get_merge_lock(integration):
             status, hash_, files, diff, commit_count = await anyio.to_thread.run_sync(
-                lambda: _do_merge_and_cleanup(runtime.cwd, branch, integration)
+                lambda: _do_merge(runtime.cwd, branch, integration)
             )
     except (OSError, subprocess.TimeoutExpired) as e:
         return _merge_error_response(task_name, e)
+    if status in ("merged", "no-op"):
+        _defer_branch_cleanup(runtime, branch)
     return _tool_response(
         _merge_branch_result(
             task_name,

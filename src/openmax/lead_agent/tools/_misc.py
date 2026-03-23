@@ -375,7 +375,7 @@ async def read_file_tool(args: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _auto_mark_and_merge(runtime: Any, task_name: str) -> dict[str, Any] | None:
-    """Auto mark_done + merge when a done message arrives. Saves 2 LLM turns."""
+    """Auto mark_done + merge + verify when a done message arrives. Saves 3+ LLM turns."""
     from openmax.lead_agent.tools._planning import mark_task_done
     from openmax.lead_agent.tools._verify import merge_agent_branch
 
@@ -383,11 +383,22 @@ async def _auto_mark_and_merge(runtime: Any, task_name: str) -> dict[str, Any] |
         await mark_task_done.handler({"task_name": task_name, "notes": ""})
         result = await merge_agent_branch.handler({"task_name": task_name})
         content = result.get("content", [{}])
-        text = content[0].get("text", "")[:200] if content else ""
-        return {"task_name": task_name, "merge": text}
+        merge_text = content[0].get("text", "")[:200] if content else ""
     except Exception as exc:
         console.print(f"  [yellow]![/yellow]  Auto-merge {task_name} failed: {exc}")
         return None
+    return await _build_pipeline_result(runtime, task_name, merge_text)
+
+
+async def _build_pipeline_result(runtime: Any, task_name: str, merge_text: str) -> dict[str, Any]:
+    """Build auto-pipeline result with optional verification."""
+    from openmax.lead_agent.tools._verify import auto_verify_after_merge
+
+    entry: dict[str, Any] = {"task_name": task_name, "merge": merge_text}
+    verify = await auto_verify_after_merge(runtime)
+    if verify:
+        entry["auto_verified"] = verify
+    return entry
 
 
 def _auto_done_for_exited_panes(runtime: Any) -> dict[str, Any] | None:
@@ -423,6 +434,12 @@ def _auto_done_for_exited_panes(runtime: Any) -> dict[str, Any] | None:
                 "_auto": True,
             }
     return None
+
+
+def _flush_deferred_cleanup(runtime: Any) -> None:
+    from openmax.lead_agent.tools._verify import cleanup_deferred_branches
+
+    cleanup_deferred_branches(runtime)
 
 
 def _all_tasks_done(runtime: Any) -> bool:
@@ -503,6 +520,8 @@ async def wait_for_agent_message(args: dict[str, Any]) -> dict[str, Any]:
             break
 
     all_done = _all_tasks_done(runtime)
+    if all_done:
+        _flush_deferred_cleanup(runtime)
     if not results:
         return _tool_response({"messages": [], "timeout": True, "all_done": all_done})
     return _tool_response({"messages": results, "all_done": all_done})

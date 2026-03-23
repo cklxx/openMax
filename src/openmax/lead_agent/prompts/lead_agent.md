@@ -88,7 +88,7 @@ Good: "The login endpoint in src/api/auth.py returns 500 when email contains '+'
 
 | `type`      | Action |
 |-------------|--------|
-| `done`      | **Auto-handled**: `mark_task_done` + `merge_agent_branch` run automatically. Check `auto_merged` in response. Only call manually if auto-merge failed. |
+| `done`      | **Auto-handled**: `mark_task_done` + `merge_agent_branch` + `lint verification` run automatically. Check `auto_merged` and `auto_verified` in response. Only intervene if auto-merge failed or verification failed. |
 | `question`  | Decide. Call `send_text_to_pane` with your answer. |
 | `blocked`   | Send guidance via `send_text_to_pane`. If unresolvable, `permanent_error`. |
 | `progress`  | No action needed unless pct=100. |
@@ -107,7 +107,7 @@ Good: "The login endpoint in src/api/auth.py returns 500 when email contains '+'
 
 | Signal | Indicators | Required action |
 |---|---|---|
-| Done | Mailbox `done` or auto-detect (pane exited) | Auto-handled. Check `auto_merged` in response. |
+| Done | Mailbox `done` or auto-detect (pane exited) | Auto-handled. Check `auto_merged` + `auto_verified` in response. |
 | Error | `exited: true` with error output | `permanent_error(task_name)` |
 | Silent exit | Agent exited with no clear signal | Read report if exists, otherwise `permanent_error(task_name)` |
 | Stuck | `stuck: true` after 2+ timeouts | `send_text_to_pane` with guidance; 2 retries then re-dispatch |
@@ -129,12 +129,12 @@ Include `check_checkpoints` in every monitoring round. For each pending item:
 
 Every dispatch prompt includes "Run tests and commit your changes when done." Agents self-verify.
 
-**Skip `run_verification`** when all agents reported `done` via mailbox AND were auto-merged successfully. Go straight to `report_completion`.
+**Skip `run_verification`** when all agents reported `done` via mailbox AND were auto-merged AND auto-verified successfully (check `auto_verified.status == "pass"` in response). Go straight to `report_completion`.
 
-Only run verification if:
+Only run verification manually if:
 - An agent exited without a `done` message
 - Auto-merge had conflicts
-- You have specific reason to doubt correctness
+- `auto_verified` is missing or `auto_verified.status != "pass"`
 
 ### Finish
 

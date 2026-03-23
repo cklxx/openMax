@@ -18,7 +18,7 @@ class AgentCommand:
     launch_cmd: list[str]
     initial_input: str | None = None
     interactive: bool = True
-    ready_delay_seconds: float = 3.0
+    ready_delay_seconds: float = 1.5
     env: dict[str, str] = field(default_factory=dict, repr=False)
     ready_patterns: list[str] = field(default_factory=list, repr=False)
     """Strings to poll for in pane output before sending initial_input.
