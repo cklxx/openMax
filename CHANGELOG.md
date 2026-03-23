@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.6
+
+- **Performance**: Reduce subprocess overhead in pane operations
+  - Batch `alive_pane_ids()` replaces N×`is_pane_alive()` calls in reuse/auto-done loops (N subprocess calls → 1)
+  - `refresh_states(force=True)` + `all_panes_summary()` avoids double `list_panes` subprocess call
+  - Cleanup uses direct backend calls instead of cache layer
+  - Config `_load()` cached with mtime check — eliminates redundant file I/O
+
 ## 0.8.5
 
 - **Fix**: Auto-heal stale Kaku socket symlink after Kaku restart

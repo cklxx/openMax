@@ -454,7 +454,7 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
     if pane_id == -1:
         runtime.pane_mgr.refresh_states(force=True)
         if hasattr(runtime.pane_mgr, "all_panes_summary"):
-            summary = runtime.pane_mgr.all_panes_summary(force=True)
+            summary = runtime.pane_mgr.all_panes_summary()
         else:
             summary = runtime.pane_mgr.summary()
         return _tool_response(summary)

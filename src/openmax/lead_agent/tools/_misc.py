@@ -228,7 +228,7 @@ async def list_managed_panes(args: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime()
     runtime.pane_mgr.refresh_states(force=True)
     if hasattr(runtime.pane_mgr, "all_panes_summary"):
-        summary = runtime.pane_mgr.all_panes_summary(force=True)
+        summary = runtime.pane_mgr.all_panes_summary()
     else:
         summary = runtime.pane_mgr.summary()
     return _tool_response(summary)
@@ -392,12 +392,13 @@ async def _auto_mark_and_merge(runtime: Any, task_name: str) -> dict[str, Any] |
 def _auto_done_for_exited_panes(runtime: Any) -> dict[str, Any] | None:
     import time as _time
 
+    alive = runtime.pane_mgr.alive_pane_ids()
     for st in runtime.plan.subtasks:
         if st.status != TaskStatus.RUNNING or st.pane_id is None:
             continue
         if st.name in runtime.mailbox_messaged_tasks:
             continue
-        if not runtime.pane_mgr.is_pane_alive(st.pane_id):
+        if st.pane_id not in alive:
             if st.agent_type == "command":
                 st.status = TaskStatus.DONE
                 st.finished_at = _time.time()

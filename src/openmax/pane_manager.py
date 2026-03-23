@@ -273,6 +273,13 @@ class PaneManager:
         if pane_id in self._panes:
             self._panes[pane_id].state = state
 
+    def alive_pane_ids(self) -> frozenset[int]:
+        """Return a snapshot of all currently alive pane IDs. Single subprocess call."""
+        try:
+            return frozenset(p.pane_id for p in self._list_all_panes(force=True))
+        except RuntimeError:
+            return frozenset()
+
     def is_pane_alive(self, pane_id: int) -> bool:
         try:
             return any(p.pane_id == pane_id for p in self._list_all_panes(force=True))
@@ -370,7 +377,9 @@ class PaneManager:
             window_list.append(window)
 
         total_visible = len(visible_panes)
-        visible_managed = [self._panes[info.pane_id] for info in visible_panes if info.pane_id in self._panes]
+        visible_managed = [
+            self._panes[info.pane_id] for info in visible_panes if info.pane_id in self._panes
+        ]
         managed_total = len(visible_managed)
         return {
             "total_windows": len(window_list),
@@ -400,7 +409,7 @@ class PaneManager:
     def _kill_stragglers(self, managed_pane_ids: list[int]) -> None:
         """Retry killing managed panes that survived the first attempt."""
         time.sleep(0.5)
-        for p in self._safe_list_panes(force=True):
+        for p in self._list_uncached():
             if p.pane_id in managed_pane_ids:
                 self._kill_pane_process(p.pane_id)
 
@@ -409,13 +418,14 @@ class PaneManager:
         if not window_ids:
             return
         time.sleep(0.3)
-        for p in self._safe_list_panes(force=True):
+        for p in self._list_uncached():
             if p.window_id in window_ids:
                 self._kill_pane_process(p.pane_id)
 
-    def _safe_list_panes(self, *, force: bool = False) -> list[PaneInfo]:
+    def _list_uncached(self) -> list[PaneInfo]:
+        """Fetch panes directly from the backend, bypassing cache. For cleanup only."""
         try:
-            return self._list_all_panes(force=force)
+            return self._backend.list_panes()
         except RuntimeError:
             return []
 
@@ -429,11 +439,12 @@ class PaneManager:
     # ── Internal helpers ───────────────────────────────────────────
 
     def _list_all_panes(self, *, force: bool = False) -> list[PaneInfo]:
-        now = time.monotonic()
-        if not force and (now - self._cached_panes_at) < _LIST_PANES_TTL:
-            return self._cached_panes
+        if not force:
+            now = time.monotonic()
+            if (now - self._cached_panes_at) < _LIST_PANES_TTL:
+                return self._cached_panes
         self._cached_panes = self._backend.list_panes()
-        self._cached_panes_at = now
+        self._cached_panes_at = time.monotonic()
         return self._cached_panes
 
     def _find_pane_window(

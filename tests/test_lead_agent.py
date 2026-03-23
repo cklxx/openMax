@@ -49,6 +49,9 @@ class DummyPaneManager:
     def is_pane_alive(self, pane_id):
         return True
 
+    def alive_pane_ids(self):
+        return frozenset()
+
     def refresh_states(self, *, force: bool = False):
         del force
         return None

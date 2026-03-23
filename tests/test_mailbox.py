@@ -465,6 +465,7 @@ def _make_runtime(tmp_path: Path, session_id: str = "int-sess") -> Any:
 
     pane_mgr = MagicMock()
     pane_mgr.is_pane_alive.return_value = True
+    pane_mgr.alive_pane_ids.return_value = frozenset()
 
     mb = SessionMailbox(session_id, tmp_path)
     mb.start()
@@ -525,6 +526,7 @@ def test_tool_auto_done_for_exited_pane(tmp_path: Path) -> None:
 
     runtime, mb = _make_runtime(tmp_path, "auto-done-sess")
     runtime.pane_mgr.is_pane_alive.return_value = False  # pane exited
+    runtime.pane_mgr.alive_pane_ids.return_value = frozenset()  # no alive panes
 
     st = SubTask(name="dead-task", agent_type="claude", prompt="x", status=TaskStatus.RUNNING)
     st.pane_id = 42
@@ -549,6 +551,7 @@ def test_tool_no_auto_done_if_pane_still_alive(tmp_path: Path) -> None:
 
     runtime, mb = _make_runtime(tmp_path, "alive-pane-sess")
     runtime.pane_mgr.is_pane_alive.return_value = True  # still alive
+    runtime.pane_mgr.alive_pane_ids.return_value = frozenset({7})  # pane 7 alive
 
     st = SubTask(name="live-task", agent_type="claude", prompt="x", status=TaskStatus.RUNNING)
     st.pane_id = 7

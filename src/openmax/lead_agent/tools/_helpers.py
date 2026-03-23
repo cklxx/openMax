@@ -422,13 +422,14 @@ def _try_reuse_done_pane(
         if st.status in (TaskStatus.RUNNING, TaskStatus.PENDING) and st.pane_id is not None:
             busy_panes.add(st.pane_id)
 
+    alive = runtime.pane_mgr.alive_pane_ids()
     for st in runtime.plan.subtasks:
         if (
             st.agent_type == agent_type
             and st.status == TaskStatus.DONE
             and st.pane_id is not None
             and st.pane_id not in busy_panes
-            and runtime.pane_mgr.is_pane_alive(st.pane_id)
+            and st.pane_id in alive
         ):
             console.print(f"  [dim]{P}  reusing pane {st.pane_id} for {task_name}[/dim]")
             return SimpleNamespace(

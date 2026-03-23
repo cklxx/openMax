@@ -349,8 +349,7 @@ def test_read_pane_output_all_panes_summary(monkeypatch, tmp_path):
         panes = [pane for window in data["windows"] for pane in window["panes"]]
         assert data["total_panes"] >= 2
         assert any(
-            pane["pane_id"] == unmanaged_pane_id and pane["state"] == "unmanaged"
-            for pane in panes
+            pane["pane_id"] == unmanaged_pane_id and pane["state"] == "unmanaged" for pane in panes
         )
     finally:
         if unmanaged_pane_id is not None:
