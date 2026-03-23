@@ -175,6 +175,7 @@ class TuiDashboard:
         self._verbose = verbose
         self._app = None
         self._thread: threading.Thread | None = None
+        self.start_time: float = time.monotonic()
 
     def start(self) -> None:
         from openmax.tui.app import OpenMaxApp
