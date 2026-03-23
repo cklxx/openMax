@@ -6,6 +6,7 @@ import time
 from pathlib import PurePosixPath
 from typing import Any
 
+import anyio
 from claude_agent_sdk import tool
 
 from openmax.lead_agent.tools._helpers import (
@@ -69,24 +70,25 @@ async def _auto_dispatch_from_plan(
         return []
 
     goal = getattr(runtime.plan, "goal", "") if runtime.plan else ""
-    results = []
-    for st in roots:
+    results: list[dict[str, Any]] = [{}] * len(roots)
+
+    async def _dispatch_one(idx: int, st: dict[str, Any]) -> None:
         prompt = st.get("prompt") or _build_auto_prompt(st, goal)
         agent_type = st.get("agent_type", "claude-code-print")
         try:
             result = await dispatch_agent.handler(
-                {
-                    "task_name": st["name"],
-                    "prompt": prompt,
-                    "agent_type": agent_type,
-                }
+                {"task_name": st["name"], "prompt": prompt, "agent_type": agent_type}
             )
             content = result.get("content", [{}])
             text = content[0].get("text", "")[:200] if content else ""
-            results.append({"task_name": st["name"], "dispatched": True, "summary": text})
+            results[idx] = {"task_name": st["name"], "dispatched": True, "summary": text}
         except Exception as exc:
             console.print(f"  [yellow]![/yellow]  Auto-dispatch {st['name']} failed: {exc}")
-            results.append({"task_name": st["name"], "dispatched": False, "error": str(exc)})
+            results[idx] = {"task_name": st["name"], "dispatched": False, "error": str(exc)}
+
+    async with anyio.create_task_group() as tg:
+        for i, st in enumerate(roots):
+            tg.start_soon(_dispatch_one, i, st)
     return results
 
 
