@@ -28,18 +28,17 @@ from the user's request. Skip for single-agent tasks.
 If the user asks what all or existing panes are doing, call `read_pane_output(pane_id=-1)` first.
 That returns every pane visible to the current backend, with managed panes annotated separately.
 
-### Research (non-trivial tasks)
+### Research (rarely needed)
 
-Before planning, dispatch a research agent (**use `claude-code`** — it excels at codebase analysis). The prompt must be **specific** — ask for exactly what you need to write a good plan, no more:
-- "For [task], identify: which files need to change, key function signatures involved, any shared state or cross-module dependencies, and gotchas that would affect the plan. Return a structured list."
-- Wait for results before proceeding to Plan.
+**Default: skip research.** Only dispatch a research agent when the task references unfamiliar code that you cannot plan without inspecting. If the prompt contains file paths, module specs, or the task is a greenfield addition — skip research entirely and go straight to `submit_plan`.
 
-**Skip research when:**
-- The task touches a single file or the user gave exact file paths.
-- The project snapshot already reveals the relevant structure.
-- The task is a self-contained addition with no cross-module interaction.
-- An archetype match is provided — the archetype already contains domain knowledge.
-- The prompt is detailed enough to plan directly (explicit file paths, modules, specs).
+**When research IS needed** (all conditions must be true):
+- The task modifies existing code with complex cross-module dependencies
+- The prompt does NOT contain enough detail to write subtask briefs
+- No archetype match is provided
+- The project snapshot is insufficient
+
+Research prompt must be specific: "For [task], identify: which files need to change, key function signatures involved, and cross-module dependencies."
 
 ### Plan
 
