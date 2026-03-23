@@ -113,6 +113,40 @@ def test_report_done_accepts_explicit_session_id(monkeypatch, tmp_path):
         mailbox.stop()
 
 
+def test_report_done_with_token_usage(monkeypatch, tmp_path):
+    monkeypatch.setenv("OPENMAX_SESSION_ID", "mcp-tokens")
+    mailbox = SessionMailbox("mcp-tokens", tmp_path)
+    mailbox.start()
+    try:
+        result = report_done(
+            "API task", "done", input_tokens=5000, output_tokens=12000, cost_usd=0.153
+        )
+        assert result["ok"] is True
+
+        message = mailbox.receive(timeout=2.0)
+        assert message is not None
+        assert message.raw["input_tokens"] == 5000
+        assert message.raw["output_tokens"] == 12000
+        assert message.raw["cost_usd"] == 0.153
+    finally:
+        mailbox.stop()
+
+
+def test_report_done_without_tokens_omits_fields(monkeypatch, tmp_path):
+    monkeypatch.setenv("OPENMAX_SESSION_ID", "mcp-no-tok")
+    mailbox = SessionMailbox("mcp-no-tok", tmp_path)
+    mailbox.start()
+    try:
+        result = report_done("API task", "done")
+        assert result["ok"] is True
+
+        message = mailbox.receive(timeout=2.0)
+        assert message is not None
+        assert "input_tokens" not in message.raw
+    finally:
+        mailbox.stop()
+
+
 def test_explicit_session_id_overrides_env(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENMAX_SESSION_ID", "mcp-env")
     mailbox = SessionMailbox("mcp-param", tmp_path)

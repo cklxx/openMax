@@ -12,6 +12,7 @@ from claude_agent_sdk import tool
 
 from openmax.lead_agent.tools._helpers import (
     _append_session_event,
+    _apply_subtask_usage,
     _pane_id_for_task,
     _read_subtask_report,
     _runtime,
@@ -425,6 +426,9 @@ async def wait_for_agent_message(args: dict[str, Any]) -> dict[str, Any]:
     if msg is not None:
         runtime.mailbox_messaged_tasks.add(msg.task)
         _append_session_event("mailbox.message_received", {"type": msg.type, "task": msg.task})
+
+        if msg.type == "done":
+            _apply_subtask_usage(msg.task, msg.raw)
 
         if msg.type == "progress" and runtime.dashboard is not None:
             pct = msg.raw.get("pct", 0)

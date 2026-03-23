@@ -83,7 +83,14 @@ def _send_tool_payload(
     ),
     structured_output=True,
 )
-def report_done(task: str, summary: str, session_id: str = "") -> dict[str, Any]:
+def report_done(
+    task: str,
+    summary: str,
+    session_id: str = "",
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cost_usd: float = 0.0,
+) -> dict[str, Any]:
     task_name = _normalize_required_text(task)
     if task_name is None:
         return _error_result("task is required")
@@ -92,10 +99,13 @@ def report_done(task: str, summary: str, session_id: str = "") -> dict[str, Any]
     if summary_text is None:
         return _error_result("summary is required")
 
-    return _send_tool_payload(
-        {"type": "done", "task": task_name, "summary": summary_text},
-        session_id,
-    )
+    payload: dict[str, Any] = {"type": "done", "task": task_name, "summary": summary_text}
+    if input_tokens > 0 or output_tokens > 0:
+        payload["input_tokens"] = max(input_tokens, 0)
+        payload["output_tokens"] = max(output_tokens, 0)
+        payload["cost_usd"] = max(cost_usd, 0.0)
+
+    return _send_tool_payload(payload, session_id)
 
 
 @mcp.tool(

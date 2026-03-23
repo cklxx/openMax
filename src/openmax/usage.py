@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
 
 from openmax._paths import default_sessions_dir, utc_now_iso
 from openmax.session_runtime import SessionStore
@@ -23,11 +24,17 @@ class SessionUsage:
     duration_ms: int = 0
     duration_api_ms: int = 0
     num_turns: int = 0
+    subtask_usage: list[dict[str, Any]] = field(default_factory=list)
+    total_session_cost_usd: float = 0.0
     recorded_at: str = field(default_factory=utc_now_iso)
 
     @property
     def total_tokens(self) -> int:
         return self.input_tokens + self.output_tokens
+
+    @property
+    def subtask_total_tokens(self) -> int:
+        return sum(s.get("input_tokens", 0) + s.get("output_tokens", 0) for s in self.subtask_usage)
 
     def format_cost(self) -> str:
         return f"${self.cost_usd:.4f}"
@@ -56,6 +63,20 @@ class SessionUsage:
             f"Turns: {self.num_turns}"
         )
 
+    def session_total_line(self) -> str:
+        if not self.subtask_usage:
+            return self.summary_line()
+        agent_cost = sum(s.get("cost_usd", 0.0) for s in self.subtask_usage)
+        total_cost = self.cost_usd + agent_cost
+        total_tokens = self.total_tokens + self.subtask_total_tokens
+        lead = f"{self.total_tokens:,}"
+        agents = f"{self.subtask_total_tokens:,}"
+        return (
+            f"Total: ${total_cost:.4f} | "
+            f"Tokens: {total_tokens:,} (lead {lead} + agents {agents}) | "
+            f"Agents: {len(self.subtask_usage)}"
+        )
+
 
 def usage_from_result(session_id: str, result_msg: object) -> SessionUsage:
     """Extract SessionUsage from a claude-agent-sdk ResultMessage."""
@@ -78,6 +99,13 @@ def usage_from_result(session_id: str, result_msg: object) -> SessionUsage:
     )
 
 
+def _load_usage_from_dict(data: dict[str, Any]) -> SessionUsage:
+    """Load SessionUsage from a dict, handling missing fields for backward compat."""
+    data.setdefault("subtask_usage", [])
+    data.setdefault("total_session_cost_usd", 0.0)
+    return SessionUsage(**data)
+
+
 class UsageStore:
     """Read/write usage.json files alongside session metadata."""
 
@@ -98,7 +126,7 @@ class UsageStore:
             return None
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            return SessionUsage(**data)
+            return _load_usage_from_dict(data)
         except (json.JSONDecodeError, TypeError, ValueError):
             return None
 
@@ -110,7 +138,7 @@ class UsageStore:
         for usage_path in self.base_dir.glob("*/usage.json"):
             try:
                 data = json.loads(usage_path.read_text(encoding="utf-8"))
-                records.append(SessionUsage(**data))
+                records.append(_load_usage_from_dict(data))
             except (OSError, json.JSONDecodeError, TypeError, ValueError):
                 continue
         records.sort(key=lambda u: u.recorded_at, reverse=True)
@@ -132,6 +160,7 @@ class UsageStore:
             agg.duration_ms += rec.duration_ms
             agg.duration_api_ms += rec.duration_api_ms
             agg.num_turns += rec.num_turns
+            agg.total_session_cost_usd += rec.total_session_cost_usd
         return agg
 
     def _usage_path(self, session_id: str) -> Path:

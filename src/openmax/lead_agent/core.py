@@ -46,7 +46,7 @@ from openmax.session_runtime import (
     SessionStore,
 )
 from openmax.stats import load_stats
-from openmax.usage import UsageStore, usage_from_result
+from openmax.usage import SessionUsage, UsageStore, usage_from_result
 
 _PROMPT_DIR = Path(__file__).parent / "prompts"
 _MAX_TRANSIENT_RETRIES = 2
@@ -75,6 +75,55 @@ def _build_lead_env() -> dict[str, str]:
     Auth is handled by `claude setup-token` (stored in Claude's own config).
     """
     return {"CLAUDECODE": ""}
+
+
+def _subtask_cost(st: SubTask) -> float:
+    """Get the best available cost for a subtask: reported > estimated."""
+    if st.cost_usd > 0:
+        return st.cost_usd
+    return st.estimated_cost_usd or 0.0
+
+
+def _populate_subtask_usage(usage: SessionUsage, subtasks: list[SubTask]) -> None:
+    """Fill subtask_usage and total_session_cost_usd on the SessionUsage object."""
+    usage.subtask_usage = [
+        {
+            "task_name": st.name,
+            "agent_type": st.agent_type,
+            "input_tokens": st.input_tokens,
+            "output_tokens": st.output_tokens,
+            "cost_usd": _subtask_cost(st),
+            "source": st.usage_source,
+        }
+        for st in subtasks
+    ]
+    agent_cost = sum(s["cost_usd"] for s in usage.subtask_usage)
+    usage.total_session_cost_usd = usage.cost_usd + agent_cost
+
+
+def _print_subtask_usage(usage: SessionUsage) -> None:
+    """Print a compact subtask usage breakdown to the console."""
+    from rich.table import Table
+
+    tbl = Table(show_header=True, box=None, padding=(0, 1))
+    tbl.add_column("Task", style="bold")
+    tbl.add_column("Agent", style="dim")
+    tbl.add_column("Tokens", justify="right")
+    tbl.add_column("Cost", justify="right")
+    tbl.add_column("Src", style="dim")
+    for s in usage.subtask_usage:
+        tokens = s.get("input_tokens", 0) + s.get("output_tokens", 0)
+        tbl.add_row(
+            s["task_name"][:30],
+            s.get("agent_type", ""),
+            f"{tokens:,}" if tokens else "-",
+            f"${s.get('cost_usd', 0):.4f}" if s.get("cost_usd") else "-",
+            s.get("source", "est")[:3],
+        )
+    console.print()
+    console.print("  [bold]Agent usage breakdown:[/bold]")
+    console.print(tbl)
+    console.print(f"  [dim]{usage.session_total_line()}[/dim]")
 
 
 def _task_status_from_value(value: str) -> TaskStatus:
@@ -472,6 +521,7 @@ async def _run_lead_agent_async(
                 elif isinstance(msg, ResultMessage):
                     sid = session_id or "__unnamed__"
                     usage = usage_from_result(sid, msg)
+                    _populate_subtask_usage(usage, runtime.plan.subtasks)
                     if session_id:
                         UsageStore().save(usage)
                     if hasattr(msg, "usage") and msg.usage:
@@ -511,6 +561,8 @@ async def _run_lead_agent_async(
                             f"  {elapsed_str}"
                             f"  [dim]{usage.summary_line()}[/dim]"
                         )
+                    if usage.subtask_usage:
+                        _print_subtask_usage(usage)
 
         if runtime.session_meta is not None and runtime.session_store is not None:
             runtime.session_meta.status = "completed"

@@ -66,6 +66,23 @@ def _upsert_subtask(subtask: SubTask) -> None:
     runtime.plan.subtasks.append(subtask)
 
 
+def _apply_subtask_usage(task_name: str, raw: dict[str, Any]) -> None:
+    """Apply token usage data from a mailbox done message to the matching SubTask."""
+    input_tok = raw.get("input_tokens", 0)
+    output_tok = raw.get("output_tokens", 0)
+    if not input_tok and not output_tok:
+        return
+    runtime = _runtime()
+    for st in runtime.plan.subtasks:
+        if st.name == task_name:
+            st.input_tokens = max(int(input_tok), 0)
+            st.output_tokens = max(int(output_tok), 0)
+            st.tokens_used = st.input_tokens + st.output_tokens
+            st.cost_usd = max(float(raw.get("cost_usd", 0.0)), 0.0)
+            st.usage_source = "reported"
+            return
+
+
 def _serialize_subtasks(tasks: list[Any]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for task in tasks:
@@ -513,7 +530,9 @@ def _build_identity_block(task_name: str, session_id: str | None) -> str:
         block += (
             f'\n\nUse MCP tools from `openmax` server with session_id="{sid}":\n'
             f'- report_progress(task="{task_name}", pct=<0-100>, msg="...")\n'
-            f'- report_done(task="{task_name}", summary="...") — call AFTER writing report file'
+            f'- report_done(task="{task_name}", summary="...", '
+            f"input_tokens=N, output_tokens=N, cost_usd=X.XX)\n"
+            f"  Include your token usage stats if available."
         )
     return block
 

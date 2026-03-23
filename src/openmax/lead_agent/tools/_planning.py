@@ -394,6 +394,17 @@ async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:
                     finished_at=st.finished_at,
                 )
             _append_session_event("tool.mark_task_done", {"task_name": task_name})
+            _append_session_event(
+                "subtask.usage",
+                {
+                    "task_name": task_name,
+                    "agent_type": st.agent_type,
+                    "input_tokens": st.input_tokens,
+                    "output_tokens": st.output_tokens,
+                    "cost_usd": st.cost_usd,
+                    "usage_source": st.usage_source,
+                },
+            )
             msg = f"Marked '{task_name}' as done"
             if st.branch_name:
                 msg += f". Branch '{st.branch_name}' ready — call merge_agent_branch to merge."

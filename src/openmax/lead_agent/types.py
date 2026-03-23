@@ -30,6 +30,10 @@ class SubTask:
     finished_at: float | None = None
     token_budget: int | None = None
     tokens_used: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+    usage_source: str = "estimated"
     role: str = "writer"
     estimated_cost_usd: float | None = None
 

@@ -40,7 +40,7 @@ from openmax.terminal import (
     is_tmux_available,
 )
 from openmax.theme import get_theme
-from openmax.usage import UsageStore
+from openmax.usage import SessionUsage, UsageStore
 
 try:
     import tomllib
@@ -992,6 +992,28 @@ def inspect(session_id: str) -> None:
         console.print(tbl)
 
 
+def _render_subtask_usage_table(rec: SessionUsage) -> None:
+    """Print a subtask usage breakdown table for a session."""
+    tbl = _make_table(title="Agent usage breakdown", title_style=get_theme().cli_col_bold)
+    tbl.add_column("Task", style=get_theme().cli_col_bold)
+    tbl.add_column("Agent", style="dim")
+    tbl.add_column("Tokens", justify="right")
+    tbl.add_column("Cost", justify="right")
+    tbl.add_column("Source", style="dim")
+    for s in rec.subtask_usage:
+        tokens = s.get("input_tokens", 0) + s.get("output_tokens", 0)
+        tbl.add_row(
+            s.get("task_name", "")[:30],
+            s.get("agent_type", ""),
+            f"{tokens:,}" if tokens else "-",
+            f"${s.get('cost_usd', 0):.4f}" if s.get("cost_usd") else "-",
+            s.get("source", "estimated"),
+        )
+    console.print()
+    console.print(tbl)
+    console.print(f"\n[bold]{rec.session_total_line()}[/bold]")
+
+
 @main.command()
 @click.argument("session_id", required=False, default=None)
 @click.option(
@@ -1015,12 +1037,14 @@ def usage(session_id: str | None, limit: int, total: bool) -> None:
             console.print(f"[yellow]No usage data for session '{session_id}'.[/yellow]")
             raise SystemExit(1)
         console.print(f"[bold]Session:[/bold] {rec.session_id}")
-        console.print(f"[bold]Cost:[/bold]     {rec.format_cost()}")
+        console.print(f"[bold]Cost:[/bold]     {rec.format_cost()} (lead agent)")
         console.print(f"[bold]Tokens:[/bold]   {rec.total_tokens:,} ({rec.format_tokens()})")
         console.print(f"[bold]Duration:[/bold] {rec.format_duration()}")
         console.print(f"[bold]API time:[/bold] {rec.duration_api_ms / 1000:.1f}s")
         console.print(f"[bold]Turns:[/bold]    {rec.num_turns}")
         console.print(f"[bold]Recorded:[/bold] {_format_timestamp(rec.recorded_at)}")
+        if rec.subtask_usage:
+            _render_subtask_usage_table(rec)
         return
 
     records = store.list_all(limit=limit)
@@ -1034,14 +1058,17 @@ def usage(session_id: str | None, limit: int, total: bool) -> None:
     tbl.add_column("Tokens", justify="right")
     tbl.add_column("Duration", justify="right")
     tbl.add_column("Turns", justify="right")
+    tbl.add_column("Agents", justify="right")
 
     for rec in records:
+        agent_count = len(rec.subtask_usage) if rec.subtask_usage else 0
         tbl.add_row(
             rec.session_id[:12],
             rec.format_cost(),
             f"{rec.total_tokens:,}",
             rec.format_duration(),
             str(rec.num_turns),
+            str(agent_count) if agent_count else "-",
         )
     console.print(tbl)
 
