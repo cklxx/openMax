@@ -1,0 +1,43 @@
+id: "full-crud-api"
+name: "Full CRUD API with tests"
+difficulty: large
+prompt: |
+  Build a complete CRUD REST API for a "tasks" resource in this Flask project:
+
+  1. src/app.py — Flask app with these endpoints:
+     - GET    /api/tasks       — list all tasks (JSON array)
+     - POST   /api/tasks       — create task (JSON body: title, description)
+     - GET    /api/tasks/<id>  — get single task
+     - PUT    /api/tasks/<id>  — update task
+     - DELETE /api/tasks/<id>  — delete task (return 204)
+
+  2. src/models.py — Task dataclass with id (int auto-increment), title (str),
+     description (str), completed (bool, default False), created_at (str ISO format).
+     In-memory storage with a TaskStore class.
+
+  3. src/validation.py — validate_task(data) that returns (is_valid, errors).
+     Title is required, max 100 chars. Description optional, max 500 chars.
+
+  4. tests/test_api.py — comprehensive tests: CRUD happy paths, validation errors,
+     404 for missing task, empty list.
+
+  Return proper HTTP status codes (201 for create, 204 for delete, 400 for validation, 404 for not found).
+setup_script: |
+  mkdir -p src tests
+  cat > src/__init__.py << 'PYEOF'
+  PYEOF
+  cat > tests/__init__.py << 'PYEOF'
+  PYEOF
+  cat > requirements.txt << 'PYEOF'
+  flask
+  pytest
+  PYEOF
+  pip install flask pytest -q 2>/dev/null || true
+verify_script: |
+  cd {workspace}
+  python -c "from src.models import TaskStore; s=TaskStore(); print('models ok')" 2>&1
+  python -c "from src.validation import validate_task; print('validation ok')" 2>&1
+  python -m pytest tests/ -v 2>&1
+success_pattern: "passed"
+timeout_seconds: 600
+tags: [web, api, crud, testing, validation]

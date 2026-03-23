@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openmax"
-version = "0.7.2"
+version = "0.8.0"
 description = "Extreme parallel acceleration — one command dispatches multiple AI agents with domain-aware task decomposition"
 readme = "README.md"
 license = "MIT"
@@ -29,6 +29,7 @@ dependencies = [
     "claude-agent-sdk>=0.1.48,<0.2.0",
     "click>=8.0",
     "mcp>=1.26.0,<2.0.0",
+    "pyyaml>=6.0",
     "rich>=13.0",
     "tomli>=2.0; python_version < '3.11'",
 ]

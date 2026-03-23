@@ -1201,9 +1201,10 @@ def test_help_shows_grouped_commands():
     assert "Sessions:" in result.output
     assert "Environment:" in result.output
     assert "Setup:" in result.output
+    assert "Benchmark:" in result.output
 
 
-def test_help_shows_exactly_12_visible_commands():
+def test_help_shows_exactly_13_visible_commands():
     runner = CliRunner()
     result = runner.invoke(cli.main, ["--help"])
 
@@ -1220,6 +1221,7 @@ def test_help_shows_exactly_12_visible_commands():
         "models",
         "setup",
         "doctor",
+        "benchmark",
     ]
     for cmd in expected:
         assert cmd in result.output

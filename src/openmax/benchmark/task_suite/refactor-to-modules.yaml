@@ -1,0 +1,88 @@
+id: "refactor-to-modules"
+name: "Refactor monolith to modules"
+difficulty: medium
+prompt: |
+  Refactor the single-file application in src/monolith.py into a proper package structure:
+  - src/app/__init__.py — Flask app factory create_app()
+  - src/app/models.py — User and Product dataclasses
+  - src/app/routes.py — all route handlers, registered via Blueprint
+  - src/app/utils.py — helper functions (validate_email, format_price)
+
+  Update tests/test_app.py to import from the new structure and ensure all tests pass.
+  The app behavior must remain identical.
+setup_script: |
+  mkdir -p src tests
+  cat > src/monolith.py << 'PYEOF'
+  import re
+  from dataclasses import dataclass
+  from flask import Flask, jsonify, request
+
+  app = Flask(__name__)
+
+  @dataclass
+  class User:
+      name: str
+      email: str
+
+  @dataclass
+  class Product:
+      name: str
+      price: float
+
+  def validate_email(email: str) -> bool:
+      return bool(re.match(r"^[\w.+-]+@[\w-]+\.[\w.]+$", email))
+
+  def format_price(price: float) -> str:
+      return f"${price:.2f}"
+
+  USERS = [User("Alice", "alice@example.com")]
+  PRODUCTS = [Product("Widget", 9.99)]
+
+  @app.route("/users")
+  def list_users():
+      return jsonify([{"name": u.name, "email": u.email} for u in USERS])
+
+  @app.route("/products")
+  def list_products():
+      return jsonify([{"name": p.name, "price": format_price(p.price)} for p in PRODUCTS])
+
+  @app.route("/validate-email")
+  def check_email():
+      email = request.args.get("email", "")
+      return jsonify({"valid": validate_email(email)})
+
+  if __name__ == "__main__":
+      app.run()
+  PYEOF
+  cat > tests/test_app.py << 'PYEOF'
+  from src.monolith import app, validate_email, format_price
+
+  def test_list_users():
+      client = app.test_client()
+      resp = client.get("/users")
+      assert resp.status_code == 200
+      assert len(resp.json) == 1
+
+  def test_list_products():
+      client = app.test_client()
+      resp = client.get("/products")
+      assert resp.status_code == 200
+
+  def test_validate_email():
+      assert validate_email("a@b.com") is True
+      assert validate_email("invalid") is False
+
+  def test_format_price():
+      assert format_price(9.99) == "$9.99"
+      assert format_price(0) == "$0.00"
+  PYEOF
+  pip install flask pytest -q 2>/dev/null || true
+verify_script: |
+  cd {workspace}
+  python -c "from src.app import create_app; print('import ok')" 2>&1
+  python -c "from src.app.models import User, Product; print('models ok')" 2>&1
+  python -c "from src.app.utils import validate_email, format_price; print('utils ok')" 2>&1
+  python -m pytest tests/ -v 2>&1
+success_pattern: "passed"
+timeout_seconds: 300
+tags: [refactoring, architecture]

@@ -1,0 +1,40 @@
+id: "add-rest-endpoint"
+name: "Add REST health endpoint"
+difficulty: small
+prompt: |
+  Add a GET /api/health endpoint to src/app.py that returns JSON {"status": "ok"}.
+  Add a test in tests/test_app.py that verifies the endpoint returns 200 and correct JSON.
+  Use Flask's test client.
+setup_script: |
+  mkdir -p src tests
+  cat > src/app.py << 'PYEOF'
+  from flask import Flask
+
+  app = Flask(__name__)
+
+  @app.route("/")
+  def index():
+      return "Hello World"
+
+  if __name__ == "__main__":
+      app.run()
+  PYEOF
+  cat > tests/test_app.py << 'PYEOF'
+  from src.app import app
+
+  def test_index():
+      client = app.test_client()
+      resp = client.get("/")
+      assert resp.status_code == 200
+  PYEOF
+  cat > requirements.txt << 'PYEOF'
+  flask
+  pytest
+  PYEOF
+  pip install flask pytest -q 2>/dev/null || true
+verify_script: |
+  cd {workspace}
+  python -m pytest tests/ -v 2>&1
+success_pattern: "passed"
+timeout_seconds: 120
+tags: [web, api, testing]

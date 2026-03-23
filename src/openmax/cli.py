@@ -58,6 +58,7 @@ class GroupedGroup(click.Group):
         ("Sessions", ["sessions", "inspect", "usage", "log"]),
         ("Environment", ["status", "agents", "panes", "models"]),
         ("Setup", ["setup", "doctor"]),
+        ("Benchmark", ["benchmark"]),
     ]
 
     def parse_args(self, ctx, args):
@@ -1595,3 +1596,63 @@ def _log_replay(log_path: Path) -> None:
         detail = ev.get("summary") or ev.get("msg") or ""
         pct = f" {ev['pct']}%" if "pct" in ev else ""
         console.print(f"  [dim]{ts_str}[/dim]  [bold]{task}[/bold]  [{msg_type}]{pct}  {detail}")
+
+
+# ---------------------------------------------------------------------------
+# benchmark
+# ---------------------------------------------------------------------------
+
+
+@main.group()
+def benchmark() -> None:
+    """Compare Claude Code vs openMax completion times."""
+
+
+@benchmark.command("list")
+@click.option("--suite", default=None, type=click.Path(exists=True), help="Task suite directory")
+def benchmark_list(suite: str | None) -> None:
+    """List available benchmark tasks."""
+    from openmax.benchmark.tasks import load_task_suite
+
+    suite_path = Path(suite) if suite else None
+    tasks = load_task_suite(suite_path)
+    table = Table(title="Benchmark Tasks")
+    table.add_column("ID", style="bold")
+    table.add_column("Name")
+    table.add_column("Difficulty", justify="center")
+    table.add_column("Timeout", justify="right")
+    table.add_column("Tags")
+    for t in tasks:
+        table.add_row(t.id, t.name, t.difficulty, f"{t.timeout_seconds}s", ", ".join(t.tags))
+    console.print(table)
+
+
+@benchmark.command("run")
+@click.option(
+    "--tasks",
+    "tasks_path",
+    default=None,
+    type=click.Path(exists=True),
+    help="Single task YAML or directory of tasks",
+)
+@click.option("--repeat", default=1, type=click.IntRange(min=1), help="Repeat each task N times")
+@click.option("--model", default=None, help="Model to use for both runners")
+def benchmark_run(tasks_path: str | None, repeat: int, model: str | None) -> None:
+    """Run benchmark: same tasks via Claude Code and openMax."""
+    from openmax.benchmark.report import print_report, save_report
+    from openmax.benchmark.runner import run_benchmark
+    from openmax.benchmark.tasks import load_task, load_task_suite
+
+    if tasks_path:
+        p = Path(tasks_path)
+        task_list = [load_task(p)] if p.is_file() else load_task_suite(p)
+    else:
+        task_list = load_task_suite()
+
+    if not task_list:
+        raise click.UsageError("No benchmark tasks found")
+
+    console.print(f"[bold]Running {len(task_list)} benchmark tasks (repeat={repeat})[/bold]")
+    report = run_benchmark(task_list, model=model, repeat=repeat)
+    print_report(report)
+    save_report(report)

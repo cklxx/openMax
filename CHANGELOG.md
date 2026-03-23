@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.0
+
+- **Feature**: Automated benchmark — compare Claude Code (single agent) vs openMax (multi-agent) completion times
+  - `openmax benchmark run` — run SWE-bench style tasks through both systems, collect wall-clock time, tokens, cost
+  - `openmax benchmark list` — browse available benchmark tasks with difficulty ratings
+  - Built-in task suite: 3 tasks across difficulty levels (small/medium/large) — REST endpoint, module refactoring, full CRUD API
+  - Rich terminal report with speedup factor, cost ratio, and pass/fail per runner
+  - JSON report persistence to `.openmax/benchmarks/` for trend tracking
+  - Task format is declarative YAML with setup_script, verify_script, and success_pattern
+  - Custom task suites supported via `--tasks` flag
+  - 17 new tests (748 total)
+  - New dependency: `pyyaml>=6.0`
+
 ## 0.7.2
 
 - **Feature**: Per-subtask token/usage tracking — track token consumption across all agents (lead + sub-agents)
