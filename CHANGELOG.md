@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.1
+
+- **Performance**: Hot-path optimizations for faster agent dispatch and monitoring
+  - TTL-based `list_panes()` cache in PaneManager — eliminates redundant subprocess calls (~50ms each)
+  - Remove redundant double `is_pane_alive()` check in `read_pane_output`
+  - Adaptive backoff polling in `_wait_for_pane_ready` (0.15s→1.0s vs fixed 0.5s) — faster ready detection
+  - Reduce `send_text` paste-to-enter delay from 0.5s to 0.15s (~350ms saved per prompt send)
+  - Reduce `_find_pane_window` retry delay from 0.3s to 0.1s
+  - Throttle session `meta.json` writes to once per 5 seconds (reduces file I/O during high-frequency events)
+
 ## 0.8.0
 
 - **Feature**: Automated benchmark — compare Claude Code (single agent) vs openMax (multi-agent) completion times
