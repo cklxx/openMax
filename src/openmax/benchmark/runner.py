@@ -113,12 +113,11 @@ def _git_env() -> dict[str, str]:
     return env
 
 
-def _clone_workspace(src: Path, branch: str) -> Path:
-    """Clone workspace to a new temp dir on a named branch."""
-    dst = Path(tempfile.mkdtemp(prefix=f"bench-{branch}-"))
+def _clone_workspace(src: Path, label: str) -> Path:
+    """Clone workspace to a new temp dir. Stays on main branch (no rename)."""
+    dst = Path(tempfile.mkdtemp(prefix=f"bench-{label}-"))
     shutil.rmtree(dst)
     shutil.copytree(src, dst)
-    subprocess.run(["git", "checkout", "-b", branch, "-q"], cwd=dst, check=True)
     return dst
 
 
@@ -271,13 +270,15 @@ def run_benchmark(
                 console.print(f"  Run {run_idx + 1}/{repeat}")
 
             base_workspace = _create_workspace(task)
+            cc_workspace: Path | None = None
+            om_workspace: Path | None = None
             try:
                 cc_workspace = _clone_workspace(base_workspace, "baseline")
                 console.print("  [dim]Running Claude Code...[/dim]")
                 cc_result = _run_claude_code(task, cc_workspace, model)
                 _log_result("Claude Code", cc_result)
 
-                om_workspace = _clone_workspace(base_workspace, "openmax")
+                om_workspace = _clone_workspace(base_workspace, "om")
                 console.print("  [dim]Running openMax...[/dim]")
                 om_result = _run_openmax(task, om_workspace, model)
                 _log_result("openMax", om_result)
@@ -292,7 +293,8 @@ def run_benchmark(
                 report.comparisons.append(comparison)
             finally:
                 for d in (base_workspace, cc_workspace, om_workspace):
-                    shutil.rmtree(d, ignore_errors=True)
+                    if d:
+                        shutil.rmtree(d, ignore_errors=True)
 
     return report
 
