@@ -1344,7 +1344,7 @@ def test_subtask_max_retries_default():
 
 def _init_git_repo(path):
     """Create a minimal git repo at path with an initial commit."""
-    subprocess.run(["git", "init"], cwd=str(path), capture_output=True, check=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=str(path), capture_output=True, check=True)
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
         cwd=str(path),
