@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.8.2
+
+- **Performance**: Reduce lead agent monitoring overhead for faster task completion
+  - Pre-propagate trust settings to worktrees — eliminates trust dialog in sub-agent panes
+  - Shorten trust dialog poll from 10s to 4s max
+  - Increase `wait_for_agent_message` default timeout to 60s — fewer wasted polling turns
+  - Optimize system prompt: mailbox-first monitoring, batch mark+merge, combined verification
+  - Lead agent turns reduced from ~14 to ~7 for single-subtask jobs
+- **Benchmark**: Add complex parallel tasks and fix timeouts
+  - New `parallel-microservices` task (3 independent Flask services)
+  - New `complex-parallel` task (auth + pipeline + monitoring — xlarge)
+  - Increase task timeouts to 600s for realistic openMax overhead
+  - Log openMax stderr on benchmark failures
+- **Result**: openMax 1.1x faster than Claude Code on xlarge tasks (auth+pipeline+monitoring)
+
 ## 0.8.1
 
 - **Performance**: Hot-path optimizations for faster agent dispatch and monitoring
