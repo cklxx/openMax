@@ -46,4 +46,7 @@ class ClaudeCodePrintAdapter(AgentAdapter):
         return False
 
     def get_command(self, prompt: str, cwd: str | None = None) -> AgentCommand:
-        return AgentCommand(launch_cmd=["claude", "-p", prompt], interactive=False)
+        return AgentCommand(
+            launch_cmd=["claude", "-p", "--bare", prompt],
+            interactive=False,
+        )

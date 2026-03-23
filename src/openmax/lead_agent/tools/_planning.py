@@ -55,7 +55,10 @@ def _build_auto_prompt(subtask: dict[str, Any], goal: str) -> str:
     parts = [subtask["description"]]
     if files_block:
         parts.append(f"## Files\n{files_block}")
-    parts.append("Run tests and commit your changes when done.")
+    parts.append(
+        "Write all code, run tests to verify, and commit your changes. "
+        "Be concise — minimize tool calls and do not over-engineer."
+    )
     return "\n\n".join(parts)
 
 
