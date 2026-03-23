@@ -406,7 +406,6 @@ def main() -> None:
     help="Skip interactive plan confirmation (for automation)",
 )
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show detailed subtask output")
-@click.option("--no-tui", is_flag=True, default=False, help="Classic Rich status bar")
 def run(
     task: str,
     cwd: str | None,
@@ -419,7 +418,6 @@ def run(
     pane_backend_name: str | None,
     no_confirm: bool,
     verbose: bool,
-    no_tui: bool,
 ) -> None:
     """Decompose TASK and dispatch sub-agents in terminal panes."""
     from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
@@ -499,7 +497,6 @@ def run(
                 loop_context=loop_context,
                 plan_confirm=not no_confirm,
                 verbose=verbose,
-                tui=not no_tui,
             )
         except LeadAgentStartupError as exc:
             raise SystemExit(1) from exc

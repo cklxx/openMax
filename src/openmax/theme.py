@@ -1,4 +1,4 @@
-"""Centralized theme system for openMax TUI and CLI output.
+"""Centralized theme system for openMax CLI output.
 
 All semantic color/style tokens live here. Import ``get_theme()`` and reference
 named fields instead of hardcoding Rich style strings.

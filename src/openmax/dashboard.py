@@ -832,14 +832,6 @@ class RunDashboard:
 def create_dashboard(
     goal: str,
     verbose: bool = False,
-    tui: bool = True,
 ) -> DashboardProtocol:
-    """Factory: return TUI dashboard when available, else classic Rich bar."""
-    if tui and sys.stdout.isatty():
-        try:
-            from openmax.tui import TuiDashboard
-
-            return TuiDashboard(goal, verbose=verbose)
-        except ImportError:
-            pass
+    """Create a classic Rich status-bar dashboard."""
     return RunDashboard(goal, verbose=verbose)
