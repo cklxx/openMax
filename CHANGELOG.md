@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.3
+
+- **Performance**: Zero-turn dispatch and merge — bypass LLM for mechanical operations
+  - `submit_plan` auto-dispatches root subtasks: dispatch time 88s → 9s for 3 agents
+  - `wait_for_agent_message` auto mark_done + merge on `done` signal: 0 LLM turns per subtask completion
+  - Combined effect: **1.2x speedup** on xlarge tasks (232s vs 286s)
+  - Lead agent token usage reduced ~40% (fewer API round-trips)
+
 ## 0.8.2
 
 - **Performance**: Reduce lead agent monitoring overhead for faster task completion
