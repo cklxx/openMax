@@ -45,14 +45,16 @@ def _roots_from_plan(
 
 
 def _build_auto_prompt(subtask: dict[str, Any], goal: str) -> str:
-    """Build a dispatch prompt from plan data without LLM generation."""
+    """Build a dispatch prompt from plan data without LLM generation.
+
+    Omits the full goal — subtask descriptions are written as complete briefs
+    by the lead agent, so repeating the goal wastes tokens and slows inference.
+    """
     files = subtask.get("files", [])
     files_block = "\n".join(f"- {f}" for f in files) if files else ""
     parts = [subtask["description"]]
     if files_block:
         parts.append(f"## Files\n{files_block}")
-    if goal and goal != subtask["description"]:
-        parts.append(f"## Full Task Context\n{goal}")
     parts.append("Run tests and commit your changes when done.")
     return "\n\n".join(parts)
 
