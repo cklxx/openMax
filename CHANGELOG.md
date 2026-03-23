@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.4
+
+- **Performance**: Print-mode agents + skip redundant verification
+  - Auto-dispatched agents use `claude-code-print` (non-interactive): dispatch 9s → 0.3s
+  - Register `claude-code-print` adapter in built-in agent registry
+  - Skip `run_verification` when all agents self-verified and auto-merged
+  - Improved auto-dispatch prompts: include full user goal as context
+  - Total orchestration overhead reduced to ~45s (was ~100s at v0.8.1)
+
 ## 0.8.3
 
 - **Performance**: Zero-turn dispatch and merge — bypass LLM for mechanical operations
