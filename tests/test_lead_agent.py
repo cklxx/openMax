@@ -2357,24 +2357,30 @@ def test_archetype_section_catches_runtime_errors(monkeypatch):
 
 def test_build_lead_prompt_includes_archetype(monkeypatch):
     """_build_lead_prompt includes archetype context when available."""
-    monkeypatch.setattr(
-        lead_agent_core,
-        "_match_archetype",
-        lambda task, cwd: ("## Matched Archetype\ntest-archetype", "fake"),
-    )
     monkeypatch.setattr(lead_agent_core, "_gather_project_snapshot", lambda *a, **kw: "")
 
-    prompt = lead_agent_core._build_lead_prompt("do stuff", "/tmp", None, None)
+    prompt = lead_agent_core._build_lead_prompt(
+        "do stuff",
+        "/tmp",
+        None,
+        None,
+        archetype_ctx="## Matched Archetype\ntest-archetype",
+    )
     assert "## Matched Archetype" in prompt
     assert "test-archetype" in prompt
 
 
 def test_build_lead_prompt_skips_empty_archetype(monkeypatch):
     """_build_lead_prompt omits archetype section when None."""
-    monkeypatch.setattr(lead_agent_core, "_match_archetype", lambda task, cwd: (None, None))
     monkeypatch.setattr(lead_agent_core, "_gather_project_snapshot", lambda *a, **kw: "")
 
-    prompt = lead_agent_core._build_lead_prompt("do stuff", "/tmp", None, None)
+    prompt = lead_agent_core._build_lead_prompt(
+        "do stuff",
+        "/tmp",
+        None,
+        None,
+        archetype_ctx=None,
+    )
     assert "Archetype" not in prompt
 
 

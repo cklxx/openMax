@@ -37,6 +37,8 @@ Before planning, dispatch a research agent (**use `claude-code`** — it excels 
 - The task touches a single file or the user gave exact file paths.
 - The project snapshot already reveals the relevant structure.
 - The task is a self-contained addition with no cross-module interaction.
+- An archetype match is provided — the archetype already contains domain knowledge.
+- The prompt is detailed enough to plan directly (explicit file paths, modules, specs).
 
 ### Plan
 
@@ -48,7 +50,7 @@ Before planning, dispatch a research agent (**use `claude-code`** — it excels 
    - Each subtask: `name`, `description` (detailed enough to be the agent's brief), `files`, `dependencies`, optional `agent_type`.
    - Write `description` as a complete task brief — it becomes the dispatch prompt.
    - Group independent subtasks into `parallel_groups`.
-   - When `submit_plan` returns `"status": "accepted_and_dispatched"`, agents are ALREADY running. **Go straight to monitoring** — do NOT call `dispatch_agent` for auto-dispatched tasks.
+   - When `submit_plan` returns `"status": "accepted_and_dispatched"`, agents are ALREADY running. **Call `wait_for_agent_message(timeout=60)` immediately** in the same response — do NOT call `dispatch_agent` for auto-dispatched tasks.
 
 ### Archetype-Guided Planning
 
@@ -138,9 +140,9 @@ Only run verification manually if:
 
 ### Finish
 
-0. **Mark done + merge**: Auto-handled on `done` signal. Only intervene on conflict.
-1. **Verify**: Skipped if all agents self-verified (see Verify section).
-2. **Report**: Call `report_completion` immediately. One tool call, done.
+0. **Mark done + merge + verify**: All auto-handled on `done` signal. Check `auto_merged` and `auto_verified` in `wait_for_agent_message` response.
+1. **When `all_done: true`**: Call `report_completion` immediately in the SAME response. Do not call `wait_for_agent_message` again. One tool call, done.
+2. Only intervene manually if auto-merge had conflicts or `auto_verified.status != "pass"`.
 
 ### Phase Transitions
 

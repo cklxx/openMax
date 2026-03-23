@@ -264,6 +264,7 @@ def _build_lead_prompt(
     resume_context: str | None,
     allowed_agents: list[str] | None = None,
     loop_context: str | None = None,
+    archetype_ctx: str | None = None,
 ) -> str:
     parts = [f"## Goal\n{task}", f"Working directory: {cwd}"]
 
@@ -272,7 +273,6 @@ def _build_lead_prompt(
     if snapshot:
         parts.append(f"## Project State\n{snapshot}")
 
-    archetype_ctx, _ = _match_archetype(task, cwd)
     if archetype_ctx:
         parts.append(archetype_ctx)
 
@@ -469,7 +469,7 @@ async def _run_lead_agent_async(
         if model:
             options.model = model
 
-        _, matched_arch = _match_archetype(task, cwd)
+        archetype_ctx, matched_arch = _match_archetype(task, cwd)
         runtime.matched_archetype = matched_arch
 
         prompt = _build_lead_prompt(
@@ -479,6 +479,7 @@ async def _run_lead_agent_async(
             resume_context,
             allowed_agents=allowed_agents,
             loop_context=loop_context,
+            archetype_ctx=archetype_ctx,
         )
 
         console.print()
