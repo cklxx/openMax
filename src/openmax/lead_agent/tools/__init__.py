@@ -46,6 +46,7 @@ ALL_TOOLS = [
     grep_files_tool,
     mark_task_done,
     merge_agent_branch,
+    list_managed_panes,
     read_file_tool,
     read_pane_output,
     read_shared_context_tool,

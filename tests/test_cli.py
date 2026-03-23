@@ -23,6 +23,10 @@ class DummyPaneManager:
     def list_all_panes():
         return []
 
+    def list_backend_panes(self, *, force: bool = False):
+        del force
+        return []
+
     def summary(self) -> dict:
         return {"total_windows": 0, "done": 0}
 
@@ -1159,6 +1163,10 @@ def test_run_attaches_existing_panes(monkeypatch, tmp_path):
     class DummyAttachPaneManager(DummyPaneManager):
         @staticmethod
         def list_all_panes():
+            raise AssertionError("_attach_existing_panes should use the manager backend instance")
+
+        def list_backend_panes(self, *, force: bool = False):
+            del force
             return fake_panes
 
         def attach_pane(self, pane_info, purpose: str):

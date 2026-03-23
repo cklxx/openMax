@@ -777,7 +777,13 @@ def _snapshot_panes(pane_mgr: PaneManager, panes_list: list) -> dict[int, str]:
 
 def _attach_existing_panes(pane_mgr: PaneManager) -> str | None:
     """Detect running panes, attach them to the manager, and return context for the lead agent."""
-    existing = PaneManager.list_all_panes()
+    try:
+        if hasattr(pane_mgr, "list_backend_panes"):
+            existing = pane_mgr.list_backend_panes(force=True)
+        else:
+            existing = PaneManager.list_all_panes()
+    except Exception:
+        return None
     if not existing:
         return None
     for p in existing:

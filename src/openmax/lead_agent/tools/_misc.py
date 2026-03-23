@@ -221,13 +221,16 @@ async def check_conflicts(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "list_managed_panes",
-    "List all managed panes and their current states.",
+    "List panes visible to the current backend and mark which ones are managed by this session.",
     {},
 )
 async def list_managed_panes(args: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime()
-    runtime.pane_mgr.refresh_states()
-    summary = runtime.pane_mgr.summary()
+    runtime.pane_mgr.refresh_states(force=True)
+    if hasattr(runtime.pane_mgr, "all_panes_summary"):
+        summary = runtime.pane_mgr.all_panes_summary(force=True)
+    else:
+        summary = runtime.pane_mgr.summary()
     return _tool_response(summary)
 
 

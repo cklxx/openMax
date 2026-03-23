@@ -444,7 +444,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
 @tool(
     "read_pane_output",
     "Read agent output. With pane_id: ~100 tail lines + stuck/exited status. "
-    "With pane_id=-1: lists all panes and states.",
+    "With pane_id=-1: lists all panes visible to the current backend and marks managed ones.",
     {"pane_id": int},
 )
 async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
@@ -452,8 +452,11 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
     pane_id = args.get("pane_id", -1)
 
     if pane_id == -1:
-        runtime.pane_mgr.refresh_states()
-        summary = runtime.pane_mgr.summary()
+        runtime.pane_mgr.refresh_states(force=True)
+        if hasattr(runtime.pane_mgr, "all_panes_summary"):
+            summary = runtime.pane_mgr.all_panes_summary(force=True)
+        else:
+            summary = runtime.pane_mgr.summary()
         return _tool_response(summary)
     try:
         pane_alive = runtime.pane_mgr.is_pane_alive(pane_id)

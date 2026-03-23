@@ -22,6 +22,11 @@ You have `find_files`, `grep_files`, and `read_file` for lightweight exploration
 Before dispatching, call `update_shared_context` with the goal and any hard constraints
 from the user's request. Skip for single-agent tasks.
 
+### Pane Inspection
+
+If the user asks what all or existing panes are doing, call `read_pane_output(pane_id=-1)` first.
+That returns every pane visible to the current backend, with managed panes annotated separately.
+
 ### Research (non-trivial tasks)
 
 Before planning, dispatch a research agent (**use `claude-code`** — it excels at codebase analysis). The prompt must be **specific** — ask for exactly what you need to write a good plan, no more:

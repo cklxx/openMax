@@ -239,6 +239,72 @@ def test_headless_backend_manager_tracks_windows_and_cleans_up(monkeypatch):
     assert manager.windows == {}
 
 
+def test_all_panes_summary_marks_unmanaged_backend_panes():
+    backend = FakeBackend()
+    backend.list_panes_result = [
+        PaneInfo(
+            window_id=5,
+            tab_id=1,
+            pane_id=11,
+            workspace="tmux",
+            rows=24,
+            cols=80,
+            title="openMax agents",
+            cwd="/repo",
+            is_active=True,
+            is_zoomed=False,
+            cursor_visibility="visible",
+        ),
+        PaneInfo(
+            window_id=5,
+            tab_id=1,
+            pane_id=99,
+            workspace="tmux",
+            rows=24,
+            cols=80,
+            title="shell",
+            cwd="/tmp",
+            is_active=False,
+            is_zoomed=False,
+            cursor_visibility="visible",
+        ),
+    ]
+    manager = PaneManager(backend=backend)
+    manager._windows = {5: ManagedWindow(5, "openMax agents", [11])}
+    manager._panes = {11: ManagedPane(11, 5, "API", "codex", PaneState.RUNNING)}
+
+    summary = manager.all_panes_summary(force=True)
+
+    assert summary["total_panes"] == 2
+    assert summary["managed_panes"] == 1
+    assert summary["unmanaged_panes"] == 1
+    assert summary["windows"][0]["panes"] == [
+        {
+            "pane_id": 11,
+            "title": "openMax agents",
+            "cwd": "/repo",
+            "workspace": "tmux",
+            "tab_id": 1,
+            "active": True,
+            "managed": True,
+            "state": "running",
+            "purpose": "API",
+            "agent_type": "codex",
+            "external": False,
+        },
+        {
+            "pane_id": 99,
+            "title": "shell",
+            "cwd": "/tmp",
+            "workspace": "tmux",
+            "tab_id": 1,
+            "active": False,
+            "managed": False,
+            "state": "unmanaged",
+        },
+    ]
+
+
 def test_pane_manager_can_select_headless_backend_by_name():
     manager = PaneManager(backend_name="headless")
 

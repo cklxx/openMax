@@ -49,11 +49,16 @@ class DummyPaneManager:
     def is_pane_alive(self, pane_id):
         return True
 
-    def refresh_states(self):
+    def refresh_states(self, *, force: bool = False):
+        del force
         return None
 
     def summary(self):
         return {"total_windows": len(self.windows), "done": 0}
+
+    def all_panes_summary(self, *, force: bool = False):
+        del force
+        return {"total_windows": len(self.windows), "total_panes": 2, "managed_panes": 1, "done": 0}
 
 
 async def _fake_run_sync(fn):
@@ -191,6 +196,22 @@ def test_format_tool_use_humanizes_all_openmax_tools():
         )
         == "Waiting 45s"
     )
+
+
+def test_list_managed_panes_returns_visible_pane_summary(tmp_path):
+    runtime, token, _store, _meta = _setup_session(tmp_path)
+
+    result = anyio.run(lead_agent_tools.list_managed_panes.handler, {})
+    data = json.loads(result["content"][0]["text"])
+
+    assert data["total_panes"] == 2
+    assert data["managed_panes"] == 1
+
+    _teardown_session(token)
+
+
+def test_list_managed_panes_is_registered():
+    assert any(tool.name == "list_managed_panes" for tool in lead_agent_tools.ALL_TOOLS)
 
 
 def test_dispatch_agent_enforces_allowed_agents(monkeypatch, tmp_path):

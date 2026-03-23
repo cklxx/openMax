@@ -323,21 +323,38 @@ def test_verification_pass_returns_clean_result(monkeypatch, tmp_path):
 
 
 def test_read_pane_output_all_panes_summary(monkeypatch, tmp_path):
-    """read_pane_output with pane_id=-1 returns a summary of all managed panes."""
+    """read_pane_output with pane_id=-1 includes unmanaged panes visible to the backend."""
     runtime, token = _setup(tmp_path, agent_registry=_slow_agent_registry())
     patch_time(monkeypatch)
+    unmanaged_pane_id: int | None = None
     try:
         anyio.run(
             lead_agent_tools.dispatch_agent.handler,
             {"task_name": "summary-task", "agent_type": "slow-agent", "prompt": "x"},
+        )
+        unmanaged_pane_id = runtime.pane_mgr._backend.spawn_window(
+            [
+                sys.executable,
+                "-u",
+                "-c",
+                "import time; print('UNMANAGED', flush=True); time.sleep(30)",
+            ],
+            cwd=str(tmp_path),
         )
         result = anyio.run(
             lead_agent_tools.read_pane_output.handler,
             {"pane_id": -1},
         )
         data = json.loads(result["content"][0]["text"])
-        assert "total_panes" in data or "total_windows" in data
+        panes = [pane for window in data["windows"] for pane in window["panes"]]
+        assert data["total_panes"] >= 2
+        assert any(
+            pane["pane_id"] == unmanaged_pane_id and pane["state"] == "unmanaged"
+            for pane in panes
+        )
     finally:
+        if unmanaged_pane_id is not None:
+            runtime.pane_mgr._backend.kill_pane(unmanaged_pane_id)
         runtime.pane_mgr.cleanup_all()
         _teardown(token)
 

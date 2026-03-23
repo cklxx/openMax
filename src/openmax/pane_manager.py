@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 from openmax.pane_backend import PaneBackend, PaneInfo, create_pane_backend
 
@@ -111,6 +112,10 @@ class PaneManager:
     def list_all_panes() -> list[PaneInfo]:
         """List all panes from the active backend (not just managed ones)."""
         return create_pane_backend().list_panes()
+
+    def list_backend_panes(self, *, force: bool = False) -> list[PaneInfo]:
+        """List panes visible to this manager's backend instance."""
+        return list(self._list_all_panes(force=force))
 
     # ── High-level: create window with first pane ──────────────────
 
@@ -274,10 +279,10 @@ class PaneManager:
         except RuntimeError:
             return False
 
-    def refresh_states(self) -> None:
+    def refresh_states(self, *, force: bool = False) -> None:
         """Check all managed panes and update states for dead ones."""
         try:
-            alive_ids = {p.pane_id for p in self._list_all_panes()}
+            alive_ids = {p.pane_id for p in self._list_all_panes(force=force)}
         except RuntimeError:
             return
         for pane_id, pane in list(self._panes.items()):
@@ -316,6 +321,67 @@ class PaneManager:
             "done": sum(1 for p in self._panes.values() if p.state == PaneState.DONE),
             "error": sum(1 for p in self._panes.values() if p.state == PaneState.ERROR),
             "windows": window_list,
+        }
+
+    def all_panes_summary(self, *, force: bool = False) -> dict:
+        """Summarize all panes visible to this backend, annotating managed ones."""
+        visible_panes = self.list_backend_panes(force=force)
+        managed_summary = self.summary()
+        windows: dict[int, dict[str, Any]] = {}
+
+        for info in visible_panes:
+            tracked = self._panes.get(info.pane_id)
+            window = windows.setdefault(
+                info.window_id,
+                {
+                    "window_id": info.window_id,
+                    "title": self._windows.get(info.window_id).title
+                    if info.window_id in self._windows
+                    else "",
+                    "pane_count": 0,
+                    "panes": [],
+                },
+            )
+            pane_entry: dict[str, Any] = {
+                "pane_id": info.pane_id,
+                "title": info.title,
+                "cwd": info.cwd,
+                "workspace": info.workspace,
+                "tab_id": info.tab_id,
+                "active": info.is_active,
+                "managed": tracked is not None,
+                "state": tracked.state.value if tracked is not None else "unmanaged",
+            }
+            if tracked is not None:
+                pane_entry["purpose"] = tracked.purpose
+                pane_entry["agent_type"] = tracked.agent_type
+                pane_entry["external"] = tracked.external
+            window["panes"].append(pane_entry)
+
+        window_list: list[dict[str, Any]] = []
+        for window_id in sorted(windows):
+            window = windows[window_id]
+            panes = sorted(window["panes"], key=lambda pane: pane["pane_id"])
+            window["panes"] = panes
+            window["pane_count"] = len(panes)
+            if not window["title"]:
+                first_title = next((pane["title"] for pane in panes if pane["title"]), "")
+                window["title"] = first_title or f"window-{window_id}"
+            window_list.append(window)
+
+        total_visible = len(visible_panes)
+        visible_managed = [self._panes[info.pane_id] for info in visible_panes if info.pane_id in self._panes]
+        managed_total = len(visible_managed)
+        return {
+            "total_windows": len(window_list),
+            "total_panes": total_visible,
+            "managed_panes": managed_total,
+            "unmanaged_panes": max(total_visible - managed_total, 0),
+            "running": sum(1 for pane in visible_managed if pane.state == PaneState.RUNNING),
+            "done": sum(1 for pane in visible_managed if pane.state == PaneState.DONE),
+            "error": sum(1 for pane in visible_managed if pane.state == PaneState.ERROR),
+            "windows": window_list,
+            "managed": managed_summary,
         }
 
     # ── Cleanup ────────────────────────────────────────────────────
