@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.2
+
+- **Feature**: Per-subtask token/usage tracking — track token consumption across all agents (lead + sub-agents)
+  - `report_done` MCP tool accepts optional `input_tokens`, `output_tokens`, `cost_usd` for sub-agent self-reporting
+  - Sub-agent prompts instruct agents to include token stats when available
+  - Token data flows from mailbox done messages into SubTask fields, aggregated at session end
+  - Post-run console output shows agent usage breakdown table (Task, Agent, Tokens, Cost, Source)
+  - `openmax usage <session>` CLI displays per-subtask breakdown with total (lead + agents)
+  - Session list view adds "Agents" column showing dispatched agent count
+  - `usage.json` includes `subtask_usage` array and `total_session_cost_usd` — backward compatible
+  - 13 new tests (731 total)
+
 ## 0.7.1
 
 - **Remove**: TUI dashboard module (Textual-based) — not production-ready, causing runtime errors. Classic Rich status bar remains as the sole dashboard. Drops `textual` dependency and `--no-tui` CLI flag.
