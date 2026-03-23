@@ -46,13 +46,14 @@ def _roots_from_plan(
 def _build_auto_prompt(subtask: dict[str, Any], goal: str) -> str:
     """Build a dispatch prompt from plan data without LLM generation."""
     files = subtask.get("files", [])
-    files_str = "\n".join(f"- {f}" for f in files) if files else "(inferred from task)"
-    return (
-        f"{subtask['description']}\n\n"
-        f"## Files\n{files_str}\n\n"
-        f"## Overall Goal\n{goal}\n\n"
-        "Run tests and commit your changes when done."
-    )
+    files_block = "\n".join(f"- {f}" for f in files) if files else ""
+    parts = [subtask["description"]]
+    if files_block:
+        parts.append(f"## Files\n{files_block}")
+    if goal and goal != subtask["description"]:
+        parts.append(f"## Full Task Context\n{goal}")
+    parts.append("Run tests and commit your changes when done.")
+    return "\n\n".join(parts)
 
 
 async def _auto_dispatch_from_plan(
@@ -71,7 +72,7 @@ async def _auto_dispatch_from_plan(
     results = []
     for st in roots:
         prompt = st.get("prompt") or _build_auto_prompt(st, goal)
-        agent_type = st.get("agent_type", "claude-code")
+        agent_type = st.get("agent_type", "claude-code-print")
         try:
             result = await dispatch_agent.handler(
                 {

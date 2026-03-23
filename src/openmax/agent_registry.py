@@ -16,6 +16,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
 from openmax.adapters import (
     AgentAdapter,
     ClaudeCodeAdapter,
+    ClaudeCodePrintAdapter,
     CodexAdapter,
     OpenCodeAdapter,
     SubprocessAdapter,
@@ -82,6 +83,12 @@ def _built_in_definitions() -> tuple[AgentDefinition, ...]:
         AgentDefinition(
             name="opencode",
             adapter=OpenCodeAdapter(),
+            source="built-in",
+            built_in=True,
+        ),
+        AgentDefinition(
+            name="claude-code-print",
+            adapter=ClaudeCodePrintAdapter(),
             source="built-in",
             built_in=True,
         ),

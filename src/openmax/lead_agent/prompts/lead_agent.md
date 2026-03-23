@@ -130,27 +130,20 @@ Include `check_checkpoints` in every monitoring round. For each pending item:
 
 ### Verify
 
-**Layer 1 — Agent self-verification (during implementation)**
-Every dispatch prompt MUST end with "Run tests and commit your changes when done."
+Every dispatch prompt includes "Run tests and commit your changes when done." Agents self-verify.
 
-**Layer 2 — Lead agent final check (after all agents done)**
-Run **one** verification call combining lint + test:
-- `run_verification(check_type="test", command="<lint_cmd> && <test_cmd>", timeout=300)`
+**Skip `run_verification`** when all agents reported `done` via mailbox AND were auto-merged successfully. Go straight to `report_completion`.
 
-| Status | Required action |
-|--------|-----------------|
-| `pass` | Proceed to Finish. |
-| `fail` | Dispatch debug agent with `dispatch_hint`. Re-verify. Max 2 cycles. |
-| `inconclusive` | Re-run once with longer timeout. |
+Only run verification if:
+- An agent exited without a `done` message
+- Auto-merge had conflicts
+- You have specific reason to doubt correctness
 
 ### Finish
 
-**Required order (minimize round-trips):**
-
-0. **Mark done + merge**: Auto-handled by `wait_for_agent_message` when `done` is received. Skip manual calls unless `auto_merged` is absent or shows conflict.
-   - `"conflict"` → dispatch sub-agent to resolve, then merge again.
-1. **Verify**: One `run_verification` call combining lint + test.
-2. **Report**: `report_completion` + `check_conflicts` in one response.
+0. **Mark done + merge**: Auto-handled on `done` signal. Only intervene on conflict.
+1. **Verify**: Skipped if all agents self-verified (see Verify section).
+2. **Report**: Call `report_completion` immediately. One tool call, done.
 
 ### Phase Transitions
 
