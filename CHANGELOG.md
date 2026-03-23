@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.7
+
+- **Performance**: Batch monitoring + parallel git — reduce orchestration overhead
+  - `wait_for_agent_message` now batches ALL completions (done + auto-merge) in one tool call
+    - 3 agents finishing = 1 LLM turn instead of 3, saving ~10-18s of API overhead
+  - Remove global `_git_lock` — worktree creation runs in parallel across agents
+  - Per-target-branch merge lock replaces global lock (merges to same branch still serialized)
+  - Updated lead agent prompt for batch monitoring protocol
+
 ## 0.8.6
 
 - **Performance**: Reduce subprocess overhead in pane operations

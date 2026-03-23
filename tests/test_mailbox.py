@@ -496,8 +496,8 @@ def test_tool_returns_message_from_mailbox(tmp_path: Path) -> None:
 
         result = anyio.run(_run)
         data = json.loads(result["content"][0]["text"])
-        assert data["received"] is True
-        assert data["message"]["type"] == "done"
+        assert len(data["messages"]) >= 1
+        assert data["messages"][0]["type"] == "done"
     finally:
         reset_lead_agent_runtime(token)
         mb.stop()
@@ -513,7 +513,7 @@ def test_tool_timeout_returns_none(tmp_path: Path) -> None:
         result = anyio.run(wait_for_agent_message.handler, {"timeout": 5})
         data = json.loads(result["content"][0]["text"])
         assert data["timeout"] is True
-        assert data["message"] is None
+        assert data["messages"] == []
     finally:
         reset_lead_agent_runtime(token)
         mb.stop()
@@ -536,9 +536,9 @@ def test_tool_auto_done_for_exited_pane(tmp_path: Path) -> None:
     try:
         result = anyio.run(wait_for_agent_message.handler, {"timeout": 5})
         data = json.loads(result["content"][0]["text"])
-        assert data["received"] is True
-        assert data["source"] == "auto-detect"
-        assert data["message"]["task"] == "dead-task"
+        assert len(data["messages"]) >= 1
+        assert data["messages"][0]["type"] == "auto-detect"
+        assert data["messages"][0]["message"]["task"] == "dead-task"
     finally:
         reset_lead_agent_runtime(token)
         mb.stop()

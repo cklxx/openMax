@@ -9,9 +9,16 @@ from pathlib import Path
 
 import anyio
 
-# Serializes all state-modifying git operations (checkout, merge, branch, worktree)
-# to prevent race conditions when multiple agents finish concurrently.
-_git_lock = anyio.Lock()
+# Per-branch merge lock — merges to the same target must be serialized,
+# but worktree creation and merges to different targets can run in parallel.
+_merge_locks: dict[str, anyio.Lock] = {}
+
+
+def _get_merge_lock(target_branch: str) -> anyio.Lock:
+    """Return a per-target-branch lock for serializing merges."""
+    if target_branch not in _merge_locks:
+        _merge_locks[target_branch] = anyio.Lock()
+    return _merge_locks[target_branch]
 
 
 def _sanitize_branch_name(task_name: str) -> str:

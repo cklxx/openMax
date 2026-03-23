@@ -13,7 +13,7 @@ from claude_agent_sdk import tool
 
 from openmax.lead_agent.tools._branch import (
     _cleanup_agent_branch,
-    _git_lock,
+    _get_merge_lock,
 )
 from openmax.lead_agent.tools._helpers import (
     _append_session_event,
@@ -448,7 +448,7 @@ async def merge_agent_branch(args: dict[str, Any]) -> dict[str, Any]:
     integration = runtime.integration_branch or "main"
     branch = target.branch_name
     try:
-        async with _git_lock:
+        async with _get_merge_lock(integration):
             status, hash_, files, diff, commit_count = await anyio.to_thread.run_sync(
                 lambda: _do_merge_and_cleanup(runtime.cwd, branch, integration)
             )

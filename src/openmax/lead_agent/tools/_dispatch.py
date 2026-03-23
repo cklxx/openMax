@@ -12,7 +12,6 @@ from claude_agent_sdk import tool
 from openmax.lead_agent.tools._branch import (
     _create_agent_branch,
     _get_integration_branch,
-    _git_lock,
     _sanitize_branch_name,
 )
 from openmax.lead_agent.tools._costing import estimate_task_cost
@@ -191,10 +190,9 @@ async def _setup_branch_isolation(
             lambda: _get_integration_branch(runtime.cwd)
         )
 
-    async with _git_lock:
-        branch_name, err, wt_path = await anyio.to_thread.run_sync(
-            lambda: _setup_branch_isolation_sync(runtime.cwd, task_name)
-        )
+    branch_name, err, wt_path = await anyio.to_thread.run_sync(
+        lambda: _setup_branch_isolation_sync(runtime.cwd, task_name)
+    )
     if branch_name and wt_path:
         inject_claude_md(wt_path, task_name, session_id=session_id)
         console.print(f"  [dim]{P}  branch {branch_name} → {wt_path}[/dim]")

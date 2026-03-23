@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -424,10 +425,45 @@ def _auto_done_for_exited_panes(runtime: Any) -> dict[str, Any] | None:
     return None
 
 
+def _all_tasks_done(runtime: Any) -> bool:
+    return all(st.status != TaskStatus.RUNNING for st in runtime.plan.subtasks)
+
+
+def _has_running_tasks(runtime: Any) -> bool:
+    return any(st.status == TaskStatus.RUNNING for st in runtime.plan.subtasks)
+
+
+async def _handle_message(runtime: Any, msg: Any) -> dict[str, Any]:
+    """Process a single mailbox message. Returns an entry dict for the response."""
+    runtime.mailbox_messaged_tasks.add(msg.task)
+    _append_session_event("mailbox.message_received", {"type": msg.type, "task": msg.task})
+
+    merge_result = None
+    if msg.type == "done":
+        _apply_subtask_usage(msg.task, msg.raw)
+        merge_result = await _auto_mark_and_merge(runtime, msg.task)
+
+    if msg.type == "progress" and runtime.dashboard is not None:
+        pct = msg.raw.get("pct", 0)
+        text = msg.raw.get("msg", "")
+        runtime.dashboard.update_task_progress(msg.task, pct)
+        runtime.dashboard.update_pane_activity(
+            _pane_id_for_task(msg.task) or -1, f"{pct}% — {text}"
+        )
+
+    detail = msg.raw.get("msg") or msg.raw.get("summary") or ""
+    suffix = f": {detail[:60]}" if msg.type != "done" and detail else ""
+    console.print(f"  [bold green]\u2709[/bold green]  [{msg.type}] {msg.task}{suffix}")
+    entry: dict[str, Any] = {"type": msg.type, "task": msg.task, "message": msg.raw}
+    if merge_result:
+        entry["auto_merged"] = merge_result
+    return entry
+
+
 @tool(
     "wait_for_agent_message",
-    "Primary monitoring primitive. Wait for a mailbox message from a sub-agent. "
-    "Returns on message or timeout. Auto-detects exited panes on timeout.",
+    "Wait for sub-agent messages. Batches ALL completions (done + auto-merge) "
+    "within the timeout. Returns `all_done: true` when every task has finished.",
     {"timeout": int},
 )
 async def wait_for_agent_message(args: dict[str, Any]) -> dict[str, Any]:
@@ -436,40 +472,37 @@ async def wait_for_agent_message(args: dict[str, Any]) -> dict[str, Any]:
 
     if runtime.mailbox is None:
         await anyio.sleep(timeout)
-        return _tool_response({"message": None, "timeout": True, "reason": "no_mailbox"})
+        return _tool_response({"messages": [], "timeout": True, "reason": "no_mailbox"})
 
-    msg = await anyio.to_thread.run_sync(
-        lambda: runtime.mailbox.receive(timeout=timeout),
-        abandon_on_cancel=True,
-    )
+    results: list[dict[str, Any]] = []
+    deadline = time.monotonic() + timeout
 
-    if msg is not None:
-        runtime.mailbox_messaged_tasks.add(msg.task)
-        _append_session_event("mailbox.message_received", {"type": msg.type, "task": msg.task})
+    while time.monotonic() < deadline:
+        remaining = max(deadline - time.monotonic(), 0.1)
+        recv_timeout = min(remaining, 5.0)
+        msg = await anyio.to_thread.run_sync(
+            lambda: runtime.mailbox.receive(timeout=recv_timeout),
+            abandon_on_cancel=True,
+        )
 
-        if msg.type == "done":
-            _apply_subtask_usage(msg.task, msg.raw)
-            merge_result = await _auto_mark_and_merge(runtime, msg.task)
+        if msg is not None:
+            entry = await _handle_message(runtime, msg)
+            results.append(entry)
+            if _all_tasks_done(runtime):
+                break
+            continue
 
-        if msg.type == "progress" and runtime.dashboard is not None:
-            pct = msg.raw.get("pct", 0)
-            text = msg.raw.get("msg", "")
-            runtime.dashboard.update_task_progress(msg.task, pct)
-            runtime.dashboard.update_pane_activity(
-                _pane_id_for_task(msg.task) or -1,
-                f"{pct}% — {text}",
-            )
+        auto = _auto_done_for_exited_panes(runtime)
+        if auto:
+            results.append({"type": "auto-detect", "message": auto})
+            if _all_tasks_done(runtime):
+                break
+            continue
 
-        detail = msg.raw.get("msg") or msg.raw.get("summary") or ""
-        suffix = f": {detail[:60]}" if msg.type != "done" and detail else ""
-        console.print(f"  [bold green]\u2709[/bold green]  [{msg.type}] {msg.task}{suffix}")
-        response: dict[str, Any] = {"message": msg.raw, "received": True}
-        if msg.type == "done" and merge_result:
-            response["auto_merged"] = merge_result
-        return _tool_response(response)
+        if not _has_running_tasks(runtime):
+            break
 
-    auto = _auto_done_for_exited_panes(runtime)
-    if auto:
-        return _tool_response({"message": auto, "received": True, "source": "auto-detect"})
-
-    return _tool_response({"message": None, "timeout": True})
+    all_done = _all_tasks_done(runtime)
+    if not results:
+        return _tool_response({"messages": [], "timeout": True, "all_done": all_done})
+    return _tool_response({"messages": results, "all_done": all_done})

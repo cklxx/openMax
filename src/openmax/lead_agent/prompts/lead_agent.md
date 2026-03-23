@@ -98,15 +98,12 @@ Good: "The login endpoint in src/api/auth.py returns 500 when email contains '+'
 
 ### Monitor
 
-**Efficient monitoring protocol** — minimize API turns:
+**`wait_for_agent_message` auto-batches** — it collects ALL completions (done + auto-merge) within the timeout. One call handles multiple agents finishing. Check `all_done` in response:
+- `all_done: true` → go to Finish immediately
+- `all_done: false` → call `wait_for_agent_message(timeout=60)` again
+- On second consecutive timeout with no messages → call `read_pane_output` for running agents
 
-1. After dispatch, call `wait_for_agent_message(timeout=60)`.
-2. On message → act immediately (see table above).
-3. On timeout → call `wait_for_agent_message(timeout=60)` **again**. Do NOT read panes yet.
-4. On second consecutive timeout → NOW call `read_pane_output` for running agents to check stuck/error.
-5. Repeat from step 1.
-
-**Critical: each `wait_for_agent_message` / `read_pane_output` call costs one API turn. Minimize calls.**
+**Critical: each call costs one API turn. The tool already batches — do NOT loop manually.**
 
 | Signal | Indicators | Required action |
 |---|---|---|
