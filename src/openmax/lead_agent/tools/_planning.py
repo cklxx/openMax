@@ -31,6 +31,64 @@ from openmax.task_file import (
 )
 
 
+def _roots_from_plan(
+    subtasks: list[dict[str, Any]],
+    parallel_groups: list[list[str]],
+) -> list[dict[str, Any]]:
+    """Return subtasks that have no dependencies (can be dispatched immediately)."""
+    has_deps = set()
+    for st in subtasks:
+        for dep in st.get("dependencies", []):
+            has_deps.add(st["name"])
+    return [st for st in subtasks if st["name"] not in has_deps]
+
+
+def _build_auto_prompt(subtask: dict[str, Any], goal: str) -> str:
+    """Build a dispatch prompt from plan data without LLM generation."""
+    files = subtask.get("files", [])
+    files_str = "\n".join(f"- {f}" for f in files) if files else "(inferred from task)"
+    return (
+        f"{subtask['description']}\n\n"
+        f"## Files\n{files_str}\n\n"
+        f"## Overall Goal\n{goal}\n\n"
+        "Run tests and commit your changes when done."
+    )
+
+
+async def _auto_dispatch_from_plan(
+    runtime: Any,
+    subtasks: list[dict[str, Any]],
+    parallel_groups: list[list[str]],
+) -> list[dict[str, Any]]:
+    """Auto-dispatch root subtasks immediately after plan acceptance."""
+    from openmax.lead_agent.tools._dispatch import dispatch_agent
+
+    roots = _roots_from_plan(subtasks, parallel_groups)
+    if not roots:
+        return []
+
+    goal = getattr(runtime.plan, "goal", "") if runtime.plan else ""
+    results = []
+    for st in roots:
+        prompt = st.get("prompt") or _build_auto_prompt(st, goal)
+        agent_type = st.get("agent_type", "claude-code")
+        try:
+            result = await dispatch_agent.handler(
+                {
+                    "task_name": st["name"],
+                    "prompt": prompt,
+                    "agent_type": agent_type,
+                }
+            )
+            content = result.get("content", [{}])
+            text = content[0].get("text", "")[:200] if content else ""
+            results.append({"task_name": st["name"], "dispatched": True, "summary": text})
+        except Exception as exc:
+            console.print(f"  [yellow]![/yellow]  Auto-dispatch {st['name']} failed: {exc}")
+            results.append({"task_name": st["name"], "dispatched": False, "error": str(exc)})
+    return results
+
+
 def _topological_sort_check(subtasks: list[dict[str, Any]]) -> str | None:
     """Return an error message if there is a cycle, else None."""
     name_set = {st["name"] for st in subtasks}
@@ -250,6 +308,18 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
         result_data["conflict_warnings"] = conflict_warnings
         for warning in conflict_warnings:
             console.print(f"  [yellow]⚠[/yellow]  {warning}")
+
+    dispatched = await _auto_dispatch_from_plan(runtime, subtasks_raw, parallel_groups)
+    ok = [d for d in dispatched if d.get("dispatched")]
+    if ok:
+        result_data["auto_dispatched"] = dispatched
+        result_data["status"] = "accepted_and_dispatched"
+        names = [d["task_name"] for d in ok]
+        result_data["instruction"] = (
+            f"All {len(ok)} root subtasks ({', '.join(names)}) are already dispatched. "
+            "Do NOT call dispatch_agent for these tasks. "
+            "Proceed directly to monitoring with wait_for_agent_message(timeout=60)."
+        )
 
     return _tool_response(result_data)
 

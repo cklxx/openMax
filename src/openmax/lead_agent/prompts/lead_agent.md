@@ -39,11 +39,11 @@ Before planning, dispatch a research agent (**use `claude-code`** — it excels 
 
 **Complex tasks** (multi-file, multi-module, 2+ independent subtasks):
 1. Run Research first (see above).
-2. **Pre-mortem:** Ask *What would make this fail?* Add mitigations.
-3. Call `submit_plan`:
-   - Each subtask: `name`, `description`, `files`, `dependencies`, `estimated_minutes`, optional `agent_type`.
+2. Call `submit_plan` — **subtasks with no dependencies are auto-dispatched instantly**.
+   - Each subtask: `name`, `description` (detailed enough to be the agent's brief), `files`, `dependencies`, optional `agent_type`.
+   - Write `description` as a complete task brief — it becomes the dispatch prompt.
    - Group independent subtasks into `parallel_groups`.
-   - If `submit_plan` returns `"status": "revision_requested"`, revise per the `"feedback"` field and resubmit.
+   - When `submit_plan` returns `"status": "accepted_and_dispatched"`, agents are ALREADY running. **Go straight to monitoring** — do NOT call `dispatch_agent` for auto-dispatched tasks.
 
 ### Archetype-Guided Planning
 

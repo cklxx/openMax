@@ -600,7 +600,7 @@ def test_submit_plan_accepts_valid_plan(monkeypatch, tmp_path):
     import json as _json
 
     parsed = _json.loads(result["content"][0]["text"])
-    assert parsed["status"] == "accepted"
+    assert "accepted" in parsed["status"]
     assert parsed["subtask_count"] == 2
     assert runtime.plan_submitted is True
 
@@ -1559,7 +1559,7 @@ def test_submit_plan_file_overlap_warning(monkeypatch, tmp_path):
             },
         )
         parsed = json.loads(result["content"][0]["text"])
-        assert parsed["status"] == "accepted"
+        assert "accepted" in parsed["status"]
         assert "file_overlap_warnings" in parsed
         assert len(parsed["file_overlap_warnings"]) == 1
         assert "src/shared.py" in parsed["file_overlap_warnings"][0]
@@ -1594,7 +1594,7 @@ def test_submit_plan_no_file_overlap(monkeypatch, tmp_path):
             },
         )
         parsed = json.loads(result["content"][0]["text"])
-        assert parsed["status"] == "accepted"
+        assert "accepted" in parsed["status"]
         assert "file_overlap_warnings" not in parsed
     finally:
         _teardown_session(token)
@@ -2252,7 +2252,7 @@ def test_submit_plan_accepts_agent_type(monkeypatch, tmp_path):
             },
         )
         parsed = json.loads(result["content"][0]["text"])
-        assert parsed["status"] == "accepted"
+        assert "accepted" in parsed["status"]
     finally:
         _teardown_session(token)
 
