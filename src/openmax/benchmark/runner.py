@@ -217,8 +217,9 @@ def _run_openmax(
     """Run task with openMax via CLI subprocess."""
     prompt = task.prompt.replace("{workspace}", str(workspace))
     prompt += (
-        "\n\nIMPORTANT: Skip research — this prompt contains all details needed. "
-        "Go straight to submit_plan with parallel subtasks."
+        "\n\nCRITICAL: Your FIRST and ONLY tool call must be submit_plan. "
+        "Do NOT research, explore files, or read anything first. "
+        "All subtasks are independent — put all in one parallel_group with no dependencies."
     )
     session_id = f"bench-{task.id}-{int(time.time())}"
 
