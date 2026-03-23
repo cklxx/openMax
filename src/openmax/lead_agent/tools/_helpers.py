@@ -476,14 +476,14 @@ async def _auto_accept_trust(
     pane_mgr: PaneManager,
     pane_id: int,
     trust_patterns: list[str],
-    max_polls: int = 8,
+    max_polls: int = 6,
 ) -> None:
     """Poll for a trust/confirmation dialog and press Enter to accept.
 
-    Uses a short timeout (4s) since worktrees now get pre-trusted settings.
+    Uses a short timeout (~2s) since worktrees now get pre-trusted settings.
     """
-    for _ in range(max_polls):
-        await anyio.sleep(0.5)
+    for i in range(max_polls):
+        await anyio.sleep(0.2 if i < 2 else 0.4)
         try:
             text = pane_mgr.get_text(pane_id)
         except Exception:
