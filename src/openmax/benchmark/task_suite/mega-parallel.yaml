@@ -1,0 +1,114 @@
+id: "mega-parallel"
+name: "Build 5 independent subsystems"
+difficulty: xxlarge
+prompt: |
+  Build five independent subsystems in this Python project:
+
+  ## 1. Authentication System (`src/auth/`)
+  Full JWT-based authentication with:
+  - `app.py`: Flask app with POST /auth/register, POST /auth/login, POST /auth/refresh, GET /auth/me
+  - `models.py`: User model with name, email, hashed_password, role (admin/user), created_at, last_login
+  - `jwt_utils.py`: create_access_token(), create_refresh_token(), decode_token(), token_required decorator
+  - `password.py`: hash_password(), verify_password() using hashlib (no external deps)
+  - `validators.py`: validate_email(), validate_password_strength() (min 8 chars, mixed case, digit)
+  - `__init__.py`
+
+  Tests in `tests/test_auth.py`:
+  - Register with valid/invalid data (weak password, duplicate email, missing fields)
+  - Login success/failure (wrong password, non-existent user)
+  - Token refresh (valid/expired/invalid token)
+  - Protected endpoint access (valid token, expired token, no token, wrong role)
+  - Password hashing roundtrip
+
+  ## 2. Data Pipeline (`src/pipeline/`)
+  ETL pipeline framework with:
+  - `app.py`: Flask app with POST /pipeline/run, GET /pipeline/status/<id>, GET /pipeline/history
+  - `engine.py`: Pipeline class with add_stage(), run(), get_status() — stages execute sequentially
+  - `stages.py`: Built-in stages: ValidateStage, TransformStage, AggregateStage, FilterStage
+  - `models.py`: PipelineRun model with id, stages, status (pending/running/completed/failed), result, error, timestamps
+  - `validators.py`: validate_pipeline_config(), validate_stage_params()
+  - `__init__.py`
+
+  Tests in `tests/test_pipeline.py`:
+  - Run pipeline with 2-3 stages (happy path)
+  - Stage failure propagation
+  - Empty pipeline, single stage
+  - Pipeline status tracking
+  - Each built-in stage individually
+  - Invalid pipeline config
+
+  ## 3. Monitoring & Metrics (`src/monitoring/`)
+  Application monitoring system with:
+  - `app.py`: Flask app with POST /metrics/record, GET /metrics/query, GET /metrics/summary, GET /health/detailed
+  - `collector.py`: MetricsCollector class — thread-safe, stores metrics in memory with timestamps
+  - `aggregator.py`: compute_average(), compute_percentile(p), compute_rate(), time_series_buckets()
+  - `models.py`: Metric model with name, value, tags (dict), timestamp; HealthStatus with component statuses
+  - `alerting.py`: AlertRule class with threshold checks, AlertManager with add_rule(), check(), get_active_alerts()
+  - `__init__.py`
+
+  Tests in `tests/test_monitoring.py`:
+  - Record and query metrics (by name, by tags, by time range)
+  - Aggregation functions (average, percentile, rate)
+  - Time series bucketing
+  - Alert rules (above/below threshold, rate change)
+  - Health check with multiple components
+  - Thread safety of MetricsCollector
+
+  ## 4. Task Scheduler (`src/scheduler/`)
+  Background task scheduling system with:
+  - `app.py`: Flask app with POST /tasks/schedule, GET /tasks/<id>, DELETE /tasks/<id>, GET /tasks/list
+  - `scheduler.py`: TaskScheduler class — in-memory, supports one-time and recurring tasks with cron-like scheduling
+  - `executor.py`: TaskExecutor with run_task(), handles timeouts, retries (max 3), error capture
+  - `models.py`: ScheduledTask with id, name, func_name, schedule (cron string or datetime), status, last_run, next_run, retry_count, max_retries
+  - `cron.py`: parse_cron(expr) -> next_run_time, matches_now(expr) -> bool (support minute/hour/day patterns)
+  - `__init__.py`
+
+  Tests in `tests/test_scheduler.py`:
+  - Schedule and retrieve a one-time task
+  - Schedule recurring task, verify next_run updates
+  - Task execution with success/failure
+  - Retry logic (fail 2x then succeed, fail 3x then permanent failure)
+  - Timeout handling
+  - Cron parsing (every 5 min, hourly, daily at midnight)
+  - Delete scheduled task
+  - List tasks with status filter
+
+  ## 5. Notification System (`src/notifications/`)
+  Multi-channel notification system with:
+  - `app.py`: Flask app with POST /notify/send, GET /notify/history, GET /notify/preferences/<user_id>, PUT /notify/preferences/<user_id>
+  - `dispatcher.py`: NotificationDispatcher — routes to channels based on user preferences, supports priority levels (low/medium/high/critical)
+  - `channels.py`: Channel classes: EmailChannel, SMSChannel, WebhookChannel, InAppChannel — each with send(recipient, message) -> bool
+  - `models.py`: Notification with id, recipient, channel, message, priority, status (pending/sent/failed), created_at, sent_at; UserPreferences with user_id, channels (list), quiet_hours
+  - `templates.py`: render_template(template_name, context) -> str, built-in templates for alert, welcome, reminder
+  - `__init__.py`
+
+  Tests in `tests/test_notifications.py`:
+  - Send notification via each channel
+  - Dispatcher routes to correct channel based on preferences
+  - Priority filtering (quiet hours block low/medium but not critical)
+  - Notification history query
+  - Template rendering with variables
+  - Failed delivery handling and status tracking
+  - User preference CRUD
+
+  All services must be completely independent — no cross-imports.
+  Each must be a standalone Flask app with its own test file.
+  Use only stdlib + Flask + pytest (no external auth/metrics libraries).
+setup_script: |
+  mkdir -p src tests
+  cat > requirements.txt << 'PYEOF'
+  flask
+  pytest
+  PYEOF
+  pip install flask pytest -q 2>/dev/null || true
+verify_script: |
+  cd {workspace}
+  python -c "from src.auth.app import app as a; print('auth ok')" 2>&1
+  python -c "from src.pipeline.app import app as p; print('pipeline ok')" 2>&1
+  python -c "from src.monitoring.app import app as m; print('monitoring ok')" 2>&1
+  python -c "from src.scheduler.app import app as s; print('scheduler ok')" 2>&1
+  python -c "from src.notifications.app import app as n; print('notifications ok')" 2>&1
+  python -m pytest tests/ -v 2>&1
+success_pattern: "passed"
+timeout_seconds: 900
+tags: [parallel, complex, auth, pipeline, monitoring, scheduler, notifications]
