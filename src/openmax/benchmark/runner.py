@@ -225,13 +225,15 @@ def _run_openmax(
 
     t0 = time.monotonic()
     try:
-        subprocess.run(
+        proc = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             timeout=task.timeout_seconds,
         )
         duration = time.monotonic() - t0
+        if proc.returncode != 0:
+            logger.warning("openMax stderr: %s", proc.stderr[-500:] if proc.stderr else "")
         success = _verify(task, workspace)
         usage = _load_openmax_usage(session_id)
         return BenchmarkResult(
@@ -243,6 +245,7 @@ def _run_openmax(
             output_tokens=usage.get("output_tokens", 0),
             cost_usd=usage.get("cost_usd", 0.0),
             num_subtasks=usage.get("num_subtasks", 0),
+            error=f"exit {proc.returncode}" if proc.returncode != 0 else None,
         )
     except subprocess.TimeoutExpired:
         return BenchmarkResult(

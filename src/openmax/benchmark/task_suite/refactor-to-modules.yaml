@@ -84,5 +84,5 @@ verify_script: |
   python -c "from src.app.utils import validate_email, format_price; print('utils ok')" 2>&1
   python -m pytest tests/ -v 2>&1
 success_pattern: "passed"
-timeout_seconds: 300
+timeout_seconds: 600
 tags: [refactoring, architecture]

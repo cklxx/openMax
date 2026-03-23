@@ -1,0 +1,46 @@
+id: "parallel-microservices"
+name: "Build 3 independent microservice modules"
+difficulty: large
+prompt: |
+  Build three independent Python modules in this project. Each is a standalone Flask microservice:
+
+  1. **User Service** (`src/user_service/`):
+     - `app.py`: Flask app with CRUD endpoints for users (GET /users, POST /users, GET /users/<id>, DELETE /users/<id>)
+     - `models.py`: User dataclass with name, email, age fields + in-memory store
+     - `validators.py`: validate_email(), validate_age() functions
+     - `__init__.py`
+
+  2. **Product Service** (`src/product_service/`):
+     - `app.py`: Flask app with CRUD endpoints for products (GET /products, POST /products, GET /products/<id>, PUT /products/<id>)
+     - `models.py`: Product dataclass with name, price, category, stock fields + in-memory store
+     - `validators.py`: validate_price(), validate_stock() functions
+     - `__init__.py`
+
+  3. **Order Service** (`src/order_service/`):
+     - `app.py`: Flask app with endpoints (POST /orders, GET /orders, GET /orders/<id>, PATCH /orders/<id>/status)
+     - `models.py`: Order dataclass with user_id, product_id, quantity, status fields + in-memory store
+     - `validators.py`: validate_quantity(), validate_status_transition() functions
+     - `__init__.py`
+
+  For EACH service, create comprehensive tests in `tests/test_<service_name>.py` covering:
+  - All CRUD operations (happy path)
+  - Validation edge cases (invalid email, negative price, etc.)
+  - 404 handling for missing resources
+
+  All services must be independent — no cross-imports between services.
+setup_script: |
+  mkdir -p src tests
+  cat > requirements.txt << 'PYEOF'
+  flask
+  pytest
+  PYEOF
+  pip install flask pytest -q 2>/dev/null || true
+verify_script: |
+  cd {workspace}
+  python -c "from src.user_service.app import app as u; print('user ok')" 2>&1
+  python -c "from src.product_service.app import app as p; print('product ok')" 2>&1
+  python -c "from src.order_service.app import app as o; print('order ok')" 2>&1
+  python -m pytest tests/ -v 2>&1
+success_pattern: "passed"
+timeout_seconds: 600
+tags: [parallel, microservices, api, testing]

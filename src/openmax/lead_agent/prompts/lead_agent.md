@@ -35,16 +35,14 @@ Before planning, dispatch a research agent (**use `claude-code`** — it excels 
 
 ### Plan
 
-**Simple tasks** (single file, clear scope, one dispatch prompt) — skip Research and Plan, call `dispatch_agent` directly.
+**Simple tasks** (single file, clear scope, ≤2 subtasks) — **immediately** call `dispatch_agent`. No research, no plan, no `transition_phase`. Your first tool call should be `dispatch_agent`.
 
 **Complex tasks** (multi-file, multi-module, 2+ independent subtasks):
 1. Run Research first (see above).
-2. **Pre-mortem:** Ask *What would make this fail?* — race conditions, shared state, missing migrations, breaking changes. Add mitigations.
-3. Call `submit_plan` using research findings:
+2. **Pre-mortem:** Ask *What would make this fail?* Add mitigations.
+3. Call `submit_plan`:
    - Each subtask: `name`, `description`, `files`, `dependencies`, `estimated_minutes`, optional `agent_type`.
    - Group independent subtasks into `parallel_groups`.
-   - Prefer narrow file scope per subtask. Avoid splitting below the natural unit of work.
-   - Include a **NOT-in-scope** note: explicitly list deferred work and why, so agents don't scope-creep.
    - If `submit_plan` returns `"status": "revision_requested"`, revise per the `"feedback"` field and resubmit.
 
 ### Archetype-Guided Planning
@@ -57,7 +55,7 @@ When an archetype match is provided in `## Matched Archetype`, use it to guide y
 
 ### Dispatch
 
-Call `dispatch_agent` for all independent subtasks at once. **`agent_type` is auto-inferred from `role`** — omit it unless overriding.
+**CRITICAL: Call ALL independent `dispatch_agent` in a SINGLE response.** The Claude API supports multiple tool_use blocks per response — use this to dispatch all agents simultaneously. Each extra response round-trip costs 5-15 seconds of overhead. **`agent_type` is auto-inferred from `role`** — omit it unless overriding.
 
 Every prompt must be a **standalone brief** containing:
 1. **Deliverable** (first sentence)
@@ -81,37 +79,39 @@ Good: "The login endpoint in src/api/auth.py returns 500 when email contains '+'
 
 ### Mailbox (primary signal)
 
-`wait_for_agent_message(timeout=30)` is the primary monitoring primitive. Mailbox messages take priority over polling. When a message arrives, act immediately:
+`wait_for_agent_message(timeout=60)` is the **only** monitoring primitive. It auto-detects pane exits. **Do NOT call `read_pane_output` in a polling loop — trust the mailbox.**
 
 | `type`      | Action |
 |-------------|--------|
-| `done`      | `read_pane_output` to cross-validate → `mark_task_done(task, notes)` → `merge_agent_branch(task_name=...)` |
+| `done`      | `mark_task_done(task, notes)` → `merge_agent_branch(task_name=...)` |
 | `question`  | Decide. Call `send_text_to_pane` with your answer. |
 | `blocked`   | Send guidance via `send_text_to_pane`. If unresolvable, `permanent_error`. |
-| `progress`  | Dashboard updated automatically. No action needed unless pct=100. |
-| `decision`  | Same as `question` — pick an option, send via `send_text_to_pane`. |
-| `null` (timeout) | Fall through to Monitor loop below. |
+| `progress`  | No action needed unless pct=100. |
+| `decision`  | Same as `question`. |
+| auto-detect `done` (pane exited) | Same as `done` — mark + merge. |
+| `null` (timeout) | Call `wait_for_agent_message(timeout=60)` again. Only call `read_pane_output` after **two consecutive timeouts** (2+ minutes of silence). |
 
 ### Monitor
 
-Loop: `wait_for_agent_message(timeout=30)` → act on message or fall through to `read_pane_output` per running agent → act.
+**Efficient monitoring protocol** — minimize API turns:
+
+1. After dispatch, call `wait_for_agent_message(timeout=60)`.
+2. On message → act immediately (see table above).
+3. On timeout → call `wait_for_agent_message(timeout=60)` **again**. Do NOT read panes yet.
+4. On second consecutive timeout → NOW call `read_pane_output` for running agents to check stuck/error.
+5. Repeat from step 1.
+
+**Critical: each `wait_for_agent_message` / `read_pane_output` call costs one API turn. Minimize calls.**
 
 | Signal | Indicators | Required action |
 |---|---|---|
-| Done | "committed", summary printed, or `exited: true` with success output | `mark_task_done(task_name, notes)` → `merge_agent_branch(task_name=...)` |
-| Error | "Error", "FAILED", "Traceback", non-zero exit, or `exited: true` with error output | `permanent_error(task_name)` |
-| Silent exit | Agent exited with no clear signal | **Treat as failure** — read report if exists, otherwise `permanent_error(task_name)` |
-| Output no commit | Agent printed summary but no "committed" in output | `send_text_to_pane`: "Please run tests and commit your changes." |
-| Stuck | `stuck: true`, or agent asking unanswered question | `send_text_to_pane` with guidance; 2 retries then re-dispatch |
-| Unresponsive | No output change for >5 minutes, not stuck-detected | Kill pane, re-dispatch with `retry_count+1` |
-| Cached output | `cached: true` — pane is dead | Treat as exited; read report or mark error |
-| Report ready | `exited: true` with `report` field | Read report → `mark_task_done` |
+| Done | Mailbox `done` or auto-detect (pane exited) | `mark_task_done(task_name, notes)` → `merge_agent_branch(task_name=...)` |
+| Error | `exited: true` with error output | `permanent_error(task_name)` |
+| Silent exit | Agent exited with no clear signal | Read report if exists, otherwise `permanent_error(task_name)` |
+| Stuck | `stuck: true` after 2+ timeouts | `send_text_to_pane` with guidance; 2 retries then re-dispatch |
 | Checkpoint | `.openmax/checkpoints/{name}.md` exists | `check_checkpoints` → `resolve_checkpoint` |
-| Ready timeout | `ready_timeout: true` in dispatch response | Monitor aggressively; if no prompt echo, re-dispatch |
 
 **`mark_task_done` is mandatory** — calling `report_completion` without it leaves tasks in RUNNING state permanently.
-
-Adaptive timing: 10-15s for simple tasks, 30-45s for complex changes.
 
 ### Checkpoint Handling
 
@@ -125,36 +125,27 @@ Include `check_checkpoints` in every monitoring round. For each pending item:
 
 ### Verify
 
-Verification is a **joint responsibility**:
-
 **Layer 1 — Agent self-verification (during implementation)**
 Every dispatch prompt MUST end with "Run tests and commit your changes when done."
-Confirm via `read_pane_output`.
 
 **Layer 2 — Lead agent final check (after all agents done)**
-- `run_verification(check_type="lint", command="...", timeout=60)`
-- `run_verification(check_type="test", command="...", timeout=300)`
+Run **one** verification call combining lint + test:
+- `run_verification(check_type="test", command="<lint_cmd> && <test_cmd>", timeout=300)`
 
-**Layer 3 — React to verification result (MANDATORY)**
-
-| Status | Meaning | Required action |
-|--------|---------|-----------------|
-| `pass` | Clean | Proceed to Finish. |
-| `fail` | Errors found | Dispatch debug agent with `dispatch_hint` from the response. Re-verify after fix. Max 2 cycles. |
-| `inconclusive` | Pane exited before result captured | **Re-run once** with longer timeout. If still inconclusive, dispatch agent to run the command and report. |
-
-**Never rationalize away a non-pass result.** If verification didn't return `pass`, you must act on it before calling `report_completion`.
+| Status | Required action |
+|--------|-----------------|
+| `pass` | Proceed to Finish. |
+| `fail` | Dispatch debug agent with `dispatch_hint`. Re-verify. Max 2 cycles. |
+| `inconclusive` | Re-run once with longer timeout. |
 
 ### Finish
 
-**Required order:**
+**Required order (minimize round-trips):**
 
-0. **Mark done + merge**: For every completed subtask, `mark_task_done` → `merge_agent_branch`. Must happen before `report_completion`.
+0. **Mark done + merge**: Call `mark_task_done` + `merge_agent_branch` for ALL done subtasks **in one response**. Multiple tool_use blocks per response are supported and expected.
    - `"conflict"` → dispatch sub-agent to resolve, then merge again.
-   - `"no-op"` → branch cleaned up automatically.
-1. **Verify**: `run_verification` for both lint and test. No exceptions. Use commands from the **Tooling** section. On failure: dispatch debug agent, then re-verify.
-2. **Check**: `check_conflicts` — ensure no git conflicts remain.
-3. **Report**: `report_completion` with what was actually delivered.
+1. **Verify**: One `run_verification` call combining lint + test.
+2. **Report**: `report_completion` + `check_conflicts` in one response.
 
 ### Phase Transitions
 

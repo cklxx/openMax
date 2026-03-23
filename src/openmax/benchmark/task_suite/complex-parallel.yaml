@@ -1,0 +1,78 @@
+id: "complex-parallel"
+name: "Build auth + data pipeline + monitoring"
+difficulty: xlarge
+prompt: |
+  Build three independent subsystems in this Python project:
+
+  ## 1. Authentication System (`src/auth/`)
+  Full JWT-based authentication with:
+  - `app.py`: Flask app with POST /auth/register, POST /auth/login, POST /auth/refresh, GET /auth/me
+  - `models.py`: User model with name, email, hashed_password, role (admin/user), created_at, last_login
+  - `jwt_utils.py`: create_access_token(), create_refresh_token(), decode_token(), token_required decorator
+  - `password.py`: hash_password(), verify_password() using hashlib (no external deps)
+  - `validators.py`: validate_email(), validate_password_strength() (min 8 chars, mixed case, digit)
+  - `__init__.py`
+
+  Tests in `tests/test_auth.py`:
+  - Register with valid/invalid data (weak password, duplicate email, missing fields)
+  - Login success/failure (wrong password, non-existent user)
+  - Token refresh (valid/expired/invalid token)
+  - Protected endpoint access (valid token, expired token, no token, wrong role)
+  - Password hashing roundtrip
+
+  ## 2. Data Pipeline (`src/pipeline/`)
+  ETL pipeline framework with:
+  - `app.py`: Flask app with POST /pipeline/run, GET /pipeline/status/<id>, GET /pipeline/history
+  - `engine.py`: Pipeline class with add_stage(), run(), get_status() — stages execute sequentially
+  - `stages.py`: Built-in stages: ValidateStage, TransformStage, AggregateStage, FilterStage
+  - `models.py`: PipelineRun model with id, stages, status (pending/running/completed/failed), result, error, timestamps
+  - `validators.py`: validate_pipeline_config(), validate_stage_params()
+  - `__init__.py`
+
+  Each stage has execute(data) -> data. Pipeline chains them. On error, marks run as failed with error details.
+
+  Tests in `tests/test_pipeline.py`:
+  - Run pipeline with 2-3 stages (happy path)
+  - Stage failure propagation (middle stage throws)
+  - Empty pipeline, single stage
+  - Pipeline status tracking (pending → running → completed/failed)
+  - Each built-in stage individually (validate, transform, aggregate, filter)
+  - Invalid pipeline config
+
+  ## 3. Monitoring & Metrics (`src/monitoring/`)
+  Application monitoring system with:
+  - `app.py`: Flask app with POST /metrics/record, GET /metrics/query, GET /metrics/summary, GET /health/detailed
+  - `collector.py`: MetricsCollector class — thread-safe, stores metrics in memory with timestamps
+  - `aggregator.py`: compute_average(), compute_percentile(p), compute_rate(), time_series_buckets()
+  - `models.py`: Metric model with name, value, tags (dict), timestamp; HealthStatus with component statuses
+  - `alerting.py`: AlertRule class with threshold checks, AlertManager with add_rule(), check(), get_active_alerts()
+  - `__init__.py`
+
+  Tests in `tests/test_monitoring.py`:
+  - Record and query metrics (by name, by tags, by time range)
+  - Aggregation functions (average, percentile p50/p95/p99, rate)
+  - Time series bucketing (1min, 5min buckets)
+  - Alert rules (above threshold, below threshold, rate change)
+  - Health check with multiple components
+  - Thread safety of MetricsCollector (concurrent writes)
+  - Edge cases: empty metrics, single metric, duplicate names
+
+  All services must be completely independent — no cross-imports.
+  Each must be a standalone Flask app with its own test file.
+  Use only stdlib + Flask + pytest (no external auth/metrics libraries).
+setup_script: |
+  mkdir -p src tests
+  cat > requirements.txt << 'PYEOF'
+  flask
+  pytest
+  PYEOF
+  pip install flask pytest -q 2>/dev/null || true
+verify_script: |
+  cd {workspace}
+  python -c "from src.auth.app import app as a; print('auth ok')" 2>&1
+  python -c "from src.pipeline.app import app as p; print('pipeline ok')" 2>&1
+  python -c "from src.monitoring.app import app as m; print('monitoring ok')" 2>&1
+  python -m pytest tests/ -v 2>&1
+success_pattern: "passed"
+timeout_seconds: 900
+tags: [parallel, complex, auth, pipeline, monitoring]

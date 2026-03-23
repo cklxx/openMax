@@ -412,7 +412,7 @@ def _auto_done_for_exited_panes(runtime: Any) -> dict[str, Any] | None:
 )
 async def wait_for_agent_message(args: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime()
-    timeout = min(max(args.get("timeout", 30), 5), 120)
+    timeout = min(max(args.get("timeout", 60), 5), 120)
 
     if runtime.mailbox is None:
         await anyio.sleep(timeout)

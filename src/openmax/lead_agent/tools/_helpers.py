@@ -475,9 +475,13 @@ async def _auto_accept_trust(
     pane_mgr: PaneManager,
     pane_id: int,
     trust_patterns: list[str],
+    max_polls: int = 8,
 ) -> None:
-    """Poll for a trust/confirmation dialog and press Enter to accept."""
-    for _ in range(20):
+    """Poll for a trust/confirmation dialog and press Enter to accept.
+
+    Uses a short timeout (4s) since worktrees now get pre-trusted settings.
+    """
+    for _ in range(max_polls):
         await anyio.sleep(0.5)
         try:
             text = pane_mgr.get_text(pane_id)
@@ -487,7 +491,6 @@ async def _auto_accept_trust(
             pane_mgr.send_text(pane_id, "", submit=True)
             console.print(f"  [dim]{P}  auto-accepted trust dialog on pane {pane_id}[/dim]")
             return
-    # No trust dialog appeared — that's fine, directory was already trusted
 
 
 def _read_subtask_report(task_name: str) -> str | None:

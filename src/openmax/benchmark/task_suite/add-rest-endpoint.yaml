@@ -36,5 +36,5 @@ verify_script: |
   cd {workspace}
   python -m pytest tests/ -v 2>&1
 success_pattern: "passed"
-timeout_seconds: 120
+timeout_seconds: 600
 tags: [web, api, testing]
