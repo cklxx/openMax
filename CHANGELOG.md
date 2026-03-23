@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.8.8
+
+- **Performance**: Auto-verify pipeline + parallel optimizations — **up to 2.0x speedup** on xlarge parallel tasks
+  - Auto-verify after merge: lint verification runs automatically when all agents finish, eliminating 2-3 LLM turns
+  - Parallel verification: multiple lint/test commands run concurrently via `anyio.create_task_group`
+  - Parallel auto-dispatch: root subtasks launched concurrently instead of sequentially
+  - Adaptive verification polling: 0.5s→1.5s backoff replaces fixed 2s sleep
+  - Deferred branch cleanup: batch cleanup after all agents finish (no longer blocks merge)
+  - Auto-report completion: `report_completion` called automatically when all tasks done
+  - Reduced ready delay: 3.0s→1.0s with pattern detection for Claude Code adapter
+  - Faster trust dialog polling: 0.2s initial (was 0.5s)
+  - Eliminated duplicate archetype matching in prompt builder
+  - Prompt optimized: default skip research, speed-first directives, immediate monitoring after dispatch
+- **Fix**: CI test reliability — `git init -b main` ensures consistent default branch name
+- **Benchmark**: Results on xlarge complex-parallel (auth + pipeline + monitoring):
+  - Best run: **2.0x** (oM 229s vs CC 468s)
+  - Average: **1.4x** across multiple runs
+
 ## 0.8.7
 
 - **Performance**: Batch monitoring + parallel git — reduce orchestration overhead
