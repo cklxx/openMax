@@ -169,12 +169,17 @@ def _build_blackboard_block(cwd: str) -> str:
     )
 
 
+_POLL_INITIAL = 0.15
+_POLL_BACKOFF = 1.5
+_POLL_MAX = 1.0
+
+
 async def _wait_for_pane_ready(
     pane_mgr: PaneManager,
     pane_id: int,
     ready_patterns: list[str],
     timeout: float = 30.0,
-    poll_interval: float = 0.5,
+    poll_interval: float = _POLL_INITIAL,
 ) -> bool:
     """Poll pane output until a ready pattern appears or timeout.
 
@@ -183,12 +188,16 @@ async def _wait_for_pane_ready(
     2. Output stability — if the pane has substantial output (≥3 lines)
        and output hasn't changed for 2 consecutive checks, treat as ready.
        This handles CLI version changes where patterns shift.
+
+    Polling uses adaptive backoff: starts fast (0.15s), slows on stable
+    output, resets when output changes.
     """
     if not ready_patterns:
         return False
     deadline = time.monotonic() + timeout
     prev_text = ""
     stable_count = 0
+    interval = poll_interval
     while time.monotonic() < deadline:
         try:
             text = pane_mgr.get_text(pane_id)
@@ -201,10 +210,12 @@ async def _wait_for_pane_ready(
             stable_count += 1
             if stable_count >= 2:
                 return True
+            interval = min(interval * _POLL_BACKOFF, _POLL_MAX)
         else:
             stable_count = 0
+            interval = poll_interval  # reset on new output
         prev_text = text
-        await anyio.sleep(poll_interval)
+        await anyio.sleep(interval)
     return False
 
 

@@ -205,8 +205,11 @@ class ContextBuildResult:
 class SessionStore:
     """Append-only JSONL event store plus small session metadata."""
 
+    _META_WRITE_INTERVAL = 5.0  # seconds — throttle meta.json writes
+
     def __init__(self, base_dir: Path | None = None) -> None:
         self.base_dir = (base_dir or default_sessions_dir()).expanduser()
+        self._last_meta_write: float = 0.0
 
     def create_session(self, session_id: str, task: str, cwd: str) -> SessionMeta:
         path = self._session_dir(session_id)
@@ -257,7 +260,7 @@ class SessionStore:
         if event_type == "lead.message":
             self._prune_lead_messages(meta.session_id)
         meta.updated_at = event.timestamp
-        self._write_meta(meta)
+        self._throttled_write_meta(meta)
         return event
 
     def _prune_lead_messages(self, session_id: str) -> None:
@@ -359,6 +362,16 @@ class SessionStore:
             ):
                 return meta
         return None
+
+    def _throttled_write_meta(self, meta: SessionMeta) -> None:
+        """Write meta.json at most once per _META_WRITE_INTERVAL seconds."""
+        import time as _time
+
+        now = _time.monotonic()
+        if (now - self._last_meta_write) < self._META_WRITE_INTERVAL:
+            return
+        self._write_meta(meta)
+        self._last_meta_write = now
 
     def _write_meta(self, meta: SessionMeta) -> None:
         meta_path = self._meta_path(meta.session_id)

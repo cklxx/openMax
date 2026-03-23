@@ -8,6 +8,8 @@ from enum import Enum
 
 from openmax.pane_backend import PaneBackend, PaneInfo, create_pane_backend
 
+_LIST_PANES_TTL = 1.0  # seconds — cache list_panes() results to avoid repeated subprocess calls
+
 
 class PaneState(str, Enum):
     IDLE = "idle"
@@ -86,6 +88,8 @@ class PaneManager:
         self._panes: dict[int, ManagedPane] = {}
         self._windows: dict[int, ManagedWindow] = {}
         self._last_output: dict[int, str] = {}  # pane_id -> last successful get_text
+        self._cached_panes: list[PaneInfo] = []
+        self._cached_panes_at: float = 0.0
 
     # ── Properties ─────────────────────────────────────────────────
 
@@ -227,7 +231,7 @@ class PaneManager:
         self._backend.send_text(pane_id, content)
 
         if submit:
-            time.sleep(0.5)
+            time.sleep(0.15)
             self._backend.send_enter(pane_id)
 
     def get_text(self, pane_id: int, start_line: int | None = None) -> str:
@@ -266,7 +270,7 @@ class PaneManager:
 
     def is_pane_alive(self, pane_id: int) -> bool:
         try:
-            return any(p.pane_id == pane_id for p in self._list_all_panes())
+            return any(p.pane_id == pane_id for p in self._list_all_panes(force=True))
         except RuntimeError:
             return False
 
@@ -330,7 +334,7 @@ class PaneManager:
     def _kill_stragglers(self, managed_pane_ids: list[int]) -> None:
         """Retry killing managed panes that survived the first attempt."""
         time.sleep(0.5)
-        for p in self._safe_list_panes():
+        for p in self._safe_list_panes(force=True):
             if p.pane_id in managed_pane_ids:
                 self._kill_pane_process(p.pane_id)
 
@@ -339,13 +343,13 @@ class PaneManager:
         if not window_ids:
             return
         time.sleep(0.3)
-        for p in self._safe_list_panes():
+        for p in self._safe_list_panes(force=True):
             if p.window_id in window_ids:
                 self._kill_pane_process(p.pane_id)
 
-    def _safe_list_panes(self) -> list[PaneInfo]:
+    def _safe_list_panes(self, *, force: bool = False) -> list[PaneInfo]:
         try:
-            return self._list_all_panes()
+            return self._list_all_panes(force=force)
         except RuntimeError:
             return []
 
@@ -358,14 +362,19 @@ class PaneManager:
 
     # ── Internal helpers ───────────────────────────────────────────
 
-    def _list_all_panes(self) -> list[PaneInfo]:
-        return self._backend.list_panes()
+    def _list_all_panes(self, *, force: bool = False) -> list[PaneInfo]:
+        now = time.monotonic()
+        if not force and (now - self._cached_panes_at) < _LIST_PANES_TTL:
+            return self._cached_panes
+        self._cached_panes = self._backend.list_panes()
+        self._cached_panes_at = now
+        return self._cached_panes
 
     def _find_pane_window(
         self,
         pane_id: int,
         retries: int = 3,
-        delay: float = 0.3,
+        delay: float = 0.1,
     ) -> int | None:
         """Find the window that contains *pane_id*.
 
@@ -374,7 +383,7 @@ class PaneManager:
         """
         for attempt in range(retries):
             try:
-                for p in self._list_all_panes():
+                for p in self._list_all_panes(force=True):
                     if p.pane_id == pane_id:
                         return p.window_id
             except RuntimeError:

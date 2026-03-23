@@ -499,7 +499,7 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
             hash_history = runtime.pane_output_hashes[pane_id]
 
         stuck = len(hash_history) >= threshold and len(set(hash_history[-threshold:])) == 1
-        exited = not runtime.pane_mgr.is_pane_alive(pane_id)
+        exited = not pane_alive  # reuse check from line 457
 
         response_data: dict[str, Any] = {"text": text, "stuck": stuck, "exited": exited}
 
