@@ -23,6 +23,8 @@ class AgentCommand:
     ready_patterns: list[str] = field(default_factory=list, repr=False)
     """Strings to poll for in pane output before sending initial_input.
     Empty list = fall back to ready_delay_seconds sleep."""
+    trust_patterns: list[str] = field(default_factory=list, repr=False)
+    """Patterns indicating a trust/confirmation dialog that should be auto-accepted."""
 
 
 class AgentAdapter(ABC):

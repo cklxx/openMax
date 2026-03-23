@@ -368,7 +368,9 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         )
         if pane is None:
             return _dispatch_failure_response(task_name, agent_type, branch_name, launch_err)
-        if cmd_spec.interactive and cmd_spec.initial_input:
+        needs_prompt = cmd_spec.interactive and cmd_spec.initial_input
+        has_trust = bool(getattr(cmd_spec, "trust_patterns", None))
+        if needs_prompt or has_trust:
             ready_confirmed = await _wait_and_send_prompt(runtime, pane, cmd_spec, agent_type)
 
     subtask = SubTask(

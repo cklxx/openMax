@@ -214,41 +214,42 @@ def _run_openmax(
     workspace: Path,
     model: str | None = None,
 ) -> BenchmarkResult:
-    """Run task with openMax multi-agent orchestration."""
-    from openmax.lead_agent import run_lead_agent
-    from openmax.pane_manager import PaneManager
-
+    """Run task with openMax via CLI subprocess."""
     prompt = task.prompt.replace("{workspace}", str(workspace))
     session_id = f"bench-{task.id}-{int(time.time())}"
 
-    pane_mgr = PaneManager()
+    cmd = ["openmax", "run", prompt, "--cwd", str(workspace), "--no-confirm"]
+    cmd.extend(["--session-id", session_id])
+    if model:
+        cmd.extend(["--model", model])
+
     t0 = time.monotonic()
     try:
-        plan = run_lead_agent(
-            task=prompt,
-            pane_mgr=pane_mgr,
-            cwd=str(workspace),
-            model=model,
-            session_id=session_id,
-            plan_confirm=False,
-            allowed_agents=["claude-code"],
+        subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=task.timeout_seconds,
         )
         duration = time.monotonic() - t0
         success = _verify(task, workspace)
-
-        total_tokens_in = sum(s.input_tokens for s in plan.subtasks)
-        total_tokens_out = sum(s.output_tokens for s in plan.subtasks)
-        total_cost = sum(s.cost_usd for s in plan.subtasks)
-
+        usage = _load_openmax_usage(session_id)
         return BenchmarkResult(
             task_id=task.id,
             mode="openmax",
             duration_seconds=round(duration, 2),
             success=success,
-            input_tokens=total_tokens_in,
-            output_tokens=total_tokens_out,
-            cost_usd=round(total_cost, 4),
-            num_subtasks=len(plan.subtasks),
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            cost_usd=usage.get("cost_usd", 0.0),
+            num_subtasks=usage.get("num_subtasks", 0),
+        )
+    except subprocess.TimeoutExpired:
+        return BenchmarkResult(
+            task_id=task.id,
+            mode="openmax",
+            duration_seconds=task.timeout_seconds,
+            error="timeout",
         )
     except Exception as exc:
         return BenchmarkResult(
@@ -257,11 +258,22 @@ def _run_openmax(
             duration_seconds=time.monotonic() - t0,
             error=str(exc),
         )
-    finally:
-        try:
-            pane_mgr.cleanup_all()
-        except Exception:
-            pass
+
+
+def _load_openmax_usage(session_id: str) -> dict:
+    """Load usage from openMax session after completion."""
+    from openmax.usage import UsageStore
+
+    store = UsageStore()
+    usage = store.load(session_id)
+    if not usage:
+        return {}
+    return {
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "cost_usd": usage.cost_usd,
+        "num_subtasks": len(usage.subtask_usage),
+    }
 
 
 def run_benchmark(

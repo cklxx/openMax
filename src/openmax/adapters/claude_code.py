@@ -23,17 +23,9 @@ class ClaudeCodeAdapter(AgentAdapter):
 
     def get_command(self, prompt: str, cwd: str | None = None) -> AgentCommand:
         return AgentCommand(
-            launch_cmd=["claude"],
-            initial_input=prompt,
+            launch_cmd=["claude", prompt],
             interactive=True,
-            ready_patterns=[
-                "? for shortcuts",
-                "for help",
-                "Human:",
-                "╭─",
-                "Claude Code",
-                "Type your",
-            ],
+            trust_patterns=["Yes, I trust"],
         )
 
 

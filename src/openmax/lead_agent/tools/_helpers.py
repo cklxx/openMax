@@ -445,6 +445,13 @@ async def _wait_and_send_prompt(
     agent_type: str,
 ) -> bool:
     """Wait for CLI ready then send the initial prompt. Returns True if ready detected."""
+    trust_patterns = getattr(cmd_spec, "trust_patterns", None) or []
+    if trust_patterns:
+        await _auto_accept_trust(runtime.pane_mgr, pane.pane_id, trust_patterns)
+
+    if not cmd_spec.initial_input:
+        return True
+
     ready = True
     if cmd_spec.ready_patterns:
         ready = await _wait_for_pane_ready(
@@ -462,6 +469,25 @@ async def _wait_and_send_prompt(
         await anyio.sleep(cmd_spec.ready_delay_seconds)
     runtime.pane_mgr.send_text(pane.pane_id, cmd_spec.initial_input)
     return ready
+
+
+async def _auto_accept_trust(
+    pane_mgr: PaneManager,
+    pane_id: int,
+    trust_patterns: list[str],
+) -> None:
+    """Poll for a trust/confirmation dialog and press Enter to accept."""
+    for _ in range(20):
+        await anyio.sleep(0.5)
+        try:
+            text = pane_mgr.get_text(pane_id)
+        except Exception:
+            continue
+        if any(pat in text for pat in trust_patterns):
+            pane_mgr.send_text(pane_id, "", submit=True)
+            console.print(f"  [dim]{P}  auto-accepted trust dialog on pane {pane_id}[/dim]")
+            return
+    # No trust dialog appeared — that's fine, directory was already trusted
 
 
 def _read_subtask_report(task_name: str) -> str | None:

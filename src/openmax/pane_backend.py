@@ -430,13 +430,10 @@ class KakuPaneBackend:
                 time.sleep(delay)
 
     def send_text(self, pane_id: int, text: str) -> None:
-        if len(text) > _SEND_TEXT_ARG_LIMIT:
-            self._run_kaku(
-                ["send-text", "--pane-id", str(pane_id), "--no-paste"],
-                input_text=text,
-            )
-        else:
-            self._run_kaku(["send-text", "--pane-id", str(pane_id), "--", text])
+        self._run_kaku(
+            ["send-text", "--pane-id", str(pane_id), "--no-paste"],
+            input_text=text,
+        )
 
     def send_enter(self, pane_id: int) -> None:
         self._run_kaku(
