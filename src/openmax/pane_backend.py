@@ -5,15 +5,27 @@ from __future__ import annotations
 import json
 import os
 import platform
+import stat
 import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
 from itertools import count
+from pathlib import Path
 from typing import Literal, Protocol, cast
 from urllib.parse import unquote, urlparse
 
 _KAKU_CLI_PREFIX = ["kaku", "cli"]
+
+
+def _is_socket(path: str) -> bool:
+    """Return True if *path* exists and is a Unix domain socket."""
+    try:
+        return stat.S_ISSOCK(os.stat(path).st_mode)
+    except OSError:
+        return False
+
+
 _SEND_TEXT_ARG_LIMIT = 100_000  # bytes; switch to stdin above this
 
 SplitDirection = Literal["right", "bottom", "left", "top"]
@@ -336,6 +348,32 @@ class HeadlessPaneBackend:
 class KakuPaneBackend:
     """Kaku-backed implementation of the pane execution backend."""
 
+    _socket_healed = False
+
+    @classmethod
+    def _heal_socket_symlink(cls) -> None:
+        """Fix stale default socket symlink using KAKU_UNIX_SOCKET env var.
+
+        Kaku doesn't update its default symlink on restart, causing all CLI
+        commands to fail. We detect this by comparing the symlink target to
+        the live socket path from the environment.
+        """
+        if cls._socket_healed:
+            return
+        cls._socket_healed = True
+        live = os.environ.get("KAKU_UNIX_SOCKET")
+        if not live or not _is_socket(live):
+            return
+        sock_dir = Path(live).parent
+        default = sock_dir / "default-fun.tw93.kaku"
+        try:
+            if default.is_symlink() and str(default.resolve()) == str(Path(live).resolve()):
+                return
+            default.unlink(missing_ok=True)
+            default.symlink_to(live)
+        except OSError:
+            pass
+
     def list_panes(self) -> list[PaneInfo]:
         result = self._run_kaku(["list", "--format", "json"])
         raw = json.loads(result.stdout)
@@ -486,8 +524,9 @@ class KakuPaneBackend:
             timeout=5,
         )
 
-    @staticmethod
+    @classmethod
     def _run_kaku(
+        cls,
         args: list[str],
         *,
         input_text: str | None = None,
@@ -495,6 +534,7 @@ class KakuPaneBackend:
         check: bool = True,
         env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
+        cls._heal_socket_symlink()
         run_env = dict(os.environ)
         if env:
             run_env.update(env)

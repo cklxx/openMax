@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import sys
 import time
+from pathlib import Path
 
 import pytest
 
@@ -388,3 +390,74 @@ def test_resolve_backend_accepts_ghostty(monkeypatch):
 
 def test_create_backend_builds_ghostty():
     assert isinstance(create_pane_backend("ghostty"), GhosttyPaneBackend)
+
+
+# --- KakuPaneBackend._heal_socket_symlink tests ---
+
+
+@pytest.fixture()
+def _short_tmp(tmp_path):
+    """Yield a short-path directory suitable for AF_UNIX sockets (macOS 104-byte limit)."""
+    import tempfile
+
+    d = tempfile.mkdtemp(prefix="om_")
+    yield Path(d)
+    import shutil
+
+    shutil.rmtree(d, ignore_errors=True)
+
+
+def _make_unix_socket(path: Path) -> None:
+    """Create a real Unix domain socket file for testing."""
+    import socket as sock_mod
+
+    s = sock_mod.socket(sock_mod.AF_UNIX, sock_mod.SOCK_STREAM)
+    s.bind(str(path))
+    s.close()
+
+
+class TestHealSocketSymlink:
+    """Verify stale Kaku socket symlink is auto-repaired."""
+
+    def setup_method(self):
+        KakuPaneBackend._socket_healed = False
+
+    def test_fixes_stale_symlink(self, _short_tmp, monkeypatch):
+        live = _short_tmp / "gui-sock-999"
+        _make_unix_socket(live)
+        stale = _short_tmp / "gui-sock-111"
+        stale.touch()
+        default = _short_tmp / "default-fun.tw93.kaku"
+        default.symlink_to(stale)
+
+        monkeypatch.setenv("KAKU_UNIX_SOCKET", str(live))
+        KakuPaneBackend._heal_socket_symlink()
+
+        assert default.resolve() == live.resolve()
+
+    def test_noop_when_symlink_correct(self, _short_tmp, monkeypatch):
+        live = _short_tmp / "gui-sock-999"
+        _make_unix_socket(live)
+        default = _short_tmp / "default-fun.tw93.kaku"
+        default.symlink_to(live)
+
+        monkeypatch.setenv("KAKU_UNIX_SOCKET", str(live))
+        KakuPaneBackend._heal_socket_symlink()
+
+        assert default.resolve() == live.resolve()
+
+    def test_noop_when_no_env_var(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("KAKU_UNIX_SOCKET", raising=False)
+        default = tmp_path / "default-fun.tw93.kaku"
+        default.symlink_to(tmp_path / "gui-sock-old")
+
+        KakuPaneBackend._heal_socket_symlink()
+
+        assert os.readlink(default) == str(tmp_path / "gui-sock-old")
+
+    def test_runs_only_once(self, monkeypatch):
+        monkeypatch.delenv("KAKU_UNIX_SOCKET", raising=False)
+        KakuPaneBackend._heal_socket_symlink()
+        assert KakuPaneBackend._socket_healed is True
+        # Second call is a no-op (flag already set)
+        KakuPaneBackend._heal_socket_symlink()
