@@ -391,14 +391,8 @@ async def _auto_mark_and_merge(runtime: Any, task_name: str) -> dict[str, Any] |
 
 
 async def _build_pipeline_result(runtime: Any, task_name: str, merge_text: str) -> dict[str, Any]:
-    """Build auto-pipeline result with optional verification."""
-    from openmax.lead_agent.tools._verify import auto_verify_after_merge
-
-    entry: dict[str, Any] = {"task_name": task_name, "merge": merge_text}
-    verify = await auto_verify_after_merge(runtime)
-    if verify:
-        entry["auto_verified"] = verify
-    return entry
+    """Build auto-pipeline result. Verification deferred to all_done check."""
+    return {"task_name": task_name, "merge": merge_text}
 
 
 def _auto_done_for_exited_panes(runtime: Any) -> dict[str, Any] | None:
@@ -440,6 +434,15 @@ def _flush_deferred_cleanup(runtime: Any) -> None:
     from openmax.lead_agent.tools._verify import cleanup_deferred_branches
 
     cleanup_deferred_branches(runtime)
+
+
+async def _auto_verify_if_all_done(runtime: Any, all_done: bool) -> dict[str, Any] | None:
+    """Run auto-verify once when all tasks finish. Returns result or None."""
+    if not all_done:
+        return None
+    from openmax.lead_agent.tools._verify import auto_verify_after_merge
+
+    return await auto_verify_after_merge(runtime)
 
 
 def _all_tasks_done(runtime: Any) -> bool:
@@ -522,6 +525,11 @@ async def wait_for_agent_message(args: dict[str, Any]) -> dict[str, Any]:
     all_done = _all_tasks_done(runtime)
     if all_done:
         _flush_deferred_cleanup(runtime)
+    verify_result = await _auto_verify_if_all_done(runtime, all_done)
     if not results:
-        return _tool_response({"messages": [], "timeout": True, "all_done": all_done})
-    return _tool_response({"messages": results, "all_done": all_done})
+        resp: dict[str, Any] = {"messages": [], "timeout": True, "all_done": all_done}
+    else:
+        resp = {"messages": results, "all_done": all_done}
+    if verify_result:
+        resp["auto_verified"] = verify_result
+    return _tool_response(resp)
