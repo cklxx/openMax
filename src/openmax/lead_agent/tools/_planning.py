@@ -314,16 +314,36 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
 
     dispatched = await _auto_dispatch_from_plan(runtime, subtasks_raw, parallel_groups)
     ok = [d for d in dispatched if d.get("dispatched")]
-    if ok:
-        result_data["auto_dispatched"] = dispatched
-        result_data["status"] = "accepted_and_dispatched"
-        names = [d["task_name"] for d in ok]
-        result_data["instruction"] = (
-            f"All {len(ok)} root subtasks ({', '.join(names)}) are already dispatched. "
-            "Do NOT call dispatch_agent for these tasks. "
-            "Proceed directly to monitoring with wait_for_agent_message(timeout=60)."
-        )
+    if not ok:
+        return _tool_response(result_data)
 
+    result_data["auto_dispatched"] = dispatched
+    all_dispatched = len(ok) == len(subtasks_raw)
+
+    # Inline monitoring: when ALL tasks dispatched (no deps), block until done
+    if all_dispatched and runtime.mailbox is not None:
+        from openmax.lead_agent.tools._misc import _monitor_until_done, _run_all_done_pipeline
+
+        console.print(f"  [bold cyan]{P}[/bold cyan]  monitoring {len(ok)} agents inline...")
+        results, all_done = await _monitor_until_done(runtime, timeout=600)
+        if all_done:
+            pipeline = await _run_all_done_pipeline(runtime)
+            result_data["status"] = "completed"
+            result_data["monitoring"] = results
+            result_data.update(pipeline)
+            result_data["instruction"] = (
+                "All tasks completed, merged, verified, and reported. Session is done."
+            )
+            return _tool_response(result_data)
+        result_data["monitoring"] = results
+
+    result_data["status"] = "accepted_and_dispatched"
+    names = [d["task_name"] for d in ok]
+    result_data["instruction"] = (
+        f"All {len(ok)} root subtasks ({', '.join(names)}) are already dispatched. "
+        "Do NOT call dispatch_agent for these tasks. "
+        "Proceed directly to monitoring with wait_for_agent_message(timeout=60)."
+    )
     return _tool_response(result_data)
 
 

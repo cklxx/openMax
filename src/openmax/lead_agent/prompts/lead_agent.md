@@ -50,7 +50,8 @@ Research prompt must be specific: "For [task], identify: which files need to cha
    - Each subtask: `name`, `description` (detailed enough to be the agent's brief), `files`, `dependencies`, optional `agent_type`.
    - Write `description` as a complete task brief — it becomes the dispatch prompt.
    - Group independent subtasks into `parallel_groups`.
-   - When `submit_plan` returns `"status": "accepted_and_dispatched"`, agents are ALREADY running. **Call `wait_for_agent_message(timeout=60)` immediately** in the same response — do NOT call `dispatch_agent` for auto-dispatched tasks.
+   - When `submit_plan` returns `"status": "completed"`, **ALL work is done** — agents ran, merged, verified, and reported. Do NOT call any more tools. The session is finished.
+   - When `submit_plan` returns `"status": "accepted_and_dispatched"`, agents are running but have dependencies. **Call `wait_for_agent_message(timeout=60)` immediately** — do NOT call `dispatch_agent` for auto-dispatched tasks.
 
 ### Archetype-Guided Planning
 

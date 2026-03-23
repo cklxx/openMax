@@ -2543,3 +2543,92 @@ def test_default_ready_delay_reduced():
 
     cmd = AgentCommand(launch_cmd=["test"])
     assert cmd.ready_delay_seconds == 1.5
+
+
+def test_monitor_until_done_no_mailbox():
+    """_monitor_until_done returns immediately when no mailbox."""
+    from openmax.lead_agent.tools._misc import _monitor_until_done
+
+    runtime = SimpleNamespace(mailbox=None, plan=SimpleNamespace(subtasks=[]))
+    results, all_done = anyio.run(_monitor_until_done, runtime, 5)
+    assert results == []
+    assert all_done is True
+
+
+def test_monitor_until_done_with_exited_pane(monkeypatch, tmp_path):
+    """_monitor_until_done detects exited panes via auto-detect."""
+    from openmax.lead_agent.runtime import reset_lead_agent_runtime
+    from openmax.lead_agent.tools._misc import _monitor_until_done
+
+    runtime, token = _make_runtime_with_subtask(monkeypatch, tmp_path, pane_alive=False)
+    try:
+        results, all_done = anyio.run(_monitor_until_done, runtime, 10)
+        assert all_done is True
+        assert len(results) >= 1
+        assert results[0]["type"] == "auto-detect"
+    finally:
+        reset_lead_agent_runtime(token)
+
+
+def test_run_all_done_pipeline_empty_plan(monkeypatch, tmp_path):
+    """_run_all_done_pipeline works with empty subtask list."""
+    from openmax.lead_agent.runtime import reset_lead_agent_runtime
+    from openmax.lead_agent.tools._misc import _run_all_done_pipeline
+
+    runtime, token = _make_bound_runtime(monkeypatch, tmp_path)
+
+    async def _noop_verify(rt, done):
+        return None
+
+    monkeypatch.setattr(
+        "openmax.lead_agent.tools._misc._auto_verify_if_all_done",
+        _noop_verify,
+    )
+    try:
+        result = anyio.run(_run_all_done_pipeline, runtime)
+        assert "auto_verified" not in result
+        assert "auto_completed" not in result
+    finally:
+        reset_lead_agent_runtime(token)
+
+
+def _make_runtime_with_subtask(monkeypatch, tmp_path, *, pane_alive=True):
+    """Create a runtime with one RUNNING subtask and a mock mailbox."""
+    from unittest.mock import MagicMock
+
+    from openmax.lead_agent.runtime import LeadAgentRuntime, bind_lead_agent_runtime
+
+    pane_mgr = MagicMock()
+    pane_mgr.is_pane_alive.return_value = pane_alive
+    pane_mgr.alive_pane_ids.return_value = frozenset() if not pane_alive else frozenset({42})
+
+    mb = MagicMock()
+    mb.receive.return_value = None
+
+    runtime = LeadAgentRuntime(
+        cwd=str(tmp_path),
+        plan=PlanResult(goal="test"),
+        pane_mgr=pane_mgr,
+        mailbox=mb,
+    )
+    st = SubTask(name="task-a", agent_type="command", prompt="x", status=TaskStatus.RUNNING)
+    st.pane_id = 42
+    runtime.plan.subtasks.append(st)
+    token = bind_lead_agent_runtime(runtime)
+    return runtime, token
+
+
+def _make_bound_runtime(monkeypatch, tmp_path):
+    """Create and bind a minimal runtime for pipeline tests."""
+    from unittest.mock import MagicMock
+
+    from openmax.lead_agent.runtime import LeadAgentRuntime, bind_lead_agent_runtime
+
+    pane_mgr = MagicMock()
+    runtime = LeadAgentRuntime(
+        cwd=str(tmp_path),
+        plan=PlanResult(goal="test"),
+        pane_mgr=pane_mgr,
+    )
+    token = bind_lead_agent_runtime(runtime)
+    return runtime, token

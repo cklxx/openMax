@@ -471,6 +471,61 @@ def _has_running_tasks(runtime: Any) -> bool:
     return any(st.status == TaskStatus.RUNNING for st in runtime.plan.subtasks)
 
 
+async def _monitor_until_done(
+    runtime: Any, timeout: int = 300
+) -> tuple[list[dict[str, Any]], bool]:
+    """Shared mailbox polling loop. Returns (messages, all_done)."""
+    if runtime.mailbox is None:
+        return [], _all_tasks_done(runtime)
+
+    results: list[dict[str, Any]] = []
+    deadline = time.monotonic() + timeout
+
+    while time.monotonic() < deadline:
+        remaining = max(deadline - time.monotonic(), 0.1)
+        recv_timeout = min(remaining, 5.0)
+        msg = await anyio.to_thread.run_sync(
+            lambda: runtime.mailbox.receive(timeout=recv_timeout),
+            abandon_on_cancel=True,
+        )
+
+        if msg is not None:
+            entry = await _handle_message(runtime, msg)
+            results.append(entry)
+            if _all_tasks_done(runtime):
+                break
+            continue
+
+        auto = _auto_done_for_exited_panes(runtime)
+        if auto:
+            results.append({"type": "auto-detect", "message": auto})
+            if _all_tasks_done(runtime):
+                break
+            continue
+
+        if not _has_running_tasks(runtime):
+            break
+
+    return results, _all_tasks_done(runtime)
+
+
+async def _run_all_done_pipeline(
+    runtime: Any,
+) -> dict[str, Any]:
+    """Run cleanup + verify + report after all tasks done. Returns pipeline result."""
+    _flush_deferred_cleanup(runtime)
+    verify_result = await _auto_verify_if_all_done(runtime, True)
+    report_result = None
+    if runtime.plan.subtasks:
+        report_result = await _auto_report_completion(runtime, verify_result)
+    result: dict[str, Any] = {}
+    if verify_result:
+        result["auto_verified"] = verify_result
+    if report_result:
+        result["auto_completed"] = report_result
+    return result
+
+
 async def _handle_message(runtime: Any, msg: Any) -> dict[str, Any]:
     """Process a single mailbox message. Returns an entry dict for the response."""
     runtime.mailbox_messaged_tasks.add(msg.task)
@@ -512,44 +567,13 @@ async def wait_for_agent_message(args: dict[str, Any]) -> dict[str, Any]:
         await anyio.sleep(timeout)
         return _tool_response({"messages": [], "timeout": True, "reason": "no_mailbox"})
 
-    results: list[dict[str, Any]] = []
-    deadline = time.monotonic() + timeout
+    results, all_done = await _monitor_until_done(runtime, timeout)
 
-    while time.monotonic() < deadline:
-        remaining = max(deadline - time.monotonic(), 0.1)
-        recv_timeout = min(remaining, 5.0)
-        msg = await anyio.to_thread.run_sync(
-            lambda: runtime.mailbox.receive(timeout=recv_timeout),
-            abandon_on_cancel=True,
-        )
-
-        if msg is not None:
-            entry = await _handle_message(runtime, msg)
-            results.append(entry)
-            if _all_tasks_done(runtime):
-                break
-            continue
-
-        auto = _auto_done_for_exited_panes(runtime)
-        if auto:
-            results.append({"type": "auto-detect", "message": auto})
-            if _all_tasks_done(runtime):
-                break
-            continue
-
-        if not _has_running_tasks(runtime):
-            break
-
-    all_done = _all_tasks_done(runtime)
-    if all_done:
-        _flush_deferred_cleanup(runtime)
-    verify_result = await _auto_verify_if_all_done(runtime, all_done)
     if not results:
         resp: dict[str, Any] = {"messages": [], "timeout": True, "all_done": all_done}
     else:
         resp = {"messages": results, "all_done": all_done}
-    if verify_result:
-        resp["auto_verified"] = verify_result
-    if all_done and runtime.plan.subtasks:
-        resp["auto_completed"] = await _auto_report_completion(runtime, verify_result)
+    if all_done:
+        pipeline = await _run_all_done_pipeline(runtime)
+        resp.update(pipeline)
     return _tool_response(resp)
