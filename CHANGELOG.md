@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.5
+
+- **Fix**: Auto-heal stale Kaku socket symlink after Kaku restart
+  - Kaku doesn't update `default-fun.tw93.kaku` symlink on restart, breaking all CLI commands
+  - Detect stale symlink via `KAKU_UNIX_SOCKET` env var and re-point automatically
+  - One-time check on first `_run_kaku` call, zero overhead after
+
 ## 0.8.4
 
 - **Performance**: Print-mode agents + skip redundant verification
