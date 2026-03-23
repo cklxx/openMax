@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.1
+
+- **Remove**: TUI dashboard module (Textual-based) — not production-ready, causing runtime errors. Classic Rich status bar remains as the sole dashboard. Drops `textual` dependency and `--no-tui` CLI flag.
+
 ## 0.7.0
 
 - **Feature**: Project Archetypes — domain-aware task decomposition system
