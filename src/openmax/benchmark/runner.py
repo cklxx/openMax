@@ -75,9 +75,21 @@ class BenchmarkReport:
         return asdict(self)
 
 
+def _trust_workspace(workspace: Path) -> None:
+    """Pre-trust workspace for Claude Code so it skips the trust dialog."""
+    claude_dir = workspace / ".claude"
+    claude_dir.mkdir(exist_ok=True)
+    settings = {"permissions": {"allow": ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]}}
+    (claude_dir / "settings.local.json").write_text(
+        json.dumps(settings, indent=2),
+        encoding="utf-8",
+    )
+
+
 def _create_workspace(task: BenchmarkTask) -> Path:
     """Create an isolated temp workspace and run setup_script."""
     workspace = Path(tempfile.mkdtemp(prefix=f"bench-{task.id}-"))
+    _trust_workspace(workspace)
     subprocess.run(["git", "init", "-q"], cwd=workspace, check=True)
     subprocess.run(
         ["git", "commit", "--allow-empty", "-m", "init", "-q"],
@@ -219,6 +231,7 @@ def _run_openmax(
             model=model,
             session_id=session_id,
             plan_confirm=False,
+            allowed_agents=["claude-code"],
         )
         duration = time.monotonic() - t0
         success = _verify(task, workspace)
