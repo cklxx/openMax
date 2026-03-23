@@ -445,6 +445,24 @@ async def _auto_verify_if_all_done(runtime: Any, all_done: bool) -> dict[str, An
     return await auto_verify_after_merge(runtime)
 
 
+async def _auto_report_completion(
+    runtime: Any, verify_result: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Auto-call report_completion when all done. Saves the final LLM turn."""
+    from openmax.lead_agent.tools._report import report_completion
+
+    done_count = sum(1 for st in runtime.plan.subtasks if st.status == TaskStatus.DONE)
+    total = len(runtime.plan.subtasks)
+    pct = int(done_count / total * 100) if total else 100
+    verify_status = "pass" if not verify_result else verify_result.get("status", "unknown")
+    notes = f"All {total} tasks completed. Verification: {verify_status}."
+    try:
+        await report_completion.handler({"completion_pct": pct, "notes": notes})
+        return {"status": "reported", "pct": pct}
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
+
+
 def _all_tasks_done(runtime: Any) -> bool:
     return all(st.status != TaskStatus.RUNNING for st in runtime.plan.subtasks)
 
@@ -532,4 +550,6 @@ async def wait_for_agent_message(args: dict[str, Any]) -> dict[str, Any]:
         resp = {"messages": results, "all_done": all_done}
     if verify_result:
         resp["auto_verified"] = verify_result
+    if all_done and runtime.plan.subtasks:
+        resp["auto_completed"] = await _auto_report_completion(runtime, verify_result)
     return _tool_response(resp)
