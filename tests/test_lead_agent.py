@@ -2429,3 +2429,111 @@ def test_build_full_prompt_omits_empty_archetype_hints():
             archetype_hints="",
         )
         assert "Hints" not in result
+
+
+# ── Step 1-6 performance optimization tests ────────────────────────────────
+
+
+def test_poll_exit_marker_found():
+    """_poll_exit_marker returns exit code when marker present."""
+    from openmax.lead_agent.tools._verify import _poll_exit_marker
+
+    pane_mgr = DummyPaneManager()
+    pane_mgr.get_text = lambda pid: "output\n__OPENMAX_EXIT_0__\n"
+    runtime = SimpleNamespace(pane_mgr=pane_mgr)
+    code, text, done = _poll_exit_marker(runtime, 101, "")
+    assert code == 0
+    assert done is True
+    assert "output" in text
+
+
+def test_poll_exit_marker_not_found():
+    """_poll_exit_marker returns None when no marker and pane alive."""
+    from openmax.lead_agent.tools._verify import _poll_exit_marker
+
+    pane_mgr = DummyPaneManager()
+    pane_mgr.get_text = lambda pid: "still running...\n"
+    runtime = SimpleNamespace(pane_mgr=pane_mgr)
+    code, text, done = _poll_exit_marker(runtime, 101, "")
+    assert code is None
+    assert done is False
+
+
+def test_poll_exit_marker_pane_exited():
+    """_poll_exit_marker detects pane exit without marker."""
+    from openmax.lead_agent.tools._verify import _poll_exit_marker
+
+    pane_mgr = DummyPaneManager()
+    pane_mgr.get_text = lambda pid: "last output\n"
+    pane_mgr.is_pane_alive = lambda pid: False
+    runtime = SimpleNamespace(pane_mgr=pane_mgr)
+    code, text, done = _poll_exit_marker(runtime, 101, "")
+    assert code is None
+    assert done is True
+
+
+def test_run_checks_parallel(monkeypatch, tmp_path):
+    """_run_checks_parallel runs multiple checks concurrently."""
+    runtime, token, _store, _meta = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    runtime.pane_mgr.get_text = lambda pane_id: f"ok pane {pane_id}\n__OPENMAX_EXIT_0__\n"
+
+    from openmax.lead_agent.tools._verify import _run_checks_parallel
+
+    commands = [("echo lint", "python"), ("echo test", "js")]
+    results = anyio.run(_run_checks_parallel, runtime, "lint", commands, 30)
+    assert len(results) == 2
+    assert all(r["status"] == "pass" for r in results)
+
+    _teardown_session(token)
+
+
+def test_deferred_branch_cleanup():
+    """Deferred branches are collected and batch-cleaned."""
+    from openmax.lead_agent.tools._verify import (
+        _defer_branch_cleanup,
+        cleanup_deferred_branches,
+    )
+
+    runtime = SimpleNamespace(cwd="/tmp", _deferred_branches=[])
+
+    _defer_branch_cleanup(runtime, "openmax/feat-a")
+    _defer_branch_cleanup(runtime, "openmax/feat-b")
+    assert len(runtime._deferred_branches) == 2
+
+    # Cleanup should not raise even if branches don't exist
+    cleanup_deferred_branches(runtime)
+    assert runtime._deferred_branches == []
+
+
+def test_auto_verify_after_merge_no_tooling(monkeypatch, tmp_path):
+    """auto_verify_after_merge returns None when no tooling detected."""
+    runtime, token, _store, _meta = _setup_session(tmp_path)
+    _patch_time(monkeypatch)
+
+    from openmax.lead_agent.tools._verify import auto_verify_after_merge
+
+    result = anyio.run(auto_verify_after_merge, runtime)
+    assert result is None
+
+    _teardown_session(token)
+
+
+def test_claude_code_adapter_ready_patterns():
+    """ClaudeCodeAdapter includes ready_patterns and reduced delay."""
+    from openmax.adapters.claude_code import ClaudeCodeAdapter
+
+    adapter = ClaudeCodeAdapter()
+    cmd = adapter.get_command("test prompt")
+    assert cmd.ready_delay_seconds == 1.0
+    assert len(cmd.ready_patterns) > 0
+    assert "❯" in cmd.ready_patterns
+
+
+def test_default_ready_delay_reduced():
+    """Default AgentCommand ready_delay_seconds is reduced from 3.0."""
+    from openmax.adapters.base import AgentCommand
+
+    cmd = AgentCommand(launch_cmd=["test"])
+    assert cmd.ready_delay_seconds == 1.5
