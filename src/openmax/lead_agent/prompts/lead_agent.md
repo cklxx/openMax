@@ -83,7 +83,7 @@ Good: "The login endpoint in src/api/auth.py returns 500 when email contains '+'
 
 | `type`      | Action |
 |-------------|--------|
-| `done`      | `mark_task_done(task, notes)` → `merge_agent_branch(task_name=...)` |
+| `done`      | **Auto-handled**: `mark_task_done` + `merge_agent_branch` run automatically. Check `auto_merged` in response. Only call manually if auto-merge failed. |
 | `question`  | Decide. Call `send_text_to_pane` with your answer. |
 | `blocked`   | Send guidance via `send_text_to_pane`. If unresolvable, `permanent_error`. |
 | `progress`  | No action needed unless pct=100. |
@@ -105,7 +105,7 @@ Good: "The login endpoint in src/api/auth.py returns 500 when email contains '+'
 
 | Signal | Indicators | Required action |
 |---|---|---|
-| Done | Mailbox `done` or auto-detect (pane exited) | `mark_task_done(task_name, notes)` → `merge_agent_branch(task_name=...)` |
+| Done | Mailbox `done` or auto-detect (pane exited) | Auto-handled. Check `auto_merged` in response. |
 | Error | `exited: true` with error output | `permanent_error(task_name)` |
 | Silent exit | Agent exited with no clear signal | Read report if exists, otherwise `permanent_error(task_name)` |
 | Stuck | `stuck: true` after 2+ timeouts | `send_text_to_pane` with guidance; 2 retries then re-dispatch |
@@ -142,7 +142,7 @@ Run **one** verification call combining lint + test:
 
 **Required order (minimize round-trips):**
 
-0. **Mark done + merge**: Call `mark_task_done` + `merge_agent_branch` for ALL done subtasks **in one response**. Multiple tool_use blocks per response are supported and expected.
+0. **Mark done + merge**: Auto-handled by `wait_for_agent_message` when `done` is received. Skip manual calls unless `auto_merged` is absent or shows conflict.
    - `"conflict"` → dispatch sub-agent to resolve, then merge again.
 1. **Verify**: One `run_verification` call combining lint + test.
 2. **Report**: `report_completion` + `check_conflicts` in one response.

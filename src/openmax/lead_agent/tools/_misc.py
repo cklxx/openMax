@@ -370,6 +370,22 @@ async def read_file_tool(args: dict[str, Any]) -> dict[str, Any]:
     return _tool_response(result)
 
 
+async def _auto_mark_and_merge(runtime: Any, task_name: str) -> dict[str, Any] | None:
+    """Auto mark_done + merge when a done message arrives. Saves 2 LLM turns."""
+    from openmax.lead_agent.tools._planning import mark_task_done
+    from openmax.lead_agent.tools._verify import merge_agent_branch
+
+    try:
+        await mark_task_done.handler({"task_name": task_name, "notes": ""})
+        result = await merge_agent_branch.handler({"task_name": task_name})
+        content = result.get("content", [{}])
+        text = content[0].get("text", "")[:200] if content else ""
+        return {"task_name": task_name, "merge": text}
+    except Exception as exc:
+        console.print(f"  [yellow]![/yellow]  Auto-merge {task_name} failed: {exc}")
+        return None
+
+
 def _auto_done_for_exited_panes(runtime: Any) -> dict[str, Any] | None:
     import time as _time
 
@@ -429,6 +445,7 @@ async def wait_for_agent_message(args: dict[str, Any]) -> dict[str, Any]:
 
         if msg.type == "done":
             _apply_subtask_usage(msg.task, msg.raw)
+            merge_result = await _auto_mark_and_merge(runtime, msg.task)
 
         if msg.type == "progress" and runtime.dashboard is not None:
             pct = msg.raw.get("pct", 0)
@@ -442,7 +459,10 @@ async def wait_for_agent_message(args: dict[str, Any]) -> dict[str, Any]:
         detail = msg.raw.get("msg") or msg.raw.get("summary") or ""
         suffix = f": {detail[:60]}" if msg.type != "done" and detail else ""
         console.print(f"  [bold green]\u2709[/bold green]  [{msg.type}] {msg.task}{suffix}")
-        return _tool_response({"message": msg.raw, "received": True})
+        response: dict[str, Any] = {"message": msg.raw, "received": True}
+        if msg.type == "done" and merge_result:
+            response["auto_merged"] = merge_result
+        return _tool_response(response)
 
     auto = _auto_done_for_exited_panes(runtime)
     if auto:
