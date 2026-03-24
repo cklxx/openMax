@@ -5,7 +5,7 @@
 <h1 align="center">openMax</h1>
 
 <p align="center">
-  <strong>One command. Multiple AI agents. Extreme parallel acceleration.</strong>
+  <strong>One command. Multiple AI agents. Zero babysitting.</strong>
 </p>
 
 <p align="center">
@@ -16,35 +16,38 @@
 
 ---
 
-Say what you want. openMax figures out how to split the work, dispatches AI agents ([Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), [OpenCode](https://github.com/opencode-ai/opencode)) into parallel terminal panes, monitors them, and merges the results. Built-in **Project Archetypes** give the lead agent domain-aware decomposition strategies — it knows how to split a web app, CLI tool, API service, or library without you telling it.
+Stop babysitting. Stop switching windows. Give openMax your tasks and walk away — it orchestrates multiple AI agents ([Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), [OpenCode](https://github.com/opencode-ai/opencode)) in parallel terminal panes, monitors them, and merges the results. If you already juggle multiple Claude Code windows, openMax replaces that chaos with a single command that manages everything. Built-in **Project Archetypes** give the lead agent domain-aware decomposition strategies — it knows how to split a web app, CLI tool, API service, or library without you telling it.
 
 Works with [Kaku](https://github.com/niceda/kaku) on macOS and [tmux](https://github.com/tmux/tmux) on any platform.
 
 ## Architecture
 
 ```
-openmax run "Build a blog with Next.js"
-                    |
-                    v
-   +--------------------------------+
-   |          Lead Agent            |
-   |  (powered by claude-agent-sdk) |
-   |                                |
-   |  Align -> Plan -> Dispatch ->  |
-   |  Monitor -> Review -> Report   |
-   +---------------+----------------+
-                   |
-                   v
-   +---------------+----------------+
-   |     Terminal Panes (auto grid) |
-   |  +-------------+------------+ |
-   |  | claude-code | codex      | |
-   |  | components  | API routes | |
-   |  +-------------+------------+ |
-   |  | claude-code | opencode   | |
-   |  | tests       | styling    | |
-   |  +-------------+------------+ |
-   +--------------------------------+
+openmax run "Build the API" "Add auth" "Write tests"
+                        |
+                        v
+            +-----------------------+
+            |      TaskRunner       |
+            |  (orchestrates tasks  |
+            |   in parallel)        |
+            +-----------+-----------+
+                        |
+          +-------------+-------------+
+          |             |             |
+          v             v             v
+   +-----------+  +-----------+  +-----------+
+   |Lead Agent |  |Lead Agent |  |Lead Agent |
+   | "Build    |  | "Add      |  | "Write    |
+   |  the API" |  |  auth"    |  |  tests"   |
+   +-----------+  +-----------+  +-----------+
+          |             |             |
+          v             v             v
+   +-----------+  +-----------+  +-----------+
+   | Terminal  |  | Terminal  |  | Terminal  |
+   | Panes     |  | Panes     |  | Panes     |
+   | (auto     |  | (auto     |  | (auto     |
+   |  grid)    |  |  grid)    |  |  grid)    |
+   +-----------+  +-----------+  +-----------+
 ```
 
 ## Install
@@ -100,7 +103,13 @@ openMax auto-creates a detached tmux session named `openmax` and spawns agent pa
 ## Quick Start
 
 ```bash
-# Basic usage — give it a task and let it work
+# Run multiple tasks in parallel — one command handles everything
+openmax run "Build the API" "Add authentication" "Write tests"
+
+# Run tasks from a file
+openmax run -f tasks.txt
+
+# Single task — give it a job and let it work
 openmax run "Build a blog with Next.js"
 
 # Specify a working directory
@@ -117,6 +126,38 @@ openmax run "Build the API" --agents claude-code,codex
 
 # Force all tasks to use a single agent type
 openmax run "Fix lint errors" --agents claude-code
+```
+
+## Multi-Task Mode
+
+Run multiple tasks in parallel — each gets its own Lead Agent, its own set of agent panes, and its own isolated branch. TaskRunner coordinates everything from a single command.
+
+```bash
+# Three tasks, fully parallel
+openmax run "Build the REST API" "Create React components" "Write integration tests"
+
+# Load tasks from a file (one per line)
+openmax run -f tasks.txt
+```
+
+- Each task runs independently with its own Lead Agent and terminal panes
+- TaskRunner handles orchestration, failure isolation, and result merging
+- Tasks that fail don't block others — you get partial results instead of nothing
+- Perfect for power users who currently juggle multiple Claude Code windows
+
+## Project Management
+
+Track and monitor multiple projects from a single place.
+
+```bash
+# Add a project for monitoring
+openmax projects add ~/code/my-app
+
+# List all tracked projects
+openmax projects list
+
+# Check status across all projects
+openmax projects status
 ```
 
 ## Usage
@@ -224,6 +265,15 @@ openmax run "Continue the work" --session-id my-frontend --resume
 ## Examples
 
 ```bash
+# Ship a feature end-to-end (3 parallel tasks)
+openmax run "Build the REST API" "Create React components" "Write integration tests"
+
+# Fix multiple issues at once
+openmax run "Fix auth bug #123" "Fix pagination #456" "Fix search #789"
+
+# Morning kickoff — start all your day's work
+openmax run -f today-tasks.txt
+
 # Full-stack app development
 openmax run "Build a todo app with React frontend and Express backend"
 
