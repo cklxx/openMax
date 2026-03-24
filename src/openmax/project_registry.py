@@ -63,7 +63,7 @@ def add_project(path: str) -> tuple[str, str | None]:
         return "", f"Not a git repository: {resolved}"
     projects = _load()
     for p in projects:
-        if Path(p["path"]).resolve() == resolved:
+        if str(Path(p["path"]).resolve()).lower() == str(resolved).lower():
             return p["name"], f"Already registered as '{p['name']}'"
     name = _detect_name(resolved)
     projects.append({"name": name, "path": str(resolved)})
