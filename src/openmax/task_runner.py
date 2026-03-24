@@ -1,0 +1,185 @@
+"""Multi-task runner — execute multiple tasks concurrently via ThreadPoolExecutor."""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from typing import Any
+
+from openmax.output import console
+from openmax.project_registry import find_project, list_projects
+
+
+@dataclass
+class TaskResult:
+    """Result from a single task execution."""
+
+    task: str
+    cwd: str
+    status: str = "pending"  # pending | running | done | failed
+    duration_s: float = 0.0
+    error: str | None = None
+    subtask_count: int = 0
+
+
+@dataclass
+class MultiTaskConfig:
+    """Configuration for a multi-task run."""
+
+    tasks: list[tuple[str, str]]  # [(prompt, cwd), ...]
+    model: str | None = None
+    max_turns: int | None = None
+    concurrency: int = 6
+    keep_panes: bool = False
+    no_confirm: bool = True
+    verbose: bool = False
+    pane_backend_name: str = "auto"
+    agents: list[str] | None = None
+    on_progress: Any = None  # callback(task_idx, status, detail)
+
+
+def route_task(prompt: str, projects: list[dict[str, str]]) -> str | None:
+    """Match task prompt to a registered project by keyword. Returns cwd or None."""
+    if not projects:
+        return None
+    prompt_lower = prompt.lower()
+    for p in projects:
+        if p["name"].lower() in prompt_lower:
+            return p["path"]
+    return None
+
+
+def _run_single_task(idx: int, prompt: str, cwd: str, cfg: MultiTaskConfig) -> TaskResult:
+    """Run one task in its own thread with its own lead agent session."""
+    from openmax.agent_registry import built_in_agent_registry
+    from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
+    from openmax.pane_manager import PaneManager
+
+    result = TaskResult(task=prompt[:80], cwd=cwd, status="running")
+    if cfg.on_progress:
+        cfg.on_progress(idx, "running", prompt[:60])
+
+    t0 = time.monotonic()
+    try:
+        pane_mgr = PaneManager(backend_name=cfg.pane_backend_name)
+        session_id = f"multi-{idx}-{int(time.time())}"
+        plan = run_lead_agent(
+            task=prompt,
+            pane_mgr=pane_mgr,
+            cwd=cwd,
+            model=cfg.model,
+            max_turns=cfg.max_turns,
+            session_id=session_id,
+            allowed_agents=cfg.agents,
+            agent_registry=built_in_agent_registry(),
+            plan_confirm=not cfg.no_confirm,
+            verbose=cfg.verbose,
+        )
+        result.status = "done"
+        result.subtask_count = len(plan.subtasks)
+        if not cfg.keep_panes:
+            try:
+                pane_mgr.cleanup_all()
+            except Exception:
+                pass
+    except LeadAgentStartupError as exc:
+        result.status = "failed"
+        result.error = str(exc)
+    except Exception as exc:
+        result.status = "failed"
+        result.error = str(exc)
+
+    result.duration_s = round(time.monotonic() - t0, 1)
+    if cfg.on_progress:
+        cfg.on_progress(idx, result.status, result.error or "")
+    return result
+
+
+def resolve_task_cwds(
+    tasks: tuple[str, ...],
+    projects: tuple[str, ...],
+    default_cwd: str,
+) -> list[tuple[str, str]]:
+    """Resolve each task to a (prompt, cwd) pair."""
+    registered = list_projects()
+    result: list[tuple[str, str]] = []
+
+    for i, task in enumerate(tasks):
+        if i < len(projects):
+            cwd = find_project(projects[i]) or projects[i]
+        else:
+            routed = route_task(task, registered)
+            cwd = routed or default_cwd
+        result.append((task, cwd))
+    return result
+
+
+def run_tasks(cfg: MultiTaskConfig) -> list[TaskResult]:
+    """Run multiple tasks concurrently. Returns results in submission order."""
+    if not cfg.tasks:
+        return []
+
+    results: list[TaskResult | None] = [None] * len(cfg.tasks)
+    max_workers = min(cfg.concurrency, len(cfg.tasks))
+
+    console.print(f"\n  [bold]Running {len(cfg.tasks)} tasks[/bold] (concurrency={max_workers})")
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {
+            pool.submit(_run_single_task, i, prompt, cwd, cfg): i
+            for i, (prompt, cwd) in enumerate(cfg.tasks)
+        }
+        for future in as_completed(futures):
+            idx = futures[future]
+            try:
+                results[idx] = future.result()
+            except Exception as exc:
+                results[idx] = TaskResult(
+                    task=cfg.tasks[idx][0][:80],
+                    cwd=cfg.tasks[idx][1],
+                    status="failed",
+                    error=str(exc),
+                )
+
+    final = [r for r in results if r is not None]
+    _print_summary(final)
+    _notify_completion(final)
+    return final
+
+
+def _print_summary(results: list[TaskResult]) -> None:
+    """Print a batch summary of all task results."""
+    done = sum(1 for r in results if r.status == "done")
+    failed = sum(1 for r in results if r.status == "failed")
+    total_time = max((r.duration_s for r in results), default=0)
+
+    console.print(
+        f"\n  [bold]Batch complete:[/bold] {done} done, {failed} failed, {total_time:.0f}s"
+    )
+    for r in results:
+        icon = "[green]✓[/green]" if r.status == "done" else "[red]✗[/red]"
+        console.print(f"    {icon} {r.task} ({r.duration_s:.0f}s)")
+        if r.error:
+            console.print(f"      [red]{r.error[:100]}[/red]")
+
+
+def _notify_completion(results: list[TaskResult]) -> None:
+    """Send macOS notification on completion."""
+    if sys.platform != "darwin":
+        return
+    done = sum(1 for r in results if r.status == "done")
+    failed = sum(1 for r in results if r.status == "failed")
+    msg = f"{done}/{len(results)} tasks completed"
+    if failed:
+        msg += f", {failed} failed"
+    try:
+        subprocess.run(
+            ["osascript", "-e", f'display notification "{msg}" with title "openMax"'],
+            capture_output=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pass

@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.9.0
+
+- **Multi-task execution**: Run multiple tasks concurrently with one command
+  - `openmax run "task1" "task2" "task3"` — dispatches parallel lead agent sessions
+  - `--project` flag maps tasks to registered projects
+  - `ThreadPoolExecutor` with sliding window (default concurrency: 6)
+  - Unified batch summary on completion
+- **Project registry**: Manage multiple projects for cross-project workflows
+  - `openmax projects add <path>` — register a project (auto-detects name from git remote)
+  - `openmax projects list` — show all registered projects
+  - `openmax projects remove <name>` — unregister a project
+  - `openmax projects status` — git status across all projects
+- **Smart task routing**: Auto-match task to registered project by keyword
+  - "fix login in auth-service" → automatically routes to auth-service repo
+  - Falls back to explicit `--project` flag or current directory
+- **macOS notifications**: System notification on task completion/failure
+  - Uses `osascript` — zero dependencies, works out of the box
+- **Inline monitoring**: `submit_plan` blocks until all agents complete when no dependencies
+  - Eliminates 2 LLM turns (~15-25s saved per session)
+- **Positioning pivot**: From "parallel acceleration" to "AI team manager"
+  - One command, multiple AI agents, zero babysitting
+
 ## 0.8.8
 
 - **Performance**: Auto-verify pipeline + parallel optimizations — **up to 2.0x speedup** on xlarge parallel tasks

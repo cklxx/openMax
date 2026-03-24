@@ -370,8 +370,9 @@ def main() -> None:
 
 
 @main.command()
-@click.argument("task")
+@click.argument("tasks", nargs=-1, required=True)
 @click.option("--cwd", default=None, help="Working directory for agents")
+@click.option("--project", multiple=True, help="Project name per task (from registry)")
 @click.option("--model", default=None, help="Model for the lead agent")
 @click.option(
     "--max-turns", default=None, type=click.IntRange(min=1), help="Max turns (default: unlimited)"
@@ -408,8 +409,9 @@ def main() -> None:
 )
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show detailed subtask output")
 def run(
-    task: str,
+    tasks: tuple[str, ...],
     cwd: str | None,
+    project: tuple[str, ...],
     model: str | None,
     max_turns: int,
     keep_panes: bool,
@@ -420,11 +422,40 @@ def run(
     no_confirm: bool,
     verbose: bool,
 ) -> None:
-    """Decompose TASK and dispatch sub-agents in terminal panes."""
+    """Decompose TASK(s) and dispatch sub-agents in terminal panes.
+
+    Pass multiple tasks to run them concurrently:
+      openmax run "fix login bug" "add pagination" "write tests"
+    """
     from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
     from openmax.lead_agent.types import TaskStatus
 
+    if not tasks:
+        raise click.UsageError("At least one task is required")
+
     cwd = _resolve_cwd(cwd)
+
+    # Multi-task mode
+    if len(tasks) > 1:
+        from openmax.task_runner import MultiTaskConfig, resolve_task_cwds, run_tasks
+
+        task_list = resolve_task_cwds(tasks, project, cwd)
+        cfg = MultiTaskConfig(
+            tasks=task_list,
+            model=model or get_model(),
+            max_turns=max_turns,
+            concurrency=6,
+            keep_panes=keep_panes,
+            no_confirm=no_confirm,
+            verbose=verbose,
+            pane_backend_name=resolve_pane_backend_name(pane_backend_name),
+            agents=_parse_allowed_agents(agents, set()) if agents else None,
+        )
+        run_tasks(cfg)
+        return
+
+    # Single-task mode (existing behavior)
+    task = tasks[0]
     pane_backend_name = resolve_pane_backend_name(pane_backend_name)
 
     if resume and not session_id:
@@ -1662,3 +1693,77 @@ def benchmark_run(tasks_path: str | None, repeat: int, model: str | None) -> Non
     report = run_benchmark(task_list, model=model, repeat=repeat)
     print_report(report)
     save_report(report)
+
+
+# ---------------------------------------------------------------------------
+# Projects registry
+# ---------------------------------------------------------------------------
+
+
+@main.group()
+def projects() -> None:
+    """Manage registered projects for multi-task workflows."""
+
+
+@projects.command("add")
+@click.argument("path", default=".")
+def projects_add(path: str) -> None:
+    """Register a project directory."""
+    from openmax.project_registry import add_project
+
+    name, err = add_project(path)
+    if err:
+        console.print(f"[yellow]{err}[/yellow]")
+    else:
+        console.print(f"[green]✓[/green] Registered '{name}' → {Path(path).resolve()}")
+
+
+@projects.command("remove")
+@click.argument("name")
+def projects_remove(name: str) -> None:
+    """Remove a registered project."""
+    from openmax.project_registry import remove_project
+
+    err = remove_project(name)
+    if err:
+        console.print(f"[red]{err}[/red]")
+    else:
+        console.print(f"[green]✓[/green] Removed '{name}'")
+
+
+@projects.command("list")
+def projects_list() -> None:
+    """List registered projects."""
+    from openmax.project_registry import list_projects
+
+    items = list_projects()
+    if not items:
+        console.print("[dim]No projects registered. Use `openmax projects add <path>`[/dim]")
+        return
+    tbl = Table(show_header=True, box=None, padding=(0, 2))
+    tbl.add_column("Name", style="bold")
+    tbl.add_column("Path", style="dim")
+    for p in items:
+        tbl.add_row(p["name"], p["path"])
+    console.print(tbl)
+
+
+@projects.command("status")
+def projects_status() -> None:
+    """Show git status for all registered projects."""
+    from openmax.project_registry import status_all
+
+    items = status_all()
+    if not items:
+        console.print("[dim]No projects registered.[/dim]")
+        return
+    tbl = Table(show_header=True, box=None, padding=(0, 2))
+    tbl.add_column("Name", style="bold")
+    tbl.add_column("Branch")
+    tbl.add_column("Status")
+    tbl.add_column("Path", style="dim")
+    for p in items:
+        status_style = "green" if p.get("status") == "clean" else "yellow"
+        status_text = f"[{status_style}]{p['status']}[/{status_style}]"
+        tbl.add_row(p["name"], p.get("branch", "?"), status_text, p["path"])
+    console.print(tbl)
