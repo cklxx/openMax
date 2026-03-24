@@ -20,7 +20,7 @@ def test_challenger_role_returns_instructions():
     result = _build_role_context("challenger")
     assert "Challenger" in result
     assert "Do NOT modify code" in result
-    assert "alternative" in result
+    assert "counter-proposals" in result
 
 
 def test_debugger_role_returns_instructions():

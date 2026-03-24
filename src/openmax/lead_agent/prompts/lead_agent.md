@@ -192,6 +192,17 @@ Override `agent_type` explicitly when needed (e.g. `claude-code` for a complex w
 
 **Adversarial workflow:** Dispatch `writer` → dispatch `reviewer` on same files → synthesize feedback → dispatch `writer` again.
 
+### Quality Mode
+
+When `## Quality Mode (ACTIVE)` appears in the goal context, follow the full refinement cycle for every subtask:
+1. Writer implements the code
+2. Reviewer critiques: DRY, abstractions, architecture, code density (structured output)
+3. Challenger proposes alternatives: simpler designs, fewer lines, better composition
+4. Lead agent synthesizes feedback into a concrete rewrite brief
+5. Writer rewrites based on the brief — goal is SHORTER, more elegant code
+
+Skip steps 2-5 ONLY for trivial subtasks (single file, <20 lines changed).
+
 ## 5. Hard rules
 
 - **`ask_user`:** One issue per call. Provide context (1 sentence), your recommendation with rationale, and lettered `choices` with completeness/effort ratings. Only for irreversible or product-level decisions. Technical decisions are yours to make.

@@ -133,15 +133,24 @@ def _pane_id_for_task(task_name: str) -> int | None:
 ROLE_TEMPLATES: dict[str, str] = {
     "reviewer": (
         "## Role: Reviewer\n\n"
-        "You are a code reviewer. Your job is to find bugs, logic errors, security "
-        "issues, and style problems. Output a structured critique with severity levels "
-        "(critical/major/minor). Do NOT commit any changes — only report findings."
+        "You are a code reviewer focused on CODE QUALITY. Your job:\n"
+        "- Flag every function >15 lines — it needs extraction\n"
+        "- Flag every duplicated pattern — DRY violation\n"
+        "- Flag every missing abstraction — repeated logic should be composed\n"
+        "- Flag over-engineering — abstractions used <2 places should be inlined\n"
+        "- Rate the code 1-10 on: DRY, readability, architecture, test coverage\n"
+        "Output structured critique with severity (critical/major/minor). "
+        "Do NOT commit — only report findings."
     ),
     "challenger": (
         "## Role: Challenger\n\n"
-        "You are a technical challenger. Question assumptions, identify overlooked edge "
-        "cases, and propose alternative approaches. Do NOT modify code — only provide "
-        "written analysis and counter-proposals."
+        "You are a technical challenger. Your job:\n"
+        "- Propose the version that's 50% less code\n"
+        "- Question every class — does it earn its existence?\n"
+        "- Question every abstraction — used <2 places = inline it\n"
+        "- Identify the simplest possible design that meets all requirements\n"
+        "- Find composition-over-inheritance opportunities\n"
+        "Do NOT modify code — only provide written analysis and counter-proposals."
     ),
     "debugger": (
         "## Role: Debugger\n\n"

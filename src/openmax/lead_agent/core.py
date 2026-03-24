@@ -257,6 +257,27 @@ def _match_archetype(task: str, cwd: str) -> tuple[str | None, object]:
         return None, None
 
 
+_QUALITY_MODE_PROMPT = """\
+## Quality Mode (ACTIVE)
+
+You MUST follow the adversarial refinement cycle for EVERY subtask:
+
+1. Dispatch WRITER agent to implement the code
+2. When writer is done, dispatch REVIEWER on the same files — find DRY violations, \
+missing abstractions, architectural issues, code that should be shorter
+3. Dispatch CHALLENGER on the same files — question design decisions, propose \
+fundamentally simpler approaches, identify over-engineering AND under-engineering
+4. Synthesize reviewer + challenger feedback into a concrete rewrite brief
+5. Dispatch WRITER again with the rewrite brief — the goal is code that is SHORTER, \
+more elegant, with proper abstractions
+
+Quality criteria: every function ≤15 lines, zero duplication, composition over \
+inheritance, transform pipelines over mutation, minimal abstractions that justify \
+themselves.
+
+Do NOT skip steps 2-5. The first draft is NEVER the final draft."""
+
+
 def _build_lead_prompt(
     task: str,
     cwd: str,
@@ -265,6 +286,7 @@ def _build_lead_prompt(
     allowed_agents: list[str] | None = None,
     loop_context: str | None = None,
     archetype_ctx: str | None = None,
+    quality_mode: bool = False,
 ) -> str:
     parts = [f"## Goal\n{task}", f"Working directory: {cwd}"]
 
@@ -275,6 +297,9 @@ def _build_lead_prompt(
 
     if archetype_ctx:
         parts.append(archetype_ctx)
+
+    if quality_mode:
+        parts.append(_QUALITY_MODE_PROMPT)
 
     if allowed_agents:
         agents_str = ", ".join(allowed_agents)
@@ -305,6 +330,7 @@ def run_lead_agent(
     loop_context: str | None = None,
     plan_confirm: bool = True,
     verbose: bool = False,
+    quality_mode: bool = False,
 ) -> PlanResult:
     """Run the lead agent synchronously (wraps async), with retry on transient API errors."""
     for attempt in range(_MAX_TRANSIENT_RETRIES + 1):
@@ -323,6 +349,7 @@ def run_lead_agent(
                 loop_context,
                 plan_confirm,
                 verbose,
+                quality_mode,
             )
         except _TransientAPIError:
             if attempt >= _MAX_TRANSIENT_RETRIES:
@@ -347,6 +374,7 @@ async def _run_lead_agent_async(
     loop_context: str | None = None,
     plan_confirm: bool = True,
     verbose: bool = False,
+    quality_mode: bool = False,
 ) -> PlanResult:
     normalized_cwd = str(Path(cwd).resolve())
     dashboard = create_dashboard(task, verbose=verbose)
@@ -480,6 +508,7 @@ async def _run_lead_agent_async(
             allowed_agents=allowed_agents,
             loop_context=loop_context,
             archetype_ctx=archetype_ctx,
+            quality_mode=quality_mode,
         )
 
         console.print()

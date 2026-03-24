@@ -2545,6 +2545,31 @@ def test_default_ready_delay_reduced():
     assert cmd.ready_delay_seconds == 1.5
 
 
+def test_quality_mode_injects_prompt(monkeypatch):
+    """_build_lead_prompt includes quality mode instructions when enabled."""
+    monkeypatch.setattr(lead_agent_core, "_gather_project_snapshot", lambda *a, **kw: "")
+
+    prompt = lead_agent_core._build_lead_prompt(
+        "build auth",
+        "/tmp",
+        None,
+        None,
+        quality_mode=True,
+    )
+    assert "Quality Mode (ACTIVE)" in prompt
+    assert "REVIEWER" in prompt
+    assert "CHALLENGER" in prompt
+    assert "first draft is NEVER the final draft" in prompt
+
+
+def test_quality_mode_off_by_default(monkeypatch):
+    """_build_lead_prompt does not include quality mode by default."""
+    monkeypatch.setattr(lead_agent_core, "_gather_project_snapshot", lambda *a, **kw: "")
+
+    prompt = lead_agent_core._build_lead_prompt("build auth", "/tmp", None, None)
+    assert "Quality Mode" not in prompt
+
+
 def test_monitor_until_done_no_mailbox():
     """_monitor_until_done returns immediately when no mailbox."""
     from openmax.lead_agent.tools._misc import _monitor_until_done

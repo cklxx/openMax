@@ -408,6 +408,13 @@ def main() -> None:
     help="Skip interactive plan confirmation (for automation)",
 )
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show detailed subtask output")
+@click.option(
+    "--quality",
+    "-q",
+    is_flag=True,
+    default=False,
+    help="Quality mode: write → review → challenge → rewrite cycle",
+)
 def run(
     tasks: tuple[str, ...],
     cwd: str | None,
@@ -421,6 +428,7 @@ def run(
     pane_backend_name: str | None,
     no_confirm: bool,
     verbose: bool,
+    quality: bool,
 ) -> None:
     """Decompose TASK(s) and dispatch sub-agents in terminal panes.
 
@@ -529,6 +537,7 @@ def run(
                 loop_context=loop_context,
                 plan_confirm=not no_confirm,
                 verbose=verbose,
+                quality_mode=quality,
             )
         except LeadAgentStartupError as exc:
             raise SystemExit(1) from exc
