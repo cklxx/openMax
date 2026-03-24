@@ -380,6 +380,7 @@ class TestClaudeFetchQuota:
             return {"accessToken": "new-tok"}
 
         monkeypatch.setattr("openmax.provider_usage._claude_refresh_token", fake_refresh)
+        monkeypatch.setattr("openmax.provider_usage._claude_save_refreshed_token", lambda *a: None)
 
         captured_headers = {}
 
@@ -397,6 +398,21 @@ class TestClaudeFetchQuota:
         assert refresh_called == ["ref-tok"]
         assert captured_headers["auth"] == "Bearer new-tok"
         assert quota.plan == "Pro"
+
+    def test_expired_token_refresh_fails_returns_error(self, monkeypatch):
+        oauth = {
+            "accessToken": "old-tok",
+            "refreshToken": "ref-tok",
+            "subscriptionType": "pro",
+            "rateLimitTier": "",
+            "expiresAt": 1000,  # long expired
+        }
+        monkeypatch.setattr("openmax.provider_usage._claude_read_oauth", lambda: oauth)
+        monkeypatch.setattr("openmax.provider_usage._claude_refresh_token", lambda token: None)
+
+        quota = _claude_fetch_quota()
+        assert "expired" in quota.error
+        assert "re-authenticate" in quota.error
 
     def test_api_error_returns_error_quota(self, monkeypatch):
         oauth = {
@@ -499,6 +515,71 @@ class TestClaudeRefreshToken:
 
         result = _claude_refresh_token("tok")
         assert result is None
+
+
+# ── _claude_save_refreshed_token / _claude_write_oauth ────────────
+
+
+class TestClaudeSaveRefreshedToken:
+    def test_saves_camel_case_keys(self, monkeypatch):
+        from openmax.provider_usage import _claude_save_refreshed_token
+
+        written = {}
+        monkeypatch.setattr(
+            "openmax.provider_usage._claude_write_oauth",
+            lambda oauth: written.update(oauth),
+        )
+
+        original = {"accessToken": "old", "refreshToken": "old-ref", "expiresAt": 1000}
+        refreshed = {"accessToken": "new", "refreshToken": "new-ref", "expiresAt": 9999}
+        _claude_save_refreshed_token(original, refreshed)
+
+        assert written["accessToken"] == "new"
+        assert written["refreshToken"] == "new-ref"
+        assert written["expiresAt"] == 9999
+
+    def test_handles_snake_case_keys(self, monkeypatch):
+        from openmax.provider_usage import _claude_save_refreshed_token
+
+        written = {}
+        monkeypatch.setattr(
+            "openmax.provider_usage._claude_write_oauth",
+            lambda oauth: written.update(oauth),
+        )
+
+        original = {"accessToken": "old", "refreshToken": "old-ref"}
+        refreshed = {"access_token": "new-snake", "expires_in": 3600}
+        _claude_save_refreshed_token(original, refreshed)
+
+        assert written["accessToken"] == "new-snake"
+        assert written["refreshToken"] == "old-ref"  # kept from original
+        assert written["expiresAt"] > int(time.time() * 1000)
+
+    def test_no_access_token_skips(self, monkeypatch):
+        from openmax.provider_usage import _claude_save_refreshed_token
+
+        called = []
+        monkeypatch.setattr(
+            "openmax.provider_usage._claude_write_oauth",
+            lambda oauth: called.append(True),
+        )
+
+        _claude_save_refreshed_token({"accessToken": "old"}, {"something": "else"})
+        assert called == []
+
+
+class TestComputeExpiry:
+    def test_none_returns_none(self):
+        from openmax.provider_usage import _compute_expiry
+
+        assert _compute_expiry(None) is None
+
+    def test_converts_seconds_to_ms(self):
+        from openmax.provider_usage import _compute_expiry
+
+        result = _compute_expiry(3600)
+        expected_min = int(time.time() * 1000) + 3600 * 1000 - 1000
+        assert result > expected_min
 
 
 # ── _probe_claude_code ────────────────────────────────────────────

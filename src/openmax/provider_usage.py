@@ -252,10 +252,17 @@ def _claude_fetch_quota() -> QuotaInfo:
     # Check expiry — refresh if needed
     expires_at = oauth.get("expiresAt", 0)
     now_ms = int(time.time() * 1000)
-    if expires_at and now_ms > expires_at - 5 * 60 * 1000:
+    expired = bool(expires_at and now_ms > expires_at - 5 * 60 * 1000)
+    if expired:
         refreshed = _claude_refresh_token(oauth.get("refreshToken", ""))
         if refreshed:
-            access_token = refreshed.get("accessToken", access_token)
+            access_token = (
+                refreshed.get("accessToken") or refreshed.get("access_token") or access_token
+            )
+            _claude_save_refreshed_token(oauth, refreshed)
+        else:
+            quota.error = "credentials expired — launch claude to re-authenticate"
+            return quota
 
     # Call usage API
     try:
@@ -349,13 +356,82 @@ def _claude_refresh_token(refresh_token: str) -> dict | None:
             data=body,
             headers={
                 "Content-Type": "application/json",
-                "User-Agent": "claude-code/2.1.76",
+                "User-Agent": "claude-code/2.1.81",
             },
         )
         resp = urllib.request.urlopen(req, timeout=10)
         return json.loads(resp.read())
     except Exception:
         return None
+
+
+def _claude_save_refreshed_token(original: dict, refreshed: dict) -> None:
+    """Persist refreshed OAuth tokens back to keychain or credentials file."""
+    new_access = refreshed.get("accessToken") or refreshed.get("access_token")
+    if not new_access:
+        return
+
+    new_refresh = (
+        refreshed.get("refreshToken")
+        or refreshed.get("refresh_token")
+        or original.get("refreshToken")
+    )
+    new_expires = (
+        refreshed.get("expiresAt")
+        or refreshed.get("expires_at")
+        or _compute_expiry(refreshed.get("expires_in"))
+    )
+
+    updated = {**original, "accessToken": new_access}
+    if new_refresh:
+        updated["refreshToken"] = new_refresh
+    if new_expires:
+        updated["expiresAt"] = new_expires
+
+    _claude_write_oauth(updated)
+
+
+def _compute_expiry(expires_in: int | None) -> int | None:
+    """Convert expires_in (seconds) to expiresAt (epoch ms)."""
+    if not expires_in:
+        return None
+    return int(time.time() * 1000) + expires_in * 1000
+
+
+def _claude_write_oauth(oauth: dict) -> None:
+    """Write updated OAuth credentials to keychain or credentials file."""
+    import subprocess
+
+    wrapper = {"claudeAiOauth": oauth}
+    payload = json.dumps(wrapper)
+
+    # Try keychain first
+    try:
+        subprocess.run(
+            [
+                "security",
+                "add-generic-password",
+                "-s",
+                _CLAUDE_KEYCHAIN_SERVICE,
+                "-a",
+                "default",
+                "-w",
+                payload,
+                "-U",
+            ],
+            capture_output=True,
+            timeout=5,
+        )
+        return
+    except Exception:
+        pass
+
+    # Fallback: write credentials file
+    cred_path = Path.home() / ".claude" / ".credentials.json"
+    try:
+        cred_path.write_text(payload, encoding="utf-8")
+    except OSError:
+        pass
 
 
 def _claude_window_usage(hours: int) -> WindowUsage:
