@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.1
+
+- **Fix**: `openmax status` no longer shows raw `HTTP Error 401: Unauthorized` when Claude Code OAuth token is expired — now shows a clear "credentials expired" message with re-auth guidance
+- **Fix**: Refreshed OAuth tokens are persisted back to keychain, avoiding repeated refresh calls
+- **Fix**: Handle both camelCase and snake_case token response formats from the OAuth endpoint
+
 ## 0.9.0
 
 - **Multi-task execution**: Run multiple tasks concurrently with one command
