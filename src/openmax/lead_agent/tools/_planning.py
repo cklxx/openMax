@@ -317,6 +317,29 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
         for warning in conflict_warnings:
             console.print(f"  [yellow]⚠[/yellow]  {warning}")
 
+    # Quality mode: run write → review → rewrite workflow per subtask
+    if runtime.quality_mode and runtime.mailbox is not None:
+        from openmax.quality_workflow import run_quality_workflow
+
+        n = len(subtasks_raw)
+        console.print(f"  [bold magenta]Q[/bold magenta]  quality workflow: {n} tasks")
+        all_results: list[dict[str, Any]] = []
+        for st in subtasks_raw:
+            prompt = st.get("prompt") or st["description"]
+            wf_results = await run_quality_workflow(runtime, st["name"], prompt)
+            all_results.extend(wf_results)
+
+        from openmax.lead_agent.tools._misc import _run_all_done_pipeline
+
+        pipeline = await _run_all_done_pipeline(runtime)
+        result_data["status"] = "completed"
+        result_data["quality_workflow"] = all_results
+        result_data.update(pipeline)
+        result_data["instruction"] = (
+            "Quality workflow complete (write → review → rewrite). Session done."
+        )
+        return _tool_response(result_data)
+
     dispatched = await _auto_dispatch_from_plan(runtime, subtasks_raw, parallel_groups)
     ok = [d for d in dispatched if d.get("dispatched")]
     if not ok:

@@ -386,6 +386,7 @@ async def _run_lead_agent_async(
         agent_registry=agent_registry or built_in_agent_registry(),
         dashboard=dashboard,
         plan_confirm=plan_confirm,
+        quality_mode=quality_mode,
     )
     runtime.session_stats = load_stats(cwd)
     token = bind_lead_agent_runtime(runtime)

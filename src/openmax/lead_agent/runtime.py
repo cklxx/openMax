@@ -34,6 +34,8 @@ class LeadAgentRuntime:
     mailbox: SessionMailbox | None = None
     mailbox_messaged_tasks: set[str] = field(default_factory=set)
     session_stats: Any | None = None
+    quality_mode: bool = False
+    quality_phases: dict[str, str] = field(default_factory=dict)  # task_name → phase
 
 
 _lead_agent_runtime: ContextVar[LeadAgentRuntime | None] = ContextVar(
