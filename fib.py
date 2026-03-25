@@ -1,10 +1,4 @@
-"""Fibonacci calculator."""
-
-import sys
-
-
 def fibonacci(n: int) -> int:
-    """Return the nth Fibonacci number (0-indexed)."""
     if n < 0:
         raise ValueError(f"n must be non-negative, got {n}")
     if n <= 1:
@@ -16,4 +10,5 @@ def fibonacci(n: int) -> int:
 
 
 if __name__ == "__main__":
-    print(fibonacci(int(sys.argv[1])))
+    for i in range(10):
+        print(f"fibonacci({i}) = {fibonacci(i)}")
