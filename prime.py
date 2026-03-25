@@ -17,10 +17,18 @@ def is_prime(n: int) -> bool:
     return True
 
 
-def primes_up_to(n: int) -> list[int]:
-    """Return all prime numbers up to n (inclusive)."""
-    return [x for x in range(2, n + 1) if is_prime(x)]
+def generate_primes(limit: int) -> list[int]:
+    """Return all primes up to limit (inclusive) using sieve of Eratosthenes."""
+    if limit < 2:
+        return []
+    sieve = [True] * (limit + 1)
+    sieve[0] = sieve[1] = False
+    for i in range(2, int(limit**0.5) + 1):
+        if sieve[i]:
+            for j in range(i * i, limit + 1, i):
+                sieve[j] = False
+    return [i for i, is_p in enumerate(sieve) if is_p]
 
 
 if __name__ == "__main__":
-    print(primes_up_to(50))
+    print(generate_primes(50))
