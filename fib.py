@@ -7,5 +7,11 @@ def fib(n: int) -> int:
     return a
 
 
+def fib_sequence(n: int) -> list[int]:
+    if n < 0:
+        raise ValueError(f"n must be non-negative, got {n}")
+    return [fib(i) for i in range(n)]
+
+
 if __name__ == "__main__":
-    print(fib(10))
+    print(fib_sequence(10))
