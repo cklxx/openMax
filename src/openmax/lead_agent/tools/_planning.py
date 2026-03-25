@@ -79,7 +79,7 @@ async def _auto_dispatch_from_plan(
 
     async def _dispatch_one(idx: int, st: dict[str, Any]) -> None:
         prompt = st.get("prompt") or _build_auto_prompt(st, goal)
-        agent_type = st.get("agent_type", "claude-code-print")
+        agent_type = st.get("agent_type", "claude-code")
         try:
             result = await dispatch_agent.handler(
                 {"task_name": st["name"], "prompt": prompt, "agent_type": agent_type}
