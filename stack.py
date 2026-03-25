@@ -28,9 +28,13 @@ class Stack:
         """Return True if the stack has no items."""
         return len(self._items) == 0
 
-    def __len__(self) -> int:
+    def size(self) -> int:
         """Return the number of items in the stack."""
         return len(self._items)
+
+    def __len__(self) -> int:
+        """Support len() built-in."""
+        return self.size()
 
 
 if __name__ == "__main__":
@@ -41,8 +45,9 @@ if __name__ == "__main__":
         s.push(val)
         print(f"Pushed {val}, size={len(s)}")
 
-    print(f"Peek: {s.peek()}")  # 30
+    print(f"Peek: {s.peek()}")   # 30
+    print(f"Size: {s.size()}")  # 3
     print(f"Pop:  {s.pop()}")   # 30
     print(f"Pop:  {s.pop()}")   # 20
-    print(f"Size: {len(s)}")    # 1
+    print(f"Size: {s.size()}")  # 1
     print(f"Empty? {s.is_empty()}")  # False
