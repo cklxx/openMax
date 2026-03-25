@@ -1159,20 +1159,23 @@ class LayeredPaneBackend:
         self._ui_launcher(session_cmd)
 
         self._session_ready = True
-        time.sleep(0.8)
-        return self._find_first_pane_id()
+        return self._wait_for_session()
 
     @staticmethod
-    def _find_first_pane_id() -> int:
-        result = subprocess.run(
-            ["tmux", "list-panes", "-t", _TMUX_SESSION_NAME, "-F", "#{pane_id}"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode != 0 or not result.stdout.strip():
-            raise PaneBackendError(f"Cannot find panes in tmux session: {result.stderr}")
-        return _tmux_id(result.stdout.strip().splitlines()[0])
+    def _wait_for_session(max_wait: float = 3.0) -> int:
+        """Poll until tmux session has a pane, return its ID."""
+        deadline = time.monotonic() + max_wait
+        while time.monotonic() < deadline:
+            result = subprocess.run(
+                ["tmux", "list-panes", "-t", _TMUX_SESSION_NAME, "-F", "#{pane_id}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return _tmux_id(result.stdout.strip().splitlines()[0])
+            time.sleep(0.1)
+        raise PaneBackendError("tmux session did not start in time")
 
     def spawn_window(
         self,
