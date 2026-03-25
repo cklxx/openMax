@@ -1124,14 +1124,33 @@ class LayeredPaneBackend:
         self._ui_name = ui
         self._tmux = TmuxPaneBackend()
         self._ui_opened = False
+        self._first_spawn = True
 
     def _open_ui_viewer(self) -> None:
-        """Open UI window attached to the tmux session (fire-and-forget)."""
         if self._ui_opened:
             return
         session = self._tmux._target_session or _TMUX_SESSION_NAME
         self._ui_launcher(["tmux", "attach", "-t", session])
         self._ui_opened = True
+
+    def _respawn_default_pane(
+        self,
+        command: list[str],
+        cwd: str | None,
+        env: dict[str, str] | None,
+    ) -> int:
+        """Replace the default shell in the session's first pane."""
+        session = self._tmux._target_session or _TMUX_SESSION_NAME
+        result = self._tmux._run_tmux(
+            ["list-panes", "-t", session, "-F", "#{pane_id}"],
+        )
+        pane_id = _tmux_id(result.stdout.strip().splitlines()[0])
+        args = ["respawn-pane", "-k", "-t", f"%{pane_id}"]
+        if cwd:
+            args.extend(["-c", cwd])
+        args.extend(_wrap_command_with_env(command, env))
+        self._tmux._run_tmux(args)
+        return pane_id
 
     def spawn_window(
         self,
@@ -1139,9 +1158,12 @@ class LayeredPaneBackend:
         cwd: str | None = None,
         env: dict[str, str] | None = None,
     ) -> int:
-        pane_id = self._tmux.spawn_window(command, cwd=cwd, env=env)
-        self._open_ui_viewer()
-        return pane_id
+        if self._first_spawn:
+            self._first_spawn = False
+            pane_id = self._respawn_default_pane(command, cwd, env)
+            self._open_ui_viewer()
+            return pane_id
+        return self._tmux.spawn_window(command, cwd=cwd, env=env)
 
     def split_pane(
         self,
