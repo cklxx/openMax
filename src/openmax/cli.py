@@ -397,7 +397,10 @@ def main() -> None:
 @click.option(
     "--pane-backend",
     "pane_backend_name",
-    type=click.Choice(["kaku", "ghostty", "tmux", "headless", "auto"], case_sensitive=False),
+    type=click.Choice(
+        ["kaku", "ghostty", "tmux", "terminal-tmux", "headless", "auto"],
+        case_sensitive=False,
+    ),
     default=None,
     help="Pane backend to use (defaults to auto-detect: kaku > tmux)",
 )
@@ -579,7 +582,10 @@ def run(
 @click.option(
     "--pane-backend",
     "pane_backend_name",
-    type=click.Choice(["kaku", "ghostty", "tmux", "headless", "auto"], case_sensitive=False),
+    type=click.Choice(
+        ["kaku", "ghostty", "tmux", "terminal-tmux", "headless", "auto"],
+        case_sensitive=False,
+    ),
     default=None,
     help="Pane backend to use",
 )
