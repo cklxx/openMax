@@ -360,7 +360,9 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
             result_data["monitoring"] = results
             result_data.update(pipeline)
             result_data["instruction"] = (
-                "All tasks completed, merged, verified, and reported. Session is done."
+                "All tasks completed, merged, verified, and reported. "
+                "Session is DONE. Respond with a brief summary and stop. "
+                "Do NOT call any more tools — everything is already handled."
             )
             return _tool_response(result_data)
         result_data["monitoring"] = results
