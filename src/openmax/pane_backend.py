@@ -1224,7 +1224,7 @@ class LayeredPaneBackend:
     def resize_frontmost_window(self) -> None:
         if platform.system() != "Darwin":
             return
-        script = self._RESIZE_SCRIPTS.get(self._ui)
+        script = self._RESIZE_SCRIPTS.get(self._ui_name)
         if script:
             subprocess.run(
                 ["osascript", "-e", script],
