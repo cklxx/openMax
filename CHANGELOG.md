@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.5
+
+- **Perf**: Dispatch latency reduced ~1.5s per agent — faster ready delay (1.0s → 0.3s) and trust polling (6 × 0.2-0.4s → 3 × 0.15-0.3s)
+- **Perf**: Monitoring + verification polling tightened — mailbox recv timeout 5s → 1s, verify backoff 0.5-1.5s → 0.2-1.0s
+- **Perf**: Stronger stop instruction after inline monitor — aim for 2 LLM turns instead of unbounded
+
 ## 0.9.4
 
 - **Feature**: Layered pane architecture — Kaku (UI) × tmux (grid engine). Kaku renders the window, tmux manages pane splits with automatic `select-layout tiled` grid. Zero-wait bootstrap: detach → get pane ID → attach UI
