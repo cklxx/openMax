@@ -1081,12 +1081,12 @@ def _launch_ghostty_window(command: list[str]) -> None:
 
 
 def _launch_terminal_app_window(command: list[str]) -> None:
-    """Open a macOS Terminal.app window running the given command."""
+    """Open a new macOS Terminal.app window running the given command."""
     import shlex
 
     cmd_str = shlex.join(command)
     escaped = cmd_str.replace("\\", "\\\\").replace('"', '\\"')
-    script = f'tell application "Terminal"\n  activate\n  do script "{escaped}"\nend tell'
+    script = f'tell application "Terminal"\n  activate\n  set w to do script "{escaped}"\nend tell'
     subprocess.run(
         ["osascript", "-e", script],
         capture_output=True,
