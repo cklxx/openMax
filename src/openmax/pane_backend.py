@@ -29,8 +29,18 @@ def _is_socket(path: str) -> bool:
 _SEND_TEXT_ARG_LIMIT = 100_000  # bytes; switch to stdin above this
 
 SplitDirection = Literal["right", "bottom", "left", "top"]
-PaneBackendName = Literal["kaku", "kaku-tmux", "ghostty", "ghostty-tmux", "tmux", "headless"]
-_VALID_BACKEND_NAMES = {"kaku", "kaku-tmux", "ghostty", "ghostty-tmux", "tmux", "headless"}
+PaneBackendName = Literal[
+    "kaku", "kaku-tmux", "ghostty", "ghostty-tmux", "tmux", "terminal-tmux", "headless"
+]
+_VALID_BACKEND_NAMES = {
+    "kaku",
+    "kaku-tmux",
+    "ghostty",
+    "ghostty-tmux",
+    "tmux",
+    "terminal-tmux",
+    "headless",
+}
 
 
 class PaneBackendError(RuntimeError):
@@ -123,7 +133,9 @@ def _auto_detect_backend() -> PaneBackendName:
         if is_ghostty_available() and has_tmux:
             return "ghostty-tmux"
         if has_tmux:
-            return "tmux"
+            if os.environ.get("TMUX"):
+                return "tmux"
+            return "terminal-tmux"
         if is_kaku_available():
             return "kaku"
         if is_ghostty_available():
@@ -140,6 +152,8 @@ def create_pane_backend(name: str | None = None) -> PaneBackend:
         return HeadlessPaneBackend()
     if resolved == "tmux":
         return TmuxPaneBackend()
+    if resolved == "terminal-tmux":
+        return LayeredPaneBackend("terminal")
     if resolved == "kaku-tmux":
         return LayeredPaneBackend("kaku")
     if resolved == "ghostty-tmux":
@@ -1066,9 +1080,25 @@ def _launch_ghostty_window(command: list[str]) -> None:
     )
 
 
+def _launch_terminal_app_window(command: list[str]) -> None:
+    """Open a macOS Terminal.app window running the given command."""
+    import shlex
+
+    cmd_str = shlex.join(command)
+    escaped = cmd_str.replace("\\", "\\\\").replace('"', '\\"')
+    script = f'tell application "Terminal"\n  activate\n  do script "{escaped}"\nend tell'
+    subprocess.run(
+        ["osascript", "-e", script],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
 _UI_LAUNCHERS: dict[str, callable] = {
     "kaku": _launch_kaku_window,
     "ghostty": _launch_ghostty_window,
+    "terminal": _launch_terminal_app_window,
 }
 
 
@@ -1112,6 +1142,21 @@ class LayeredPaneBackend:
             "set yOff to round ((sh - h) / 2)\n"
             'tell application "System Events"\n'
             '  tell process "Ghostty"\n'
+            "    set position of window 1 to {xOff, yOff}\n"
+            "    set size of window 1 to {w, h}\n"
+            "  end tell\n"
+            "end tell"
+        ),
+        "terminal": (
+            'tell application "Finder"\n'
+            "  set {_x, _y, sw, sh} to bounds of window of desktop\n"
+            "end tell\n"
+            "set w to round (sw * 0.5)\n"
+            "set h to round (sh * 0.5)\n"
+            "set xOff to round ((sw - w) / 2)\n"
+            "set yOff to round ((sh - h) / 2)\n"
+            'tell application "System Events"\n'
+            '  tell process "Terminal"\n'
             "    set position of window 1 to {xOff, yOff}\n"
             "    set size of window 1 to {w, h}\n"
             "  end tell\n"

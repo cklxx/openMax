@@ -2,7 +2,7 @@
 
 ## 0.9.7
 
-- **Feature**: Auto-attach tmux session when running outside tmux — current terminal enters tmux directly, lead agent output and sub-agent panes all visible in one window
+- **Feature**: Auto-open Terminal.app for sub-agent panes on macOS — when no Kaku/Ghostty is available and not inside tmux, automatically opens a Terminal.app window attached to the tmux session. Lead agent output stays in the current terminal, sub-agents visible in the new window
 
 ## 0.9.6
 

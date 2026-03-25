@@ -341,20 +341,6 @@ def _generate_session_id(prefix: str = "run") -> str:
     return f"{prefix}-{uuid.uuid4().hex[:12]}"
 
 
-def _reexec_inside_tmux() -> None:
-    """Create a tmux session running openmax and attach the current terminal."""
-    import shlex
-
-    session = "openmax"
-    subprocess.run(["tmux", "kill-session", "-t", session], capture_output=True)
-    cmd = shlex.join(sys.argv)
-    subprocess.run(
-        ["tmux", "new-session", "-d", "-s", session, "-x", "200", "-y", "50", cmd],
-        check=True,
-    )
-    os.execvp("tmux", ["tmux", "attach-session", "-t", session])
-
-
 def _render_subtask_counts(snapshot: SessionSnapshot) -> str:
     counts = Counter(task.status for task in snapshot.plan.subtasks)
     parts = [f"{len(snapshot.plan.subtasks)} total"]
@@ -479,10 +465,6 @@ def run(
     # Single-task mode (existing behavior)
     task = tasks[0]
     pane_backend_name = resolve_pane_backend_name(pane_backend_name)
-
-    if pane_backend_name == "tmux" and not os.environ.get("TMUX"):
-        _reexec_inside_tmux()
-        return  # unreachable — execvp replaces process
 
     if resume and not session_id:
         raise click.UsageError("--resume requires --session-id")
