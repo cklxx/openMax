@@ -359,7 +359,6 @@ class RunDashboard:
 
     def __init__(self, goal: str, verbose: bool = False) -> None:
         self.goal = goal[:60]
-        self.verbose = verbose
         self.start_time = time.monotonic()
         self.phase = "starting"
         self.subtasks: dict[str, dict] = {}
@@ -545,31 +544,90 @@ class RunDashboard:
         return line
 
     def _render_full(self) -> ConsoleRenderable:
-        """Rich status bar with subtask table inside a panel + progress bar."""
-        tbl = self._build_subtask_table()
-        progress, done, total = self._build_progress_line()
-        parts: list[ConsoleRenderable] = [tbl, progress]
-
-        phase_row = self._render_phase_durations()
-        if phase_row:
-            parts.append(phase_row)
-
+        """Tree-style status display matching Claude Code's agent layout."""
+        counts = _count_statuses(self.subtasks)
+        done = counts.get("done", 0) + counts.get("error", 0)
+        total = len(self.subtasks)
         all_done = done == total > 0
+
+        parts: list[ConsoleRenderable] = []
+        parts.append(self._build_header_line(counts, total))
+        parts.extend(self._build_tree_lines())
+        parts.append(self._build_summary_line(done, total, all_done))
         if all_done:
             parts.append(self._render_done_banner())
+        return Group(*parts)
 
+    def _build_header_line(self, counts: dict[str, int], total: int) -> Text:
         t = get_theme()
-        border = t.panel_border_done if all_done else t.panel_border_active
-        return Panel(
-            Group(*parts),
-            title="[bold]agents[/bold]",
-            title_align="left",
-            border_style=border,
-            padding=(0, 1),
+        running = counts.get("running", 0)
+        line = Text()
+        if running > 0:
+            line.append(f"  Running {running} agent", style=t.tree_header)
+            line.append("s" if running != 1 else "", style=t.tree_header)
+            line.append("\u2026", style=t.tree_header)
+        else:
+            line.append(f"  {total} agents", style=t.tree_header)
+        return line
+
+    def _build_tree_lines(self) -> list[Text]:
+        sorted_items = sorted(
+            self.subtasks.items(),
+            key=lambda kv: _STATUS_SORT_ORDER.get(kv[1].get("status", "pending"), 9),
         )
+        lines: list[Text] = []
+        activity_width = self._activity_max_width()
+        for i, (name, info) in enumerate(sorted_items):
+            is_last = i == len(sorted_items) - 1
+            lines.append(self._build_agent_line(name, info, is_last))
+            activity_line = self._build_activity_line(name, info, is_last, activity_width)
+            if activity_line:
+                lines.append(activity_line)
+        return lines
+
+    def _build_agent_line(self, name: str, info: dict, is_last: bool) -> Text:
+        t = get_theme()
+        status = info.get("status", "pending")
+        connector = "   \u2514\u2500 " if is_last else "   \u251c\u2500 "
+        badge_char, badge_style = _status_badges().get(status, ("\u25cb", "dim"))
+        row_style = _row_styles().get(status, "")
+
+        line = Text()
+        line.append(connector, style=t.tree_connector)
+        if is_accessible_mode():
+            label = _ACCESSIBLE_LABELS.get(status, "")
+            line.append(f"{badge_char} {label} ", style=badge_style)
+        else:
+            line.append(f"{badge_char} ", style=badge_style)
+        line.append(_truncate(name, _MAX_TASK_NAME), style=row_style)
+        line.append(f" \u00b7 {info.get('agent', '')}", style=t.col_secondary)
+        elapsed = _elapsed_since(info.get("started_at"), info.get("finished_at"))
+        if elapsed:
+            line.append(f" \u00b7 {elapsed}", style=t.col_secondary)
+        return line
+
+    def _build_activity_line(
+        self,
+        name: str,
+        info: dict,
+        is_last: bool,
+        max_len: int,
+    ) -> Text | None:
+        status = info.get("status", "pending")
+        activity = self._task_activity(name, info, max_len)
+        error_text = self._error_text(info) if status == "error" else ""
+        text = error_text or activity
+        if not text:
+            return None
+        t = get_theme()
+        pipe = "      " if is_last else "   \u2502  "
+        style = t.error_detail if status == "error" else t.col_secondary
+        line = Text()
+        line.append(pipe, style=t.tree_connector)
+        line.append(f"\u23bf  {_truncate(text, max_len)}", style=style)
+        return line
 
     def _activity_max_width(self) -> int:
-        """Responsive activity column width based on terminal size."""
         width = console.size.width if console.size else 100
         if width < 100:
             return 30
@@ -577,146 +635,52 @@ class RunDashboard:
             return 80
         return 60
 
-    def _build_subtask_table(self) -> Table:
-        activity_width = self._activity_max_width()
-        t = get_theme()
-        tbl = Table(
-            show_header=False,
-            show_edge=False,
-            pad_edge=False,
-            padding=(0, 1),
-            expand=False,
-        )
-        tbl.add_column(width=_badge_width(), no_wrap=True)
-        tbl.add_column(style=t.col_task_name, no_wrap=True, max_width=_MAX_TASK_NAME)
-        tbl.add_column(style=t.col_secondary, no_wrap=True, max_width=14)
-        tbl.add_column(style=t.col_secondary, no_wrap=True, max_width=activity_width)
-        tbl.add_column(style=t.col_secondary, no_wrap=True, width=14)
-        if self.verbose:
-            tbl.add_column(style=t.col_secondary, justify="right", no_wrap=True, width=5)
-        tbl.add_column(style=t.col_secondary, justify="right", no_wrap=True, width=6)
-
-        sorted_items = sorted(
-            self.subtasks.items(),
-            key=lambda kv: _STATUS_SORT_ORDER.get(kv[1].get("status", "pending"), 9),
-        )
-        prev_group: int | None = None
-        for name, info in sorted_items:
-            group = _STATUS_SORT_ORDER.get(info.get("status", "pending"), 9)
-            if prev_group is not None and group != prev_group and group >= 2:
-                col_count = 7 if self.verbose else 6
-                tbl.add_row(*[Text("")] * col_count)
-            prev_group = group
-            if self.verbose:
-                self._add_verbose_row(tbl, name, info, activity_width)
-            else:
-                self._add_compact_row(tbl, name, info, activity_width)
-        return tbl
-
-    def _add_compact_row(self, tbl: Table, name: str, info: dict, activity_width: int) -> None:
-        badge, name_text, agent = self._base_row_cells(name, info)
-        status = info.get("status", "pending")
-        style = _row_styles().get(status, "")
-        activity = Text(self._task_activity(name, info, activity_width), style=style)
-        progress = _render_progress_bar(self.task_progress.get(name), status)
-        elapsed = _elapsed_since(info.get("started_at"), info.get("finished_at"))
-        tbl.add_row(badge, name_text, agent, activity, progress, elapsed)
-        if status == "error":
-            self._add_error_detail(tbl, info)
-
-    def _add_verbose_row(self, tbl: Table, name: str, info: dict, activity_width: int) -> None:
-        badge, name_text, agent = self._base_row_cells(name, info)
-        status = info.get("status", "pending")
-        style = _row_styles().get(status, "")
-        activity = Text(self._task_activity(name, info, activity_width), style=style)
-        progress = _render_progress_bar(self.task_progress.get(name), status)
-        pane_str = f"#{info['pane_id']}" if info.get("pane_id") is not None else ""
-        elapsed = _elapsed_since(info.get("started_at"), info.get("finished_at"))
-        tbl.add_row(badge, name_text, agent, activity, progress, pane_str, elapsed)
-        prompt_line = self.dispatch_prompts.get(name)
-        if prompt_line and status in ("running", "done"):
-            detail = Text(f"  {_truncate(prompt_line, 60)}", style=get_theme().col_detail_italic)
-            tbl.add_row(Text(""), detail)
-        if status == "error":
-            self._add_error_detail(tbl, info)
-
-    def _base_row_cells(self, name: str, info: dict) -> tuple[Text, Text, Text]:
-        status = info.get("status", "pending")
-        badge_char, badge_style = _status_badges().get(status, ("\u25cb", "dim"))
-        row_style = _row_styles().get(status, "")
-        return (
-            Text(badge_char, style=badge_style),
-            Text(_truncate(name, _MAX_TASK_NAME), style=row_style),
-            Text(info.get("agent", ""), style=row_style),
-        )
-
-    def _add_error_detail(self, tbl: Table, info: dict) -> None:
-        """Add expanded error detail lines below an error row."""
-        error_text = info.get("error") or info.get("last_output") or ""
-        if not error_text:
-            pane_id = info.get("pane_id")
-            if pane_id is not None:
-                error_text = self.pane_activity.get(pane_id, "")
-        if not error_text:
-            return
-        t = get_theme()
-        lines = error_text.strip().splitlines()[:3]
-        for line in lines:
-            detail = Text(f"    {_truncate(line.strip(), 80)}", style=t.error_detail)
-            tbl.add_row(Text(""), detail)
-
     def _task_activity(self, name: str, info: dict, max_len: int = 60) -> str:
         status = info.get("status", "pending")
-        if status == "done":
-            return "done"
-        if status == "pending":
+        if status in ("done", "pending"):
             return ""
         pane_id = info.get("pane_id")
         if pane_id is not None and pane_id in self.pane_activity:
             return _truncate(self.pane_activity[pane_id], max_len)
         return ""
 
-    def _build_progress_line(self) -> tuple[ConsoleRenderable, int, int]:
-        elapsed = _elapsed(self.start_time)
-        total = len(self.subtasks)
-        counts = _count_statuses(self.subtasks)
-        done = counts.get("done", 0) + counts.get("error", 0)
+    def _error_text(self, info: dict) -> str:
+        text = info.get("error") or info.get("last_output") or ""
+        if not text:
+            pane_id = info.get("pane_id")
+            if pane_id is not None:
+                text = self.pane_activity.get(pane_id, "")
+        first_line = text.strip().split("\n", 1)[0].strip() if text else ""
+        return first_line
 
-        bar_width = 20
-        ratio = done / total if total else 0
-        filled_full = int(ratio * bar_width)
-        remainder = (ratio * bar_width) - filled_full
-        partial_chars = " \u258f\u258e\u258d\u258c\u258b\u258a\u2589\u2588"
-        partial_idx = int(remainder * 8)
-
+    def _build_summary_line(
+        self,
+        done: int,
+        total: int,
+        all_done: bool,
+    ) -> ConsoleRenderable:
         t = get_theme()
-        all_done = done == total > 0
-        bar_color = t.progress_complete if all_done else t.progress_active
-        progress = Text("  ")
-        progress.append("\u2588" * filled_full, style=bar_color)
-        if filled_full < bar_width:
-            progress.append(partial_chars[partial_idx], style=bar_color)
-            progress.append("\u2591" * (bar_width - filled_full - 1), style=t.progress_empty)
-        progress.append(f" {done}/{total}", style=t.progress_count)
-        progress.append(f"  {elapsed}", style=t.progress_elapsed)
+        elapsed = _elapsed(self.start_time)
+        counts = _count_statuses(self.subtasks)
+
+        line = Text("   ")
+        parts: list[str] = [f"{done}/{total}"]
+        if counts.get("running"):
+            parts.append(f"{counts['running']} running")
+        if counts.get("error"):
+            parts.append(f"{counts['error']} err")
+        if counts.get("pending"):
+            parts.append(f"{counts['pending']} queued")
+        line.append(" \u00b7 ".join(parts), style=t.tree_summary)
 
         eta = self._estimate_eta(done, total)
         if eta is not None:
-            progress.append(f"  ETA ~{_format_duration(eta)}", style=t.progress_eta)
+            line.append(f"  ETA ~{_format_duration(eta)}", style=t.progress_eta)
 
-        status_parts = []
-        if counts.get("running"):
-            status_parts.append(f"{counts['running']} running")
-        if counts.get("error"):
-            status_parts.append(f"{counts['error']} err")
-        if counts.get("pending"):
-            status_parts.append(f"{counts['pending']} queued")
-        if status_parts:
-            joined = " \u2022 ".join(status_parts)
-            progress.append(f"  {joined}", style=t.progress_detail)
+        line.append(f"  {elapsed}", style=t.progress_elapsed)
 
         if self._monitor_count > 0:
-            progress.append(f"  [{self._monitor_count} checks]", style=t.progress_detail)
+            line.append(f"  [{self._monitor_count} checks]", style=t.tree_summary)
 
         total_tokens = self.metrics.total_input_tokens + self.metrics.total_output_tokens
         if total_tokens > 0:
@@ -724,12 +688,12 @@ class RunDashboard:
                 self.metrics.total_input_tokens, self.metrics.total_output_tokens
             )
             tok_str = format_tokens_short(total_tokens)
-            progress.append(f"  {tok_str} tokens", style=t.progress_detail)
-            progress.append(f" \u00b7 {format_cost(cost)}", style=t.progress_detail)
+            line.append(f"  {tok_str} tokens", style=t.tree_summary)
+            line.append(f" \u00b7 {format_cost(cost)}", style=t.tree_summary)
 
         if not all_done:
-            return self._with_spinner(progress), done, total
-        return progress, done, total
+            return self._with_spinner(line)
+        return line
 
     def _with_spinner(self, text: Text) -> ConsoleRenderable:
         """Prepend a Rich Spinner to the progress line."""

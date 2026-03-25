@@ -89,6 +89,11 @@ class Theme:
     col_secondary: str = "dim"
     col_detail_italic: str = "dim italic"
 
+    # ── Tree connectors (dashboard tree layout) ─────────────────
+    tree_connector: str = "dim"
+    tree_header: str = "bold"
+    tree_summary: str = "dim"
+
     # ── Table headers ────────────────────────────────────────────
     header_default: str = "bold dim"
     header_breakdown: str = "dim bold"

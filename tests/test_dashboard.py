@@ -305,29 +305,6 @@ def test_default_mode_no_pane_id():
     dash.stop()
 
 
-def test_verbose_mode_shows_pane_id():
-    """Verbose mode includes pane_id in the output."""
-    dash = RunDashboard("test goal", verbose=True)
-    dash.start()
-    dash.update_subtask("fix-auth", "claude", 42, "running", started_at=time.time())
-
-    output = _render_to_string(dash)
-    assert "#42" in output
-    dash.stop()
-
-
-def test_verbose_mode_shows_dispatch_prompt():
-    """Verbose mode shows the dispatch prompt first line."""
-    dash = RunDashboard("test goal", verbose=True)
-    dash.start()
-    dash.update_subtask("fix-auth", "claude", 1, "running", started_at=time.time())
-    dash.set_dispatch_prompt("fix-auth", "Implement auth fix\nMore details here")
-
-    output = _render_to_string(dash)
-    assert "Implement auth fix" in output
-    dash.stop()
-
-
 def test_set_dispatch_prompt_stores_first_line():
     """set_dispatch_prompt extracts only the first line."""
     dash = RunDashboard("test goal")
@@ -509,26 +486,27 @@ def test_progress_bar_clamps_over_100():
 # ── Per-task progress in dashboard rendering ──────────────────────
 
 
-def test_task_progress_rendered_in_table():
-    """Task progress bar appears in the rendered subtask table."""
+def test_tree_connector_in_output():
+    """Tree connectors appear in the rendered output."""
     dash = RunDashboard("test goal")
     dash.start()
     dash.update_subtask("fix-auth", "claude", 1, "running", started_at=time.time())
-    dash.update_task_progress("fix-auth", 52)
+    dash.update_subtask("add-tests", "codex", 2, "running", started_at=time.time())
 
     output = _render_to_string(dash)
-    assert "52%" in output
+    assert "\u251c\u2500" in output or "\u2514\u2500" in output
     dash.stop()
 
 
-def test_task_progress_indeterminate_when_missing():
-    """Running task with no progress shows indeterminate indicator."""
+def test_pending_state_rendered():
+    """Pending tasks appear in tree output."""
     dash = RunDashboard("test goal")
     dash.start()
     dash.update_subtask("fix-auth", "claude", 1, "running", started_at=time.time())
+    dash.update_subtask("pending-task", "codex", None, "pending")
 
     output = _render_to_string(dash)
-    assert "[\u00b7\u00b7\u00b7]" in output
+    assert "pending-task" in output
     dash.stop()
 
 
