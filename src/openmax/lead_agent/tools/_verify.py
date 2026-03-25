@@ -33,9 +33,9 @@ from openmax.project_tools import ProjectTooling, detect_all_tooling
 from openmax.stats import load_stats, save_stats, update_stats
 from openmax.test_parsing import parse_test_output
 
-_VERIFY_POLL_INITIAL = 0.5
-_VERIFY_POLL_BACKOFF = 1.3
-_VERIFY_POLL_MAX = 1.5
+_VERIFY_POLL_INITIAL = 0.2
+_VERIFY_POLL_BACKOFF = 1.2
+_VERIFY_POLL_MAX = 1.0
 
 
 def _poll_exit_marker(runtime: Any, pane_id: int, prev_text: str) -> tuple[int | None, str, bool]:

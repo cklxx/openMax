@@ -483,7 +483,7 @@ async def _monitor_until_done(
 
     while time.monotonic() < deadline:
         remaining = max(deadline - time.monotonic(), 0.1)
-        recv_timeout = min(remaining, 5.0)
+        recv_timeout = min(remaining, 1.0)
         msg = await anyio.to_thread.run_sync(
             lambda: runtime.mailbox.receive(timeout=recv_timeout),
             abandon_on_cancel=True,
