@@ -25,7 +25,7 @@ class ClaudeCodeAdapter(AgentAdapter):
         return AgentCommand(
             launch_cmd=["claude", prompt],
             interactive=True,
-            ready_delay_seconds=1.0,
+            ready_delay_seconds=0.3,
             ready_patterns=["❯", ">", "claude"],
             trust_patterns=["Yes, I trust"],
         )

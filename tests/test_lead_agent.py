@@ -2532,7 +2532,7 @@ def test_claude_code_adapter_ready_patterns():
 
     adapter = ClaudeCodeAdapter()
     cmd = adapter.get_command("test prompt")
-    assert cmd.ready_delay_seconds == 1.0
+    assert cmd.ready_delay_seconds == 0.3
     assert len(cmd.ready_patterns) > 0
     assert "❯" in cmd.ready_patterns
 
