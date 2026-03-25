@@ -102,9 +102,9 @@ def test_resolve_pane_backend_name_auto_detects_when_no_env(monkeypatch):
     monkeypatch.delenv("OPENMAX_PANE_BACKEND", raising=False)
     monkeypatch.delenv("TMUX", raising=False)
 
-    # Auto-detect picks the first available backend (kaku > ghostty > tmux)
+    # Auto-detect picks the best backend (layered UI+tmux preferred)
     resolved = resolve_pane_backend_name()
-    assert resolved in ("kaku", "ghostty", "tmux")
+    assert resolved in ("kaku-tmux", "ghostty-tmux", "kaku", "ghostty", "tmux")
 
 
 def test_resolve_pane_backend_name_uses_env_and_normalizes_case(monkeypatch):

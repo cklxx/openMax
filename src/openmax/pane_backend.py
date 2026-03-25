@@ -29,8 +29,8 @@ def _is_socket(path: str) -> bool:
 _SEND_TEXT_ARG_LIMIT = 100_000  # bytes; switch to stdin above this
 
 SplitDirection = Literal["right", "bottom", "left", "top"]
-PaneBackendName = Literal["kaku", "ghostty", "tmux", "headless"]
-_VALID_BACKEND_NAMES = {"kaku", "ghostty", "tmux", "headless"}
+PaneBackendName = Literal["kaku", "kaku-tmux", "ghostty", "ghostty-tmux", "tmux", "headless"]
+_VALID_BACKEND_NAMES = {"kaku", "kaku-tmux", "ghostty", "ghostty-tmux", "tmux", "headless"}
 
 
 class PaneBackendError(RuntimeError):
@@ -104,21 +104,33 @@ def resolve_pane_backend_name(name: str | None = None) -> PaneBackendName:
 def _auto_detect_backend() -> PaneBackendName:
     """Auto-detect the best available pane backend.
 
-    macOS: kaku > ghostty > tmux > kaku fallback.
+    Architecture: UI layer (terminal emulator) × backend layer (pane engine).
+    Kaku/Ghostty are UI layers — they render windows. Tmux is the backend
+    that manages pane grids with ``select-layout tiled``.
+
+    When a UI terminal + tmux are both available, use the layered mode:
+    UI opens a window → window attaches to a tmux session → tmux manages panes.
+
+    macOS: kaku-tmux > ghostty-tmux > tmux > kaku fallback.
     Non-macOS: tmux.
     """
     from openmax.terminal import is_ghostty_available, is_kaku_available, is_tmux_available
 
     if platform.system() == "Darwin":
+        has_tmux = is_tmux_available()
+        if is_kaku_available() and has_tmux:
+            return "kaku-tmux"
+        if is_ghostty_available() and has_tmux:
+            return "ghostty-tmux"
+        if has_tmux:
+            return "tmux"
         if is_kaku_available():
             return "kaku"
         if is_ghostty_available():
             return "ghostty"
-        if is_tmux_available():
-            return "tmux"
-        return "kaku"  # fall through — ensure_kaku will guide install
+        return "kaku"
     else:
-        return "tmux"  # ensure_tmux will guide install if missing
+        return "tmux"
 
 
 def create_pane_backend(name: str | None = None) -> PaneBackend:
@@ -128,6 +140,10 @@ def create_pane_backend(name: str | None = None) -> PaneBackend:
         return HeadlessPaneBackend()
     if resolved == "tmux":
         return TmuxPaneBackend()
+    if resolved == "kaku-tmux":
+        return LayeredPaneBackend("kaku")
+    if resolved == "ghostty-tmux":
+        return LayeredPaneBackend("ghostty")
     if resolved == "ghostty":
         return GhosttyPaneBackend()
     return KakuPaneBackend()
@@ -1016,6 +1032,144 @@ class TmuxPaneBackend:
             command_name = args[0] if args else "tmux"
             raise PaneBackendError(f"tmux {command_name} failed: {result.stderr}")
         return result
+
+
+class LayeredPaneBackend:
+    """UI terminal for window rendering, tmux for pane grid management.
+
+    Kaku/Ghostty are UI layers (terminal emulators). Tmux is the backend
+    that manages pane lifecycle and grid layout via ``select-layout tiled``.
+
+    On first ``spawn_window``:
+    1. Create a detached tmux session ``openmax``
+    2. Open a UI terminal window attached to that session
+    3. Run the first agent command in a tmux window
+
+    Subsequent pane operations (split, send_text, etc.) go through tmux.
+    """
+
+    _RESIZE_SCRIPTS: dict[str, str] = {
+        "kaku": (
+            'tell application "Finder"\n'
+            "  set {_x, _y, sw, sh} to bounds of window of desktop\n"
+            "end tell\n"
+            "set w to round (sw * 0.5)\n"
+            "set h to round (sh * 0.5)\n"
+            "set xOff to round ((sw - w) / 2)\n"
+            "set yOff to round ((sh - h) / 2)\n"
+            'tell application "System Events"\n'
+            '  tell process "kaku-gui"\n'
+            "    set position of window 1 to {xOff, yOff}\n"
+            "    set size of window 1 to {w, h}\n"
+            "  end tell\n"
+            "end tell"
+        ),
+        "ghostty": (
+            'tell application "Finder"\n'
+            "  set {_x, _y, sw, sh} to bounds of window of desktop\n"
+            "end tell\n"
+            "set w to round (sw * 0.5)\n"
+            "set h to round (sh * 0.5)\n"
+            "set xOff to round ((sw - w) / 2)\n"
+            "set yOff to round ((sh - h) / 2)\n"
+            'tell application "System Events"\n'
+            '  tell process "Ghostty"\n'
+            "    set position of window 1 to {xOff, yOff}\n"
+            "    set size of window 1 to {w, h}\n"
+            "  end tell\n"
+            "end tell"
+        ),
+    }
+
+    def __init__(self, ui: str) -> None:
+        self._ui = ui
+        self._tmux = TmuxPaneBackend(target_session=_TMUX_SESSION_NAME)
+        self._ui_attached = False
+
+    def _attach_ui_window(self) -> None:
+        """Open the UI terminal window attached to the tmux session."""
+        if self._ui_attached:
+            return
+        attach_cmd = ["tmux", "attach", "-t", _TMUX_SESSION_NAME]
+        if self._ui == "kaku":
+            KakuPaneBackend._heal_socket_symlink()
+            subprocess.run(
+                [*_KAKU_CLI_PREFIX, "spawn", "--new-window", "--", *attach_cmd],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        elif self._ui == "ghostty":
+            import shlex
+
+            cmd_str = shlex.join(attach_cmd)
+            script = (
+                'tell application "Ghostty"\n'
+                "  set cfg to new surface configuration\n"
+                f'    set command of cfg to "{cmd_str}"\n'
+                "  set w to new window with configuration cfg\n"
+                "end tell"
+            )
+            subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        self._ui_attached = True
+        time.sleep(0.5)
+
+    def spawn_window(
+        self,
+        command: list[str],
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+    ) -> int:
+        self._attach_ui_window()
+        return self._tmux.spawn_window(command, cwd=cwd, env=env)
+
+    def split_pane(
+        self,
+        target_pane_id: int,
+        direction: SplitDirection,
+        command: list[str],
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+    ) -> int:
+        return self._tmux.split_pane(target_pane_id, direction, command, cwd=cwd, env=env)
+
+    def list_panes(self) -> list[PaneInfo]:
+        return self._tmux.list_panes()
+
+    def send_text(self, pane_id: int, text: str) -> None:
+        self._tmux.send_text(pane_id, text)
+
+    def send_enter(self, pane_id: int) -> None:
+        self._tmux.send_enter(pane_id)
+
+    def get_text(self, pane_id: int, start_line: int | None = None) -> str:
+        return self._tmux.get_text(pane_id, start_line=start_line)
+
+    def activate_pane(self, pane_id: int) -> None:
+        self._tmux.activate_pane(pane_id)
+
+    def set_window_title(self, pane_id: int, title: str) -> None:
+        self._tmux.set_window_title(pane_id, title)
+
+    def kill_pane(self, pane_id: int) -> None:
+        self._tmux.kill_pane(pane_id)
+
+    def resize_frontmost_window(self) -> None:
+        if platform.system() != "Darwin":
+            return
+        script = self._RESIZE_SCRIPTS.get(self._ui)
+        if script:
+            subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
 
 
 def _tmux_id(raw: str) -> int:
