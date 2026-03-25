@@ -34,39 +34,53 @@ from openmax.output import P, console
 async def ask_user(args: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime()
     question = args["question"]
-    raw_choices = args.get("choices") or []
+    choices = _parse_choices(args.get("choices") or [])
+
+    def _do_prompt() -> str:
+        if runtime.dashboard is not None:
+            runtime.dashboard.stop()
+        console.print(f"\n  [bold yellow]?[/bold yellow]  [bold]{question}[/bold]")
+        if choices:
+            for i, choice in enumerate(choices, 1):
+                console.print(f"    [bold]{i}.[/bold] {choice}")
+            console.print("    [dim]Enter a number or type your own answer[/dim]")
+        raw = input("Your answer: ").strip()
+        if runtime.dashboard is not None:
+            runtime.dashboard.start()
+        return raw
+
+    coordinator = runtime.ui_coordinator
+    task_label = getattr(runtime.plan, "goal", "task")[:60]
+    if coordinator:
+        raw = await anyio.to_thread.run_sync(
+            lambda: coordinator.request_input(task_label, _do_prompt)
+        )
+    else:
+        raw = await anyio.to_thread.run_sync(_do_prompt)
+
+    answer = _resolve_choice(raw, choices)
+    _append_session_event(
+        "tool.ask_user", {"question": question, "choices": choices, "answer": answer}
+    )
+    return _tool_response(answer)
+
+
+def _parse_choices(raw_choices: Any) -> list[str]:
     if isinstance(raw_choices, str):
         try:
             raw_choices = json.loads(raw_choices)
         except (json.JSONDecodeError, ValueError):
             raw_choices = [raw_choices]
-    choices: list[str] = list(raw_choices)
+    return list(raw_choices)
 
-    if runtime.dashboard is not None:
-        runtime.dashboard.stop()
 
-    console.print(f"\n  [bold yellow]?[/bold yellow]  [bold]{question}[/bold]")
-    if choices:
-        for i, choice in enumerate(choices, 1):
-            console.print(f"    [bold]{i}.[/bold] {choice}")
-        console.print("    [dim]Enter a number or type your own answer[/dim]")
-    raw: str = await anyio.to_thread.run_sync(lambda: input("Your answer: "))
-    raw = raw.strip()
-
-    answer = raw
+def _resolve_choice(raw: str, choices: list[str]) -> str:
     if choices and raw.isdigit():
         idx = int(raw) - 1
         if 0 <= idx < len(choices):
-            answer = choices[idx]
-            console.print(f"  [dim]\u2192 {answer}[/dim]")
-
-    if runtime.dashboard is not None:
-        runtime.dashboard.start()
-
-    _append_session_event(
-        "tool.ask_user", {"question": question, "choices": choices, "answer": answer}
-    )
-    return _tool_response(answer)
+            console.print(f"  [dim]\u2192 {choices[idx]}[/dim]")
+            return choices[idx]
+    return raw
 
 
 @tool(

@@ -188,16 +188,23 @@ def _prompt_plan_confirmation(
     runtime: Any,
 ) -> str | None:
     """Show plan and prompt user. Returns feedback string or None if approved."""
-    dashboard = runtime.dashboard
-    if dashboard:
-        dashboard.stop()
-    _format_plan_for_display(subtasks, rationale, parallel_groups)
-    try:
-        raw = input("\n  Approve? [Y/n/feedback]: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        raw = "y"
-    if dashboard:
-        dashboard.start()
+    coordinator = runtime.ui_coordinator
+
+    def _do_prompt() -> str:
+        dashboard = runtime.dashboard
+        if dashboard:
+            dashboard.stop()
+        _format_plan_for_display(subtasks, rationale, parallel_groups)
+        try:
+            raw = input("\n  Approve? [Y/n/feedback]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            raw = "y"
+        if dashboard:
+            dashboard.start()
+        return raw
+
+    task_label = getattr(runtime.plan, "goal", "task")[:60]
+    raw = coordinator.request_input(task_label, _do_prompt) if coordinator else _do_prompt()
     if raw.lower() in ("", "y", "yes"):
         return None
     return raw

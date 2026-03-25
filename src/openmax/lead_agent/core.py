@@ -6,6 +6,7 @@ import os
 import subprocess
 import time
 from pathlib import Path
+from typing import Any
 
 import anyio
 from claude_agent_sdk import (
@@ -325,6 +326,7 @@ def run_lead_agent(
     plan_confirm: bool = True,
     verbose: bool = False,
     quality_mode: bool = False,
+    ui_coordinator: Any | None = None,
 ) -> PlanResult:
     """Run the lead agent synchronously (wraps async), with retry on transient API errors."""
     for attempt in range(_MAX_TRANSIENT_RETRIES + 1):
@@ -344,6 +346,7 @@ def run_lead_agent(
                 plan_confirm,
                 verbose,
                 quality_mode,
+                ui_coordinator,
             )
         except _TransientAPIError:
             if attempt >= _MAX_TRANSIENT_RETRIES:
@@ -369,9 +372,10 @@ async def _run_lead_agent_async(
     plan_confirm: bool = True,
     verbose: bool = False,
     quality_mode: bool = False,
+    ui_coordinator: Any | None = None,
 ) -> PlanResult:
     normalized_cwd = str(Path(cwd).resolve())
-    dashboard = create_dashboard(task, verbose=verbose)
+    dashboard = None if ui_coordinator else create_dashboard(task, verbose=verbose)
     runtime = LeadAgentRuntime(
         cwd=cwd,
         plan=PlanResult(goal=task),
@@ -381,14 +385,17 @@ async def _run_lead_agent_async(
         dashboard=dashboard,
         plan_confirm=plan_confirm,
         quality_mode=quality_mode,
+        ui_coordinator=ui_coordinator,
     )
     runtime.session_stats = load_stats(cwd)
     token = bind_lead_agent_runtime(runtime)
 
+    _t0 = time.monotonic()
     startup_stage = "sdk_client_startup"
     startup_complete = False
     try:
-        dashboard.start()
+        if dashboard:
+            dashboard.start()
         resume_context: str | None = None
         if session_id:
             runtime.session_store = SessionStore()
@@ -506,17 +513,18 @@ async def _run_lead_agent_async(
             quality_mode=quality_mode,
         )
 
-        console.print()
-        header = f"  [bold reverse cyan] OPENMAX [/bold reverse cyan] [dim]v{__version__}[/dim]"
-        meta_parts: list[str] = []
-        if session_id:
-            meta_parts.append(f"session: {session_id}")
-        if resume:
-            meta_parts.append("resume")
-        if meta_parts:
-            header += "  [dim]" + " \u2502 ".join(meta_parts) + "[/dim]"
-        console.print(header)
-        console.print()
+        if not ui_coordinator:
+            console.print()
+            header = f"  [bold reverse cyan] OPENMAX [/bold reverse cyan] [dim]v{__version__}[/dim]"
+            meta_parts: list[str] = []
+            if session_id:
+                meta_parts.append(f"session: {session_id}")
+            if resume:
+                meta_parts.append("resume")
+            if meta_parts:
+                header += "  [dim]" + " \u2502 ".join(meta_parts) + "[/dim]"
+            console.print(header)
+            console.print()
 
         async with ClaudeSDKClient(options=options) as client:
             startup_stage = "prompt_submission"
@@ -526,7 +534,8 @@ async def _run_lead_agent_async(
             async for msg in client.receive_response():
                 if not startup_complete:
                     startup_complete = True
-                    dashboard.mark_connected()
+                    if dashboard:
+                        dashboard.mark_connected()
                 if isinstance(msg, AssistantMessage):
                     for block in msg.content:
                         if isinstance(block, TextBlock) and block.text.strip():
@@ -535,14 +544,14 @@ async def _run_lead_agent_async(
                         elif isinstance(block, ToolUseBlock):
                             formatted = _format_tool_use(block.name, block.input)
                             cat = tool_category(block.name)
+                            if dashboard:
+                                dashboard.add_tool_event(formatted, cat)
                             # Show dispatch/intervention prominently;
                             # monitor (polling) and system (bookkeeping) are noise.
                             if cat == "dispatch":
                                 console.print(f"  [cyan]{P}[/cyan]  [bold]{formatted}[/bold]")
                             elif cat == "intervention":
                                 console.print(f"  [yellow]{P}[/yellow]  [bold]{formatted}[/bold]")
-                            if dashboard is not None:
-                                dashboard.add_tool_event(formatted, cat)
                 elif isinstance(msg, ResultMessage):
                     sid = session_id or "__unnamed__"
                     usage = usage_from_result(sid, msg)
@@ -561,7 +570,8 @@ async def _run_lead_agent_async(
                                 ),
                             },
                         )
-                    elapsed_s = time.monotonic() - dashboard.start_time
+                    start = dashboard.start_time if dashboard else _t0
+                    elapsed_s = time.monotonic() - start
                     if elapsed_s >= 60:
                         m, s = divmod(int(elapsed_s), 60)
                         elapsed_str = f"{m}m {s}s"
@@ -621,5 +631,6 @@ async def _run_lead_agent_async(
     finally:
         if runtime.mailbox is not None:
             runtime.mailbox.stop()
-        dashboard.stop()
+        if dashboard:
+            dashboard.stop()
         reset_lead_agent_runtime(token)

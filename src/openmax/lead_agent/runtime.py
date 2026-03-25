@@ -36,6 +36,7 @@ class LeadAgentRuntime:
     session_stats: Any | None = None
     quality_mode: bool = False
     quality_phases: dict[str, str] = field(default_factory=dict)  # task_name → phase
+    ui_coordinator: Any | None = None
 
 
 _lead_agent_runtime: ContextVar[LeadAgentRuntime | None] = ContextVar(

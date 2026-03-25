@@ -11,6 +11,7 @@ from typing import Any
 
 from openmax.output import console
 from openmax.project_registry import find_project, list_projects
+from openmax.ui_coordinator import UICoordinator
 
 
 @dataclass
@@ -52,7 +53,13 @@ def route_task(prompt: str, projects: list[dict[str, str]]) -> str | None:
     return None
 
 
-def _run_single_task(idx: int, prompt: str, cwd: str, cfg: MultiTaskConfig) -> TaskResult:
+def _run_single_task(
+    idx: int,
+    prompt: str,
+    cwd: str,
+    cfg: MultiTaskConfig,
+    ui: UICoordinator,
+) -> TaskResult:
     """Run one task in its own thread with its own lead agent session."""
     from openmax.agent_registry import built_in_agent_registry
     from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
@@ -77,6 +84,7 @@ def _run_single_task(idx: int, prompt: str, cwd: str, cfg: MultiTaskConfig) -> T
             agent_registry=built_in_agent_registry(),
             plan_confirm=not cfg.no_confirm,
             verbose=cfg.verbose,
+            ui_coordinator=ui,
         )
         result.status = "done"
         result.subtask_count = len(plan.subtasks)
@@ -124,12 +132,14 @@ def run_tasks(cfg: MultiTaskConfig) -> list[TaskResult]:
 
     results: list[TaskResult | None] = [None] * len(cfg.tasks)
     max_workers = min(cfg.concurrency, len(cfg.tasks))
+    ui = UICoordinator(tasks=[prompt for prompt, _ in cfg.tasks])
+    ui.print_banner(f"batch-{int(time.time())}")
 
-    console.print(f"\n  [bold]Running {len(cfg.tasks)} tasks[/bold] (concurrency={max_workers})")
+    console.print(f"  [bold]Running {len(cfg.tasks)} tasks[/bold] (concurrency={max_workers})")
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {
-            pool.submit(_run_single_task, i, prompt, cwd, cfg): i
+            pool.submit(_run_single_task, i, prompt, cwd, cfg, ui): i
             for i, (prompt, cwd) in enumerate(cfg.tasks)
         }
         for future in as_completed(futures):
