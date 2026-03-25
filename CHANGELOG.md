@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.7
+
+- **Feature**: Auto-attach tmux session when running outside tmux — current terminal enters tmux directly, lead agent output and sub-agent panes all visible in one window
+
 ## 0.9.6
 
 - **Fix**: Multi-task mode now renders a single unified UI instead of overlapping per-task banners. All user interaction (plan confirmation, ask_user) is serialized through a UICoordinator lock, preventing stdin conflicts between parallel lead agents
