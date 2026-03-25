@@ -1,6 +1,6 @@
 def is_prime(n: int) -> bool:
-    if not isinstance(n, int):
-        raise TypeError(f"Expected int, got {type(n).__name__}")
+    if not isinstance(n, int) or isinstance(n, bool):
+        raise ValueError(f"Expected int, got {type(n).__name__}")
     if n < 2:
         return False
     if n < 4:
@@ -16,8 +16,8 @@ def is_prime(n: int) -> bool:
 
 
 def primes_up_to(n: int) -> list[int]:
-    if not isinstance(n, int):
-        raise TypeError(f"Expected int, got {type(n).__name__}")
+    if not isinstance(n, int) or isinstance(n, bool):
+        raise ValueError(f"Expected int, got {type(n).__name__}")
     if n < 2:
         return []
     sieve = [True] * (n + 1)
@@ -27,6 +27,19 @@ def primes_up_to(n: int) -> list[int]:
             for j in range(i * i, n + 1, i):
                 sieve[j] = False
     return [i for i, flag in enumerate(sieve) if flag]
+
+
+def nth_prime(n: int) -> int:
+    if not isinstance(n, int) or isinstance(n, bool):
+        raise ValueError(f"Expected int, got {type(n).__name__}")
+    if n < 1:
+        raise ValueError(f"n must be >= 1, got {n}")
+    count, candidate = 0, 1
+    while count < n:
+        candidate += 1
+        if is_prime(candidate):
+            count += 1
+    return candidate
 
 
 if __name__ == "__main__":
