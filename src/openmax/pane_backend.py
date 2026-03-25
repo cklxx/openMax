@@ -1136,16 +1136,21 @@ class LayeredPaneBackend:
         cwd: str | None,
         env: dict[str, str] | None,
     ) -> int:
-        """Open UI window running tmux new-session with the first command.
+        """Create detached tmux session, get pane ID, then attach UI.
 
-        Single-step: the UI terminal launches ``tmux new-session`` directly
-        so the session, first pane, and UI window are created atomically.
-        No detach-then-attach race condition.
+        Three synchronous steps — no polling, no sleep:
+        1. ``tmux new-session -d`` creates session with agent (instant)
+        2. ``tmux list-panes`` gets the pane ID (instant)
+        3. UI launcher opens window attached to session (fire-and-forget)
         """
         wrapped = _wrap_command_with_env(command, env)
         session_cmd = [
             "tmux",
             "new-session",
+            "-d",
+            "-P",
+            "-F",
+            "#{pane_id}",
             "-s",
             _TMUX_SESSION_NAME,
             "-x",
@@ -1156,26 +1161,21 @@ class LayeredPaneBackend:
         if cwd:
             session_cmd.extend(["-c", cwd])
         session_cmd.extend(wrapped)
-        self._ui_launcher(session_cmd)
+        result = subprocess.run(
+            session_cmd,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise PaneBackendError(f"tmux new-session failed: {result.stderr}")
+        pane_id = _tmux_id(result.stdout.strip())
+
+        attach_cmd = ["tmux", "attach", "-t", _TMUX_SESSION_NAME]
+        self._ui_launcher(attach_cmd)
 
         self._session_ready = True
-        return self._wait_for_session()
-
-    @staticmethod
-    def _wait_for_session(max_wait: float = 3.0) -> int:
-        """Poll until tmux session has a pane, return its ID."""
-        deadline = time.monotonic() + max_wait
-        while time.monotonic() < deadline:
-            result = subprocess.run(
-                ["tmux", "list-panes", "-t", _TMUX_SESSION_NAME, "-F", "#{pane_id}"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                return _tmux_id(result.stdout.strip().splitlines()[0])
-            time.sleep(0.1)
-        raise PaneBackendError("tmux session did not start in time")
+        return pane_id
 
     def spawn_window(
         self,
