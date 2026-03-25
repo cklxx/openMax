@@ -1121,61 +1121,17 @@ class LayeredPaneBackend:
 
     def __init__(self, ui: str) -> None:
         self._ui_launcher = _UI_LAUNCHERS[ui]
-        self._tmux: TmuxPaneBackend | None = None
-        self._session_ready = False
         self._ui_name = ui
+        self._tmux = TmuxPaneBackend()
+        self._ui_opened = False
 
-    def _ensure_tmux(self) -> TmuxPaneBackend:
-        if self._tmux is None:
-            self._tmux = TmuxPaneBackend(target_session=_TMUX_SESSION_NAME)
-        return self._tmux
-
-    def _bootstrap_session(
-        self,
-        command: list[str],
-        cwd: str | None,
-        env: dict[str, str] | None,
-    ) -> int:
-        """Create detached tmux session, get pane ID, then attach UI.
-
-        Three synchronous steps — no polling, no sleep:
-        1. ``tmux new-session -d`` creates session with agent (instant)
-        2. ``tmux list-panes`` gets the pane ID (instant)
-        3. UI launcher opens window attached to session (fire-and-forget)
-        """
-        wrapped = _wrap_command_with_env(command, env)
-        session_cmd = [
-            "tmux",
-            "new-session",
-            "-d",
-            "-P",
-            "-F",
-            "#{pane_id}",
-            "-s",
-            _TMUX_SESSION_NAME,
-            "-x",
-            "200",
-            "-y",
-            "50",
-        ]
-        if cwd:
-            session_cmd.extend(["-c", cwd])
-        session_cmd.extend(wrapped)
-        result = subprocess.run(
-            session_cmd,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            raise PaneBackendError(f"tmux new-session failed: {result.stderr}")
-        pane_id = _tmux_id(result.stdout.strip())
-
-        attach_cmd = ["tmux", "attach", "-t", _TMUX_SESSION_NAME]
-        self._ui_launcher(attach_cmd)
-
-        self._session_ready = True
-        return pane_id
+    def _open_ui_viewer(self) -> None:
+        """Open UI window attached to the tmux session (fire-and-forget)."""
+        if self._ui_opened:
+            return
+        session = self._tmux._target_session or _TMUX_SESSION_NAME
+        self._ui_launcher(["tmux", "attach", "-t", session])
+        self._ui_opened = True
 
     def spawn_window(
         self,
@@ -1183,9 +1139,9 @@ class LayeredPaneBackend:
         cwd: str | None = None,
         env: dict[str, str] | None = None,
     ) -> int:
-        if not self._session_ready:
-            return self._bootstrap_session(command, cwd, env)
-        return self._ensure_tmux().spawn_window(command, cwd=cwd, env=env)
+        pane_id = self._tmux.spawn_window(command, cwd=cwd, env=env)
+        self._open_ui_viewer()
+        return pane_id
 
     def split_pane(
         self,
@@ -1195,7 +1151,7 @@ class LayeredPaneBackend:
         cwd: str | None = None,
         env: dict[str, str] | None = None,
     ) -> int:
-        return self._ensure_tmux().split_pane(
+        return self._tmux.split_pane(
             target_pane_id,
             direction,
             command,
@@ -1204,25 +1160,25 @@ class LayeredPaneBackend:
         )
 
     def list_panes(self) -> list[PaneInfo]:
-        return self._ensure_tmux().list_panes()
+        return self._tmux.list_panes()
 
     def send_text(self, pane_id: int, text: str) -> None:
-        self._ensure_tmux().send_text(pane_id, text)
+        self._tmux.send_text(pane_id, text)
 
     def send_enter(self, pane_id: int) -> None:
-        self._ensure_tmux().send_enter(pane_id)
+        self._tmux.send_enter(pane_id)
 
     def get_text(self, pane_id: int, start_line: int | None = None) -> str:
-        return self._ensure_tmux().get_text(pane_id, start_line=start_line)
+        return self._tmux.get_text(pane_id, start_line=start_line)
 
     def activate_pane(self, pane_id: int) -> None:
-        self._ensure_tmux().activate_pane(pane_id)
+        self._tmux.activate_pane(pane_id)
 
     def set_window_title(self, pane_id: int, title: str) -> None:
-        self._ensure_tmux().set_window_title(pane_id, title)
+        self._tmux.set_window_title(pane_id, title)
 
     def kill_pane(self, pane_id: int) -> None:
-        self._ensure_tmux().kill_pane(pane_id)
+        self._tmux.kill_pane(pane_id)
 
     def resize_frontmost_window(self) -> None:
         if platform.system() != "Darwin":
