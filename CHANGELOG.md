@@ -1,8 +1,9 @@
 # Changelog
 
-## 0.9.8
+## 0.9.9
 
 - **Feature**: Auto-open Terminal.app for sub-agent panes on macOS — when no Kaku/Ghostty is available and not inside tmux, automatically opens a Terminal.app window attached to the tmux session. Lead agent output stays in the current terminal, sub-agents visible in the new window
+- **Fix**: `terminal-tmux` now available as explicit `--pane-backend` choice
 
 ## 0.9.7
 
