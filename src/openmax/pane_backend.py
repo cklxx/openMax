@@ -1136,12 +1136,16 @@ class LayeredPaneBackend:
         cwd: str | None,
         env: dict[str, str] | None,
     ) -> int:
-        """Step 1: create tmux session. Step 2: open UI window to attach."""
+        """Open UI window running tmux new-session with the first command.
+
+        Single-step: the UI terminal launches ``tmux new-session`` directly
+        so the session, first pane, and UI window are created atomically.
+        No detach-then-attach race condition.
+        """
         wrapped = _wrap_command_with_env(command, env)
         session_cmd = [
             "tmux",
             "new-session",
-            "-d",
             "-s",
             _TMUX_SESSION_NAME,
             "-x",
@@ -1152,13 +1156,10 @@ class LayeredPaneBackend:
         if cwd:
             session_cmd.extend(["-c", cwd])
         session_cmd.extend(wrapped)
-        subprocess.run(session_cmd, capture_output=True, text=True, timeout=10)
-
-        attach_cmd = ["tmux", "attach", "-t", _TMUX_SESSION_NAME]
-        self._ui_launcher(attach_cmd)
+        self._ui_launcher(session_cmd)
 
         self._session_ready = True
-        time.sleep(0.5)
+        time.sleep(0.8)
         return self._find_first_pane_id()
 
     @staticmethod
