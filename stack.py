@@ -24,6 +24,9 @@ class Stack:
     def size(self) -> int:
         return len(self._items)
 
+    def __len__(self) -> int:
+        return self.size()
+
     def __iter__(self):
         return reversed(self._items)
 
