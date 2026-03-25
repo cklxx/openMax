@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.4
+
+- **Feature**: Layered pane architecture — Kaku (UI) × tmux (grid engine). Kaku renders the window, tmux manages pane splits with automatic `select-layout tiled` grid. Zero-wait bootstrap: detach → get pane ID → attach UI
+- **Fix**: Default to interactive `claude-code` mode so agent output is visible in panes (was using silent `claude -p` print mode)
+- **Fix**: First agent reuses tmux session's default pane — no extra empty zsh window
+- **Improvement**: Pluggable UI launcher registry — adding WezTerm/iTerm2 only requires one function
+
 ## 0.9.3
 
 - **Feature**: Claude Code-style tree layout for agent dashboard — lightweight `├─`/`└─` tree connectors replace the dense Panel+Table layout, with nested activity lines (`⎿`) and compact summary footer
