@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.6
+
+- **Fix**: Multi-task mode now renders a single unified UI instead of overlapping per-task banners. All user interaction (plan confirmation, ask_user) is serialized through a UICoordinator lock, preventing stdin conflicts between parallel lead agents
+- **Fix**: Dashboard disabled in multi-task mode to prevent Rich Live display corruption
+
 ## 0.9.5
 
 - **Perf**: Dispatch latency reduced ~1.5s per agent — faster ready delay (1.0s → 0.3s) and trust polling (6 × 0.2-0.4s → 3 × 0.15-0.3s)
