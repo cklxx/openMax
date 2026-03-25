@@ -336,7 +336,7 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
         result_data["quality_workflow"] = all_results
         result_data.update(pipeline)
         result_data["instruction"] = (
-            "Quality workflow complete (write → review → rewrite). Session done."
+            "Quality workflow complete (write → review → challenge → rewrite). Session done."
         )
         return _tool_response(result_data)
 

@@ -16,11 +16,22 @@ def test_reviewer_role_returns_instructions():
     assert "critique" in result
 
 
+def test_reviewer_references_violations_block():
+    result = _build_role_context("reviewer")
+    assert "{violations_block}" in result
+
+
 def test_challenger_role_returns_instructions():
     result = _build_role_context("challenger")
     assert "Challenger" in result
     assert "Do NOT modify code" in result
-    assert "counter-proposals" in result
+    assert "counter-design" in result
+
+
+def test_challenger_requires_pseudocode():
+    result = _build_role_context("challenger")
+    assert "pseudocode" in result
+    assert "MANDATORY" in result
 
 
 def test_debugger_role_returns_instructions():

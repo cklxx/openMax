@@ -260,22 +260,16 @@ def _match_archetype(task: str, cwd: str) -> tuple[str | None, object]:
 _QUALITY_MODE_PROMPT = """\
 ## Quality Mode (ACTIVE)
 
-You MUST follow the adversarial refinement cycle for EVERY subtask:
+The automated quality workflow handles the full refinement cycle for every subtask:
 
-1. Dispatch WRITER agent to implement the code
-2. When writer is done, dispatch REVIEWER on the same files — find DRY violations, \
-missing abstractions, architectural issues, code that should be shorter
-3. Dispatch CHALLENGER on the same files — question design decisions, propose \
-fundamentally simpler approaches, identify over-engineering AND under-engineering
-4. Synthesize reviewer + challenger feedback into a concrete rewrite brief
-5. Dispatch WRITER again with the rewrite brief — the goal is code that is SHORTER, \
-more elegant, with proper abstractions
+1. WRITER implements the code (commits + merges)
+2. AST checker runs locally — flags functions exceeding line limits
+3. REVIEWER critiques: density, naming, composition, DRY (with AST violations)
+4. CHALLENGER proposes radically simpler alternative with pseudocode
+5. WRITER rewrites using reviewer + challenger + AST feedback (commits + merges)
 
-Quality criteria: every function ≤15 lines, zero duplication, composition over \
-inheritance, transform pipelines over mutation, minimal abstractions that justify \
-themselves.
-
-Do NOT skip steps 2-5. The first draft is NEVER the final draft."""
+Steps 2-5 are code-enforced — the orchestrator runs them automatically. \
+The first draft is NEVER the final draft."""
 
 
 def _build_lead_prompt(
