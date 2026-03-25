@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.3
+
+- **Feature**: Claude Code-style tree layout for agent dashboard — lightweight `├─`/`└─` tree connectors replace the dense Panel+Table layout, with nested activity lines (`⎿`) and compact summary footer
+- **Feature**: Layered pane architecture — UI terminal (Kaku/Ghostty) × tmux grid engine. Kaku/Ghostty now open a window attached to a tmux session; tmux manages all pane splits with automatic `select-layout tiled` grid. Falls back to pure tmux when no UI terminal is available
+- **Improvement**: Auto-detect prefers `kaku-tmux` on macOS when both are available, giving native UI + balanced grid layout
+
 ## 0.9.2
 
 - **Feature**: AST-based style enforcement in quality mode — deterministic function length checking via stdlib `ast`, no new dependencies
