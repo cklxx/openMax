@@ -1034,6 +1034,44 @@ class TmuxPaneBackend:
         return result
 
 
+def _launch_kaku_window(command: list[str]) -> None:
+    """Open a Kaku window running the given command."""
+    KakuPaneBackend._heal_socket_symlink()
+    subprocess.run(
+        [*_KAKU_CLI_PREFIX, "spawn", "--new-window", "--", *command],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+def _launch_ghostty_window(command: list[str]) -> None:
+    """Open a Ghostty window running the given command."""
+    import shlex
+
+    cmd_str = shlex.join(command)
+    escaped = cmd_str.replace("\\", "\\\\").replace('"', '\\"')
+    script = (
+        'tell application "Ghostty"\n'
+        "  set cfg to new surface configuration\n"
+        f'    set command of cfg to "{escaped}"\n'
+        "  set w to new window with configuration cfg\n"
+        "end tell"
+    )
+    subprocess.run(
+        ["osascript", "-e", script],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+_UI_LAUNCHERS: dict[str, callable] = {
+    "kaku": _launch_kaku_window,
+    "ghostty": _launch_ghostty_window,
+}
+
+
 class LayeredPaneBackend:
     """UI terminal for window rendering, tmux for pane grid management.
 
@@ -1082,27 +1120,28 @@ class LayeredPaneBackend:
     }
 
     def __init__(self, ui: str) -> None:
-        self._ui = ui
+        self._ui_launcher = _UI_LAUNCHERS[ui]
         self._tmux: TmuxPaneBackend | None = None
         self._session_ready = False
+        self._ui_name = ui
 
     def _ensure_tmux(self) -> TmuxPaneBackend:
-        """Return the tmux backend, creating it lazily after session exists."""
         if self._tmux is None:
             self._tmux = TmuxPaneBackend(target_session=_TMUX_SESSION_NAME)
         return self._tmux
 
-    def _open_ui_with_tmux_session(
+    def _bootstrap_session(
         self,
         command: list[str],
         cwd: str | None,
         env: dict[str, str] | None,
     ) -> int:
-        """First agent: open UI window running tmux new-session with the command."""
+        """Step 1: create tmux session. Step 2: open UI window to attach."""
         wrapped = _wrap_command_with_env(command, env)
         session_cmd = [
             "tmux",
             "new-session",
+            "-d",
             "-s",
             _TMUX_SESSION_NAME,
             "-x",
@@ -1113,40 +1152,17 @@ class LayeredPaneBackend:
         if cwd:
             session_cmd.extend(["-c", cwd])
         session_cmd.extend(wrapped)
+        subprocess.run(session_cmd, capture_output=True, text=True, timeout=10)
 
-        if self._ui == "kaku":
-            KakuPaneBackend._heal_socket_symlink()
-            subprocess.run(
-                [*_KAKU_CLI_PREFIX, "spawn", "--new-window", "--", *session_cmd],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-        elif self._ui == "ghostty":
-            import shlex
-
-            cmd_str = shlex.join(session_cmd)
-            escaped = cmd_str.replace("\\", "\\\\").replace('"', '\\"')
-            script = (
-                'tell application "Ghostty"\n'
-                "  set cfg to new surface configuration\n"
-                f'    set command of cfg to "{escaped}"\n'
-                "  set w to new window with configuration cfg\n"
-                "end tell"
-            )
-            subprocess.run(
-                ["osascript", "-e", script],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
+        attach_cmd = ["tmux", "attach", "-t", _TMUX_SESSION_NAME]
+        self._ui_launcher(attach_cmd)
 
         self._session_ready = True
-        time.sleep(0.8)
+        time.sleep(0.5)
         return self._find_first_pane_id()
 
-    def _find_first_pane_id(self) -> int:
-        """Find the pane ID of the first pane in the tmux session."""
+    @staticmethod
+    def _find_first_pane_id() -> int:
         result = subprocess.run(
             ["tmux", "list-panes", "-t", _TMUX_SESSION_NAME, "-F", "#{pane_id}"],
             capture_output=True,
@@ -1155,8 +1171,7 @@ class LayeredPaneBackend:
         )
         if result.returncode != 0 or not result.stdout.strip():
             raise PaneBackendError(f"Cannot find panes in tmux session: {result.stderr}")
-        first_line = result.stdout.strip().splitlines()[0]
-        return _tmux_id(first_line)
+        return _tmux_id(result.stdout.strip().splitlines()[0])
 
     def spawn_window(
         self,
@@ -1165,7 +1180,7 @@ class LayeredPaneBackend:
         env: dict[str, str] | None = None,
     ) -> int:
         if not self._session_ready:
-            return self._open_ui_with_tmux_session(command, cwd, env)
+            return self._bootstrap_session(command, cwd, env)
         return self._ensure_tmux().spawn_window(command, cwd=cwd, env=env)
 
     def split_pane(
