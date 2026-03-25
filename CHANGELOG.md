@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.2
+
+- **Feature**: AST-based style enforcement in quality mode — deterministic function length checking via stdlib `ast`, no new dependencies
+- **Feature**: Challenger step added to quality workflow — write → review → challenge → rewrite cycle with mandatory pseudocode counter-design
+- **Improvement**: Upgraded reviewer prompt — code density scoring, naming precision, composition pattern detection, AST violation integration
+- **Improvement**: Rewrite prompt now has ranked objectives (mandatory → conditional → aspirational)
+- **Fix**: Only committing steps (write, rewrite) merge; reviewer/challenger skip merge to preserve clean state transfer
+- **Fix**: Reports explicitly persisted from worktrees between workflow steps
+
 ## 0.9.1
 
 - **Fix**: `openmax status` no longer shows raw `HTTP Error 401: Unauthorized` when Claude Code OAuth token is expired — now shows a clear "credentials expired" message with re-auth guidance
