@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.15
+
+- **Fix**: Recognize API key configured in Claude Code settings (`~/.claude/settings.json` env) as valid authentication — users who set `ANTHROPIC_API_KEY` + base URL in settings instead of using `claude login` are no longer shown as unauthenticated
+
 ## 0.9.14
 
 - **Improvement**: Auto-cleanup on exit — signal handler now removes openmax/* branches and worktrees on Ctrl+C/SIGTERM, not just on happy-path completion
