@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.23
+
+- **Improvement**: Dashboard UI redesign — card-style stats with colored icons, gradient progress bars, running glow effect, animated counters, polished input area with focus glow, responsive layout
+
 ## 0.9.22
 
 - **Feature**: Service mode — `openmax serve` starts a persistent HTTP server with web dashboard for task queue management
