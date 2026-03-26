@@ -1,4 +1,4 @@
-"""Authentication and token-detection helpers for Claude Code integration."""
+"""Authentication module."""
 
 from __future__ import annotations
 
