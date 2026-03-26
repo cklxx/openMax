@@ -1,10 +1,13 @@
 # Changelog
 
-## 0.9.15
+## 0.9.16
 
 - **Improvement**: Faster startup — prompt building runs in parallel with SDK subprocess startup via ThreadPoolExecutor; git status and branch detection run concurrently with Popen
 - **Improvement**: Spinner stays visible through full startup with stage labels (starting up → connecting → thinking)
 - **Improvement**: Modern banner redesign — `⚡ openMax` with tagline, replacing basic reversed-cyan block
+
+## 0.9.15
+
 - **Fix**: Recognize API key configured in Claude Code settings (`~/.claude/settings.json` env) as valid authentication — users who set `ANTHROPIC_API_KEY` + base URL in settings instead of using `claude login` are no longer shown as unauthenticated
 
 ## 0.9.14
