@@ -535,9 +535,17 @@ async def mark_task_done(args: dict[str, Any]) -> dict[str, Any]:
                     "usage_source": st.usage_source,
                 },
             )
+            # Auto-dispatch queued tasks now that a slot opened
+            from openmax.lead_agent.tools._dispatch import drain_dispatch_queue
+
+            dequeued = await drain_dispatch_queue(runtime)
+
             msg = f"Marked '{task_name}' as done"
             if st.branch_name:
                 msg += f". Branch '{st.branch_name}' ready — call merge_agent_branch to merge."
+            if dequeued:
+                names = [d["task_name"] for d in dequeued]
+                msg += f" Auto-dispatched queued: {', '.join(names)}."
             return _tool_response(msg)
     return _tool_response(f"Task '{task_name}' not found")
 

@@ -37,6 +37,8 @@ class LeadAgentRuntime:
     quality_mode: bool = False
     quality_phases: dict[str, str] = field(default_factory=dict)  # task_name → phase
     ui_coordinator: Any | None = None
+    max_concurrent_agents: int = 0  # 0 = unlimited
+    dispatch_queue: list[dict[str, Any]] = field(default_factory=list)
 
 
 _lead_agent_runtime: ContextVar[LeadAgentRuntime | None] = ContextVar(

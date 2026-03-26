@@ -46,6 +46,29 @@ _MAX_RETRIES = 2
 _RETRY_CONTEXT_MAX_CHARS = 2000
 
 
+def _running_agent_count(runtime: Any) -> int:
+    """Count currently running sub-agents."""
+    return sum(1 for st in runtime.plan.subtasks if st.status == TaskStatus.RUNNING)
+
+
+def _has_capacity(runtime: Any) -> bool:
+    """Check if we can dispatch another agent within the concurrency limit."""
+    cap = runtime.max_concurrent_agents
+    return cap <= 0 or _running_agent_count(runtime) < cap
+
+
+async def drain_dispatch_queue(runtime: Any) -> list[dict[str, Any]]:
+    """Dispatch queued tasks up to concurrency limit. Called after a task finishes."""
+    results: list[dict[str, Any]] = []
+    while runtime.dispatch_queue and _has_capacity(runtime):
+        queued_args = runtime.dispatch_queue.pop(0)
+        task_name = queued_args["task_name"]
+        console.print(f"  [cyan]{P}[/cyan]  dequeuing [bold]{task_name}[/bold]")
+        result = await dispatch_agent.handler(queued_args)
+        results.append({"task_name": task_name, "dispatched": True, "result": result})
+    return results
+
+
 def _register_stream_callback(
     runtime: Any,
     pane_id: int,
@@ -331,6 +354,28 @@ def _dispatch_failure_response(
 async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     runtime = _runtime()
     task_name = args["task_name"]
+
+    if not _has_capacity(runtime):
+        runtime.dispatch_queue.append(dict(args))
+        running = _running_agent_count(runtime)
+        cap = runtime.max_concurrent_agents
+        console.print(
+            f"  [yellow]⏳[/yellow]  [bold]{task_name}[/bold]"
+            f" queued ({running}/{cap} agents running)"
+        )
+        _append_session_event(
+            "tool.dispatch_agent.queued",
+            {"task_name": task_name, "running": running, "capacity": cap},
+        )
+        return _tool_response({
+            "status": "queued",
+            "task_name": task_name,
+            "queue_position": len(runtime.dispatch_queue),
+            "running_agents": running,
+            "capacity": cap,
+            "message": f"At capacity ({running}/{cap}). Will auto-dispatch when a slot opens.",
+        })
+
     prompt = args["prompt"]
     retry_count = args.get("retry_count", 0)
     token_budget = args.get("token_budget")

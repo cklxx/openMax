@@ -337,6 +337,7 @@ def run_lead_agent(
     verbose: bool = False,
     quality_mode: bool = False,
     ui_coordinator: Any | None = None,
+    max_concurrent_agents: int = 0,
 ) -> PlanResult:
     """Run the lead agent synchronously (wraps async), with retry on transient API errors."""
     for attempt in range(_MAX_TRANSIENT_RETRIES + 1):
@@ -357,6 +358,7 @@ def run_lead_agent(
                 verbose,
                 quality_mode,
                 ui_coordinator,
+                max_concurrent_agents,
             )
         except _TransientAPIError:
             if attempt >= _MAX_TRANSIENT_RETRIES:
@@ -388,6 +390,7 @@ async def _run_lead_agent_async(
     verbose: bool = False,
     quality_mode: bool = False,
     ui_coordinator: Any | None = None,
+    max_concurrent_agents: int = 0,
 ) -> PlanResult:
     normalized_cwd = str(Path(cwd).resolve())
     dashboard = None if ui_coordinator else create_dashboard(task, verbose=verbose)

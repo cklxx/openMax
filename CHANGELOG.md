@@ -3,6 +3,7 @@
 ## 0.9.28
 
 - **Feature**: Rate limit resilience — lead agent pauses and prompts user to confirm before retrying (up to 5 attempts with Enter-to-retry)
+- **Improvement**: Dashboard redesign — Light theme with low-saturation warm gray palette (#F7F7F5 base), sidebar navigation layout for wide screen support (1100-1600px adaptive), Linear/Notion-style minimal UI with desaturated accent colors
 - **Feature**: Sub-agent rate limit detection — `read_pane_output` detects rate limit errors in exited panes and flags `rate_limited: true`
 - **Improvement**: Lead agent prompt instructs `ask_user` before re-dispatching rate-limited sub-agents (one limit likely means all are limited)
 

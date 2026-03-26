@@ -428,6 +428,12 @@ def main() -> None:
     default=False,
     help="Quality mode: write → review → challenge → rewrite cycle",
 )
+@click.option(
+    "--max-agents",
+    default=0,
+    type=click.IntRange(min=0),
+    help="Max concurrent sub-agents (0=unlimited, default: 0). RPM 120 → use 3.",
+)
 def run(
     tasks: tuple[str, ...],
     cwd: str | None,
@@ -442,6 +448,7 @@ def run(
     no_confirm: bool,
     verbose: bool,
     quality: bool,
+    max_agents: int,
 ) -> None:
     """Decompose TASK(s) and dispatch sub-agents in terminal panes.
 
@@ -564,6 +571,7 @@ def run(
                 plan_confirm=not no_confirm,
                 verbose=verbose,
                 quality_mode=quality,
+                max_concurrent_agents=max_agents,
             )
         except LeadAgentStartupError as exc:
             raise SystemExit(1) from exc
