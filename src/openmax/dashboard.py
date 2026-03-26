@@ -1,10 +1,4 @@
-"""Compact status bar and shared console for openMax runs.
-
-Design: vite-inspired streaming log + lazy bottom status bar.
-Status bar appears only when subtasks exist. Progress is derived from
-subtask states. A connecting spinner shows during SDK warmup so the
-user knows the tool is alive.
-"""
+"""Compact status bar and shared console for openMax runs."""
 
 from __future__ import annotations
 
