@@ -1,4 +1,4 @@
-"""Multi-task runner — execute multiple tasks concurrently via ThreadPoolExecutor."""
+"""Multi-task runner module."""
 
 from __future__ import annotations
 
