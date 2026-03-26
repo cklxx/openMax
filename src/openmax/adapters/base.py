@@ -1,3 +1,5 @@
+"""Abstract base classes and data structures for agent adapters."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
