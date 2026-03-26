@@ -43,11 +43,10 @@ class Scheduler:
         self._bridge = bridge
         self._max_slots = max_slots
         self._running = False
-        self._loop: asyncio.AbstractEventLoop | None = None
+        self._active_tasks: set[asyncio.Task[None]] = set()
 
     async def start(self) -> None:
         self._running = True
-        self._loop = asyncio.get_event_loop()
         logger.info("Scheduler started (max_slots=%d)", self._max_slots)
         while self._running:
             await self._tick()
@@ -55,6 +54,8 @@ class Scheduler:
 
     def stop(self) -> None:
         self._running = False
+        for t in self._active_tasks:
+            t.cancel()
 
     async def _tick(self) -> None:
         await self._size_unsized_tasks()
@@ -97,7 +98,9 @@ class Scheduler:
         task.session_id = f"serve-{task.id}-{int(time.time())}"
         mode = "direct" if task.size == TaskSize.SMALL else "lead agent"
         await self._log_activity(task, "system", f"Dispatching via {mode}...")
-        asyncio.get_event_loop().create_task(self._execute(task))
+        t = asyncio.create_task(self._execute(task))
+        self._active_tasks.add(t)
+        t.add_done_callback(self._active_tasks.discard)
 
     async def _execute(self, task: QueuedTask) -> None:
         """Run the task via lead agent or direct mode."""

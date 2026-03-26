@@ -24,43 +24,49 @@ class ProgressBridge:
         self._active_tasks: set[str] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
 
+    def set_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        self._loop = loop
+
     def register_task(self, task_id: str) -> None:
         self._active_tasks.add(task_id)
 
     def unregister_task(self, task_id: str) -> None:
         self._active_tasks.discard(task_id)
 
-    # Legacy compatibility — scheduler.py calls this in finally block
     def unwatch_session(self, task_id: str) -> None:
         self.unregister_task(task_id)
 
     def on_agent_message(self, task_id: str, msg: MailboxMessage) -> None:
-        """Called from mailbox thread when a sub-agent sends a message."""
+        """Called from mailbox socket thread. Schedules async forward."""
         if task_id not in self._active_tasks:
             return
-        loop = self._loop or _get_loop()
+        loop = self._loop
         if loop is None or loop.is_closed():
             return
-        loop.call_soon_threadsafe(asyncio.ensure_future, self._forward(task_id, msg))
+        try:
+            loop.call_soon_threadsafe(asyncio.ensure_future, self._forward(task_id, msg))
+        except RuntimeError:
+            pass  # loop closed between check and call
 
     async def _forward(self, task_id: str, msg: MailboxMessage) -> None:
         message = _extract_message(msg)
         task = self._queue.get(task_id)
-        if task:
-            entry = task.add_activity(msg.task or "agent", message, msg.type)
-            self._queue.update(task)
-            await self._hub.broadcast(
-                "activity",
-                {
-                    "task_id": task_id,
-                    "entry": {
-                        "timestamp": entry.timestamp,
-                        "source": entry.source,
-                        "message": entry.message,
-                        "type": entry.type,
-                    },
+        if not task:
+            return
+        entry = task.add_activity(msg.task or "agent", message, msg.type)
+        self._queue.update(task)
+        await self._hub.broadcast(
+            "activity",
+            {
+                "task_id": task_id,
+                "entry": {
+                    "timestamp": entry.timestamp,
+                    "source": entry.source,
+                    "message": entry.message,
+                    "type": entry.type,
                 },
-            )
+            },
+        )
         await self._hub.broadcast(
             "subtask_progress",
             {
@@ -70,13 +76,6 @@ class ProgressBridge:
                 "data": msg.raw,
             },
         )
-
-
-def _get_loop() -> asyncio.AbstractEventLoop | None:
-    try:
-        return asyncio.get_event_loop()
-    except RuntimeError:
-        return None
 
 
 def _extract_message(msg: MailboxMessage) -> str:

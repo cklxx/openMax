@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -25,10 +26,10 @@ logger = logging.getLogger(__name__)
 _STATIC_DIR = Path(__file__).parent / "static"
 
 # Module-level singletons, initialized in create_app()
-_queue: TaskQueue
-_hub: WSHub
-_scheduler: Scheduler
-_bridge: ProgressBridge
+_queue: TaskQueue | None = None
+_hub: WSHub | None = None
+_scheduler: Scheduler | None = None
+_bridge: ProgressBridge | None = None
 
 
 async def health(request: Request) -> JSONResponse:
@@ -52,8 +53,7 @@ async def create_task(request: Request) -> JSONResponse:
     if not text:
         return JSONResponse({"error": "task is required"}, status_code=400)
     cwd = body.get("cwd", os.getcwd())
-    priority = body.get("priority", 50)
-    task = _queue.add(text, cwd, priority)
+    task = _queue.add(text, cwd, body.get("priority", 50))
     await _hub.broadcast("task_created", task.to_dict())
     return JSONResponse(task.to_dict(), status_code=201)
 
@@ -120,27 +120,8 @@ async def _handle_ws_message(msg: dict[str, Any]) -> None:
             await _hub.broadcast("task_updated", task.to_dict())
 
 
-def create_app(queue_dir: Path | None = None, max_slots: int = 6) -> Starlette:
-    """Create and configure the Starlette application."""
-    global _queue, _hub, _scheduler, _bridge
-
-    _queue = TaskQueue(queue_dir)
-    _hub = WSHub()
-    _bridge = ProgressBridge(_hub, _queue)
-    _scheduler = Scheduler(_queue, _hub, _bridge, max_slots=max_slots)
-
-    from contextlib import asynccontextmanager
-
-    @asynccontextmanager
-    async def lifespan(app: Starlette):
-        _bridge._loop = asyncio.get_event_loop()
-        task = asyncio.create_task(_scheduler.start())
-        logger.info("openMax server ready")
-        yield
-        _scheduler.stop()
-        task.cancel()
-
-    routes = [
+def _build_routes() -> list:
+    return [
         Route("/health", health),
         Route("/api/tasks", list_tasks, methods=["GET"]),
         Route("/api/tasks", create_task, methods=["POST"]),
@@ -152,4 +133,23 @@ def create_app(queue_dir: Path | None = None, max_slots: int = 6) -> Starlette:
         Mount("/", app=StaticFiles(directory=str(_STATIC_DIR), html=True)),
     ]
 
-    return Starlette(routes=routes, lifespan=lifespan)
+
+def create_app(queue_dir: Path | None = None, max_slots: int = 6) -> Starlette:
+    """Create and configure the Starlette application."""
+    global _queue, _hub, _scheduler, _bridge
+
+    _queue = TaskQueue(queue_dir)
+    _hub = WSHub()
+    _bridge = ProgressBridge(_hub, _queue)
+    _scheduler = Scheduler(_queue, _hub, _bridge, max_slots=max_slots)
+
+    @asynccontextmanager
+    async def lifespan(app: Starlette):
+        _bridge.set_loop(asyncio.get_running_loop())
+        task = asyncio.create_task(_scheduler.start())
+        logger.info("openMax server ready")
+        yield
+        _scheduler.stop()
+        task.cancel()
+
+    return Starlette(routes=_build_routes(), lifespan=lifespan)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -88,13 +89,14 @@ class QueuedTask:
 
 
 class TaskQueue:
-    """Filesystem-backed priority task queue."""
+    """Filesystem-backed priority task queue. Thread-safe via asyncio.Lock."""
 
     def __init__(self, base_dir: Path | None = None) -> None:
         self._base = base_dir or Path.home() / ".openmax" / "queue"
         self._tasks_dir = self._base / "tasks"
         self._tasks_dir.mkdir(parents=True, exist_ok=True)
         self._tasks: dict[str, QueuedTask] = {}
+        self._lock = asyncio.Lock()
         self._load_all()
 
     def _load_all(self) -> None:
