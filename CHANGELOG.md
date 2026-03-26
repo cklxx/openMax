@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.12
+
+- **Chore**: Remove agent test artifacts (hello.py, fib.py, prime.py, stack.py) from repo
+- **Fix**: Align dashboard and usage tests with compact output format
+
 ## 0.9.11
 
 - **Refactor**: Declutter end-of-session output — consolidated redundant panels into a single clean Done banner, simplified Result panel and usage line, agent table only shown for multi-agent runs
