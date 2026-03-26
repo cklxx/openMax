@@ -367,14 +367,16 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
             "tool.dispatch_agent.queued",
             {"task_name": task_name, "running": running, "capacity": cap},
         )
-        return _tool_response({
-            "status": "queued",
-            "task_name": task_name,
-            "queue_position": len(runtime.dispatch_queue),
-            "running_agents": running,
-            "capacity": cap,
-            "message": f"At capacity ({running}/{cap}). Will auto-dispatch when a slot opens.",
-        })
+        return _tool_response(
+            {
+                "status": "queued",
+                "task_name": task_name,
+                "queue_position": len(runtime.dispatch_queue),
+                "running_agents": running,
+                "capacity": cap,
+                "message": f"At capacity ({running}/{cap}). Will auto-dispatch when a slot opens.",
+            }
+        )
 
     prompt = args["prompt"]
     retry_count = args.get("retry_count", 0)

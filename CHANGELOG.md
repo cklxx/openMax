@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.29
+
+- **Feature**: Agent dispatch queue — `--max-agents N` limits concurrent sub-agents, excess tasks queued as pending and auto-dispatched when slots open
+- **Feature**: Rate limit resilience — lead agent pauses and prompts user to confirm before retrying (up to 5 attempts)
+- **Feature**: Sub-agent rate limit detection — `read_pane_output` flags `rate_limited: true` on exited panes with rate limit errors
+
 ## 0.9.28
 
 - **Feature**: Rate limit resilience — lead agent pauses and prompts user to confirm before retrying (up to 5 attempts with Enter-to-retry)
