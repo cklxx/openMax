@@ -153,32 +153,44 @@ def test_split_empty_lines_filtered():
 
 
 def test_split_via_llm_parses_json(monkeypatch):
-    """LLM fallback parses JSON array response correctly."""
+    """LLM fallback parses JSON array from claude CLI output."""
     from openmax.task_runner import _split_via_llm
 
-    mock_resp = MagicMock()
-    mock_resp.content = [MagicMock(text='["Fix login", "Add pagination", "Write tests"]')]
+    fake_proc = MagicMock(
+        returncode=0,
+        stdout='["Fix login", "Add pagination", "Write tests"]',
+    )
+    monkeypatch.setattr("openmax.task_runner.subprocess.run", lambda *a, **kw: fake_proc)
 
-    mock_anthropic = MagicMock()
-    mock_anthropic.Anthropic.return_value.messages.create.return_value = mock_resp
-
-    monkeypatch.setitem(__import__("sys").modules, "anthropic", mock_anthropic)
-
-    result = _split_via_llm("x" * 300)
+    result = _split_via_llm("x" * 100)
     assert len(result) == 3
     assert result[0] == "Fix login"
 
 
-def test_split_via_llm_fallback_on_error(monkeypatch):
-    """LLM failure falls back to original text."""
+def test_split_via_llm_handles_markdown_fence(monkeypatch):
+    """LLM output with markdown code fence is correctly parsed."""
     from openmax.task_runner import _split_via_llm
 
-    mock_anthropic = MagicMock()
-    mock_anthropic.Anthropic.side_effect = RuntimeError("no API key")
+    fake_proc = MagicMock(
+        returncode=0,
+        stdout='```json\n["Task A", "Task B"]\n```',
+    )
+    monkeypatch.setattr("openmax.task_runner.subprocess.run", lambda *a, **kw: fake_proc)
 
-    monkeypatch.setitem(__import__("sys").modules, "anthropic", mock_anthropic)
+    result = _split_via_llm("x" * 100)
+    assert len(result) == 2
 
-    result = _split_via_llm("x" * 300)
+
+def test_split_via_llm_fallback_on_error(monkeypatch):
+    """LLM failure falls back to empty list."""
+    from openmax.task_runner import _split_via_llm
+
+    def raise_exc(*a, **kw):
+        raise OSError("no claude")
+
+    monkeypatch.setattr("openmax.task_runner.subprocess.run", raise_exc)
+
+    result = _split_via_llm("x" * 100)
     assert result == []
 
 

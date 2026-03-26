@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 _NUMBERED_RE = re.compile(r"^\s*\d+[\.\)]\s+", re.MULTILINE)
 _SEPARATOR_RE = re.compile(r"^---+\s*$", re.MULTILINE)
 _HEADING_RE = re.compile(r"^##\s+", re.MULTILINE)
-_LLM_MIN_LENGTH = 200  # only attempt LLM split for prompts longer than this
+_LLM_MIN_LENGTH = 80  # only attempt LLM split for prompts longer than this
 
 _DECOMPOSE_SYSTEM = (
     "You decompose a user request into independent tasks. "
@@ -80,22 +80,43 @@ def _split_by_headings(text: str) -> list[str]:
 
 
 def _split_via_llm(text: str) -> list[str]:
-    """Use a fast LLM to decompose unstructured text into independent tasks."""
+    """Use claude CLI to decompose unstructured text into independent tasks."""
+    prompt = f"{_DECOMPOSE_SYSTEM}\n\nUser request:\n{text}"
     try:
-        import anthropic
-
-        resp = anthropic.Anthropic().messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=2048,
-            system=_DECOMPOSE_SYSTEM,
-            messages=[{"role": "user", "content": text}],
+        proc = subprocess.run(
+            ["claude", "-p", prompt, "--model", "claude-haiku-4-5-20251001"],
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
-        raw = resp.content[0].text.strip()
+        if proc.returncode != 0:
+            return []
+        raw = proc.stdout.strip()
+        # Extract JSON array from response (may have markdown fences)
+        return _parse_json_tasks(raw)
+    except Exception as exc:
+        logger.debug("LLM task decomposition failed: %s", exc)
+    return []
+
+
+def _parse_json_tasks(raw: str) -> list[str]:
+    """Extract a JSON string array from LLM output, handling markdown fences."""
+    # Try direct parse first
+    try:
         tasks = json.loads(raw)
         if isinstance(tasks, list) and all(isinstance(t, str) for t in tasks):
             return [t.strip() for t in tasks if t.strip()]
-    except Exception as exc:
-        logger.debug("LLM task decomposition failed: %s", exc)
+    except json.JSONDecodeError:
+        pass
+    # Try extracting from markdown code fence
+    match = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", raw, re.DOTALL)
+    if match:
+        try:
+            tasks = json.loads(match.group(1))
+            if isinstance(tasks, list) and all(isinstance(t, str) for t in tasks):
+                return [t.strip() for t in tasks if t.strip()]
+        except json.JSONDecodeError:
+            pass
     return []
 
 
