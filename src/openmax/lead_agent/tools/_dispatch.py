@@ -436,7 +436,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         runtime.dashboard.set_dispatch_prompt(task_name, args["prompt"])
 
     if cmd_spec.stream_json:
-        _register_stream_callback(runtime, pane.pane_id, task_name, agent_cwd)
+        _register_stream_callback(runtime, pane.pane_id, task_name, runtime.cwd)
 
     win = runtime.pane_mgr.windows.get(runtime.agent_window_id)
     pane_count = len(win.pane_ids) if win else 1
