@@ -70,37 +70,6 @@ def _persist_session_stats() -> None:
         pass
 
 
-def _get_scorecard():
-    """Best-effort fetch of the current run scorecard, or None."""
-    try:
-        from openmax.lead_agent.runtime import get_lead_agent_runtime
-
-        rt = get_lead_agent_runtime()
-        if rt.session_store and rt.session_meta:
-            snap = rt.session_store.load_snapshot(rt.session_meta.session_id)
-            return snap.plan.scorecard
-    except Exception:
-        pass
-    return None
-
-
-def _check_and_report_anomaly() -> str | None:
-    """Run cost anomaly detection and return a warning line, or None."""
-    try:
-        from openmax.lead_agent.runtime import get_lead_agent_runtime
-
-        rt = get_lead_agent_runtime()
-        stats = rt.session_stats or SessionStats()
-        estimated, actual = _aggregate_session_tokens()
-        anomaly = detect_cost_anomaly(estimated, actual, stats)
-        if anomaly:
-            _append_session_event("cost.anomaly", anomaly)
-            return anomaly["message"]
-    except Exception:
-        pass
-    return None
-
-
 @tool(
     "report_completion",
     "Report final completion. Call once when all tasks are done. "
@@ -114,14 +83,6 @@ async def report_completion(args: dict[str, Any]) -> dict[str, Any]:
 
     pct_color = "green" if pct >= 80 else "yellow" if pct >= 50 else "red"
     lines = [f"  [{pct_color}]{pct}%[/{pct_color}] complete", f"  {notes}"]
-    scorecard = _get_scorecard()
-    if scorecard and scorecard.acceleration_ratio is not None:
-        lines.append(f"  [dim]{scorecard.surface_acceleration}[/dim]")
-    if scorecard and scorecard.overhead is not None:
-        lines.append(f"  [dim]{scorecard.overhead.surface()}[/dim]")
-    anomaly_msg = _check_and_report_anomaly()
-    if anomaly_msg:
-        lines.append(f"  [yellow]{anomaly_msg}[/yellow]")
     panel = Panel(
         "\n".join(lines),
         title="[bold]Result[/bold]",

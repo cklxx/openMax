@@ -737,56 +737,36 @@ class RunDashboard:
         has_errors = error_count > 0
 
         t = get_theme()
-        label_style = t.banner_warn_label if has_errors else t.banner_done_label
         check = "\u2714" if not has_errors else "\u26a0"
+        label_style = t.banner_warn_label if has_errors else t.banner_done_label
 
-        headline = Text()
-        headline.append(f" {check} ALL DONE", style=label_style)
-        headline.append(f" in {_format_duration(wall)}", style=t.banner_done_elapsed)
-        headline.append(f" \u00b7 {done_count}/{total} tasks")
-        if has_errors:
-            headline.append(f" \u00b7 {error_count} error", style=t.status_error)
+        parts: list[str] = [f"{done_count}/{total} tasks", _format_duration(wall)]
 
         total_tokens = self.metrics.total_input_tokens + self.metrics.total_output_tokens
         if total_tokens > 0:
             cost = estimate_cost_usd(
                 self.metrics.total_input_tokens, self.metrics.total_output_tokens
             )
-            headline.append(
-                f" \u00b7 {_format_tokens(total_tokens)} tokens ({format_cost(cost)})",
-                style=t.banner_detail,
-            )
+            parts.append(format_cost(cost))
 
         if self.metrics.acceleration_ratio is not None:
-            headline.append(
-                f" \u00b7 {self.metrics.acceleration_ratio:.1f}x faster",
-                style=t.banner_done_accel,
-            )
+            parts.append(f"{self.metrics.acceleration_ratio:.1f}x")
 
-        detail = self._done_detail_line(wall)
-        content = Group(headline, detail) if detail else headline
+        if has_errors:
+            parts.append(f"{error_count} error{'s' if error_count > 1 else ''}")
+
+        headline = Text()
+        headline.append(f" {check} ", style=label_style)
+        headline.append(" \u00b7 ".join(parts))
+
         border = t.status_error if has_errors else t.panel_border_done
-        return Panel(content, border_style=border, padding=(0, 1))
-
-    def _done_detail_line(self, wall_seconds: float) -> Text | None:
-        t = get_theme()
-        parts: list[str] = []
-        est_total = sum(self.metrics.estimated_human_minutes.values())
-        if est_total > 0:
-            saved = max(0, est_total * 60 - wall_seconds)
-            parts.append(f"saved ~{_format_duration(saved)} ({est_total}m est)")
-
-        total = len(self.subtasks)
-        if total > 1:
-            peak = _max_concurrent(self.subtasks)
-            if peak > 1:
-                parts.append(f"peak {peak} concurrent")
-
-        if not parts:
-            return None
-        line = Text(" ")
-        line.append(" \u00b7 ".join(parts), style=t.banner_detail)
-        return line
+        return Panel(
+            headline,
+            title="[bold]Done[/bold]",
+            title_align="left",
+            border_style=border,
+            padding=(0, 1),
+        )
 
     def _refresh(self) -> None:
         if self._live is not None and self._active:

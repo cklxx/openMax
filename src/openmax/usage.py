@@ -63,19 +63,16 @@ class SessionUsage:
             f"Turns: {self.num_turns}"
         )
 
+    def compact_line(self) -> str:
+        total_cost = self.total_session_cost_usd or self.cost_usd
+        return f"${total_cost:.4f}"
+
     def session_total_line(self) -> str:
         if not self.subtask_usage:
             return self.summary_line()
         agent_cost = sum(s.get("cost_usd", 0.0) for s in self.subtask_usage)
         total_cost = self.cost_usd + agent_cost
-        total_tokens = self.total_tokens + self.subtask_total_tokens
-        lead = f"{self.total_tokens:,}"
-        agents = f"{self.subtask_total_tokens:,}"
-        return (
-            f"Total: ${total_cost:.4f} | "
-            f"Tokens: {total_tokens:,} (lead {lead} + agents {agents}) | "
-            f"Agents: {len(self.subtask_usage)}"
-        )
+        return f"Total: ${total_cost:.4f} | Agents: {len(self.subtask_usage)}"
 
 
 def usage_from_result(session_id: str, result_msg: object) -> SessionUsage:

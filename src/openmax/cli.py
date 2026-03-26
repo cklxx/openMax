@@ -439,7 +439,6 @@ def run(
       openmax run "fix login bug" "add pagination" "write tests"
     """
     from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
-    from openmax.lead_agent.types import TaskStatus
 
     if not tasks:
         raise click.UsageError("At least one task is required")
@@ -527,7 +526,7 @@ def run(
     try:
         effective_model = model or get_model()
         try:
-            plan = run_lead_agent(
+            run_lead_agent(
                 task=task,
                 pane_mgr=pane_mgr,
                 cwd=cwd,
@@ -545,8 +544,7 @@ def run(
         except LeadAgentStartupError as exc:
             raise SystemExit(1) from exc
         else:
-            done_count = sum(1 for t in plan.subtasks if t.status == TaskStatus.DONE)
-            console.print(f"\n[bold]Done.[/bold] {len(plan.subtasks)} sub-tasks, {done_count} done")
+            pass  # done banner already printed by dashboard
     finally:
         signal.signal(signal.SIGINT, previous_sigint)
         signal.signal(signal.SIGTERM, previous_sigterm)

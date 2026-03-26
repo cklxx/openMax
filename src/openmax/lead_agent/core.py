@@ -594,9 +594,9 @@ async def _run_lead_agent_async(
                         console.print(
                             f"  [bold reverse green] \u2713 done [/bold reverse green]"
                             f"  {elapsed_str}"
-                            f"  [dim]{usage.summary_line()}[/dim]"
+                            f"  [dim]{usage.compact_line()}[/dim]"
                         )
-                    if usage.subtask_usage:
+                    if len(usage.subtask_usage) >= 2:
                         _print_subtask_usage(usage)
 
         if runtime.session_meta is not None and runtime.session_store is not None:
