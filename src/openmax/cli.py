@@ -54,7 +54,7 @@ class GroupedGroup(click.Group):
     """Routes unknown first arguments to 'run' and renders grouped --help."""
 
     command_groups = [
-        ("Run", ["run", "loop"]),
+        ("Run", ["run", "loop", "serve"]),
         ("Sessions", ["sessions", "inspect", "usage", "log"]),
         ("Environment", ["status", "agents", "employee", "panes", "models"]),
         ("Setup", ["setup", "doctor", "clean"]),
@@ -476,7 +476,7 @@ def run(
     if len(tasks) > 1:
         from openmax.task_runner import confirm_tasks, format_batch_prompt
 
-        if not confirm_tasks(list(tasks)):
+        if not no_confirm and not confirm_tasks(list(tasks)):
             console.print("  Cancelled.")
             return
         tasks = (format_batch_prompt(tasks),)
@@ -772,6 +772,25 @@ def _make_loop_iteration(
         tasks_done=done,
         tasks_failed=failed,
     )
+
+
+@main.command()
+@click.option("--port", "-p", default=7862, help="HTTP server port")
+@click.option("--host", "-h", default="127.0.0.1", help="Bind address")
+@click.option("--max-slots", default=6, help="Max concurrent task slots")
+def serve(port: int, host: str, max_slots: int) -> None:
+    """Start openMax as a persistent service with web dashboard."""
+    try:
+        import uvicorn
+    except ImportError:
+        console.print("[red]Missing dependency: pip install uvicorn starlette websockets[/red]")
+        raise SystemExit(1)
+
+    from openmax.server.app import create_app
+
+    console.print(f"[bold cyan]openMax Dashboard[/bold cyan] → http://{host}:{port}")
+    app = create_app(max_slots=max_slots)
+    uvicorn.run(app, host=host, port=port, log_level="info")
 
 
 @main.command()

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>openMax Dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="header">
+    <h1>openMax Dashboard</h1>
+    <div class="status">
+      <span class="status-dot"></span>
+      <span class="status-text">Connecting...</span>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat">
+      <span>Queue</span>
+      <span class="count" id="stat-queued">0</span>
+    </div>
+    <div class="stat">
+      <span>Running</span>
+      <span class="count" id="stat-running">0</span>
+    </div>
+    <div class="stat">
+      <span>Done</span>
+      <span class="count" id="stat-done">0</span>
+    </div>
+  </div>
+
+  <div class="new-task">
+    <input type="text" id="task-input" placeholder="Describe your task..." autocomplete="off">
+    <button onclick="submitTask()">Submit</button>
+  </div>
+
+  <div class="task-list"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

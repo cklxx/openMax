@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.22
+
+- **Feature**: Service mode — `openmax serve` starts a persistent HTTP server with web dashboard for task queue management
+- **Feature**: Web dashboard — real-time task progress visualization via WebSocket (queue/running/done states, subtask progress bars, priority controls)
+- **Feature**: Task queue — filesystem-backed priority queue with submit/cancel/reprioritize from browser UI
+- **Feature**: LLM task sizing — Haiku estimates task size (small/medium/large) for intelligent scheduling, user can override
+- **Feature**: Smart scheduler — small tasks run direct, medium/large tasks go through lead agent, slot-based concurrency control
+
 ## 0.9.21
 
 - **Fix**: LLM task decomposition uses `claude -p` CLI instead of Anthropic SDK, supporting OAuth auth (not just API key)
