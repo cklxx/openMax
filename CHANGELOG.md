@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.14
+
+- **Improvement**: Auto-cleanup on exit — signal handler now removes openmax/* branches and worktrees on Ctrl+C/SIGTERM, not just on happy-path completion
+- **Improvement**: Session auto-expiry — old sessions (>30 days) automatically pruned on startup
+- **Chore**: Remove 61 trivial tests (import checks, dataclass defaults, constant counts) — 830 → 769 tests
+
 ## 0.9.13
 
 - **Feature**: Support `@file` syntax for reading prompts from files — `openmax run @task.md` reads the file contents as the prompt. Works with multi-task mode and mixed inline/file arguments
