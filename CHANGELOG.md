@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.26
+
+- **Feature**: Stream-JSON execution mode (`claude-code-stream` adapter) — sub-agents run via `claude -p --output-format stream-json --verbose` with real-time event parsing
+- **Feature**: Stream parser — extracts tool_use, text, and result events from stream-json output, updates dashboard activity lines in real-time
+- **Feature**: Per-agent log files — each agent's stream written to `.openmax/logs/{task}.jsonl`
+- **Improvement**: HeadlessPaneBackend supports line-based stream capture with pluggable callbacks
+
 ## 0.9.25
 
 - **Feature**: Real-time activity log per task — sub-agent progress, lifecycle events, and error messages stream into an expandable monospace log panel on each task card

@@ -1,16 +1,16 @@
 /* === Apple-style Dark Dashboard — macOS Sequoia / visionOS === */
 
 :root {
-  /* Backgrounds — Apple 3-tier depth */
-  --bg-primary: #000000;
-  --bg-secondary: #1C1C1E;
-  --bg-tertiary: #2C2C2E;
-  --bg-hover: #3A3A3C;
+  /* Backgrounds — Notion/Linear dark mode */
+  --bg-primary: #1E1F24;
+  --bg-secondary: #25262B;
+  --bg-tertiary: #2C2D33;
+  --bg-hover: #35363D;
 
   /* Glass surfaces */
-  --surface-card: rgba(44, 44, 46, 0.4);
-  --surface-card-hover: rgba(58, 58, 60, 0.5);
-  --surface-toolbar: rgba(30, 30, 30, 0.65);
+  --surface-card: rgba(47, 48, 55, 0.72);
+  --surface-card-hover: rgba(58, 59, 66, 0.8);
+  --surface-toolbar: rgba(37, 38, 43, 0.85);
 
   /* Text — Apple label hierarchy */
   --text-primary: #FFFFFF;
@@ -432,7 +432,7 @@ body { line-height: 1.29; }
 .activity-log {
   margin-top: 12px;
   padding: 10px 12px;
-  background: rgba(0, 0, 0, 0.3);
+  background: rgba(0, 0, 0, 0.2);
   border: 0.5px solid var(--separator);
   border-radius: var(--radius-sm);
   max-height: 0;
@@ -538,6 +538,99 @@ body { line-height: 1.29; }
 .empty-state p {
   font-size: 15px;
   color: var(--text-tertiary);
+  letter-spacing: -0.24px;
+}
+
+/* ── Filter bar ── */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.filter-tab {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease);
+  font-family: var(--font-sans);
+  letter-spacing: -0.08px;
+}
+
+.filter-tab:hover { color: var(--text-secondary); background: var(--bg-hover); }
+
+.filter-tab.active {
+  color: var(--text-primary);
+  background: var(--surface-card);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+}
+
+.filter-spacer { flex: 1; }
+
+.clear-btn {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: 0.5px solid var(--border-glass);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: all var(--duration-fast) var(--ease);
+}
+
+.clear-btn:hover {
+  color: var(--red);
+  border-color: rgba(255, 69, 58, 0.3);
+  background: var(--red-dim);
+}
+
+/* ── Size selector (inline) ── */
+.size-selector {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease);
+}
+
+.task-card:hover .size-selector { opacity: 1; }
+
+.size-opt {
+  padding: 2px 6px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  border: 0.5px solid var(--border-glass);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: all var(--duration-fast) var(--ease);
+  color: var(--text-tertiary);
+}
+
+.size-opt:hover { background: var(--bg-hover); color: var(--text-primary); }
+.size-opt.active { border-color: var(--blue); color: var(--blue); background: var(--blue-dim); }
+
+/* ── Inline edit ── */
+.task-name-input {
+  flex: 1;
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border: 0.5px solid var(--blue);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-family: var(--font-sans);
+  outline: none;
   letter-spacing: -0.24px;
 }
 

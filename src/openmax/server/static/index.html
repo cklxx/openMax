@@ -64,6 +64,15 @@
       </div>
     </div>
 
+    <div class="filter-bar">
+      <button class="filter-tab active" onclick="setFilter('all')">All</button>
+      <button class="filter-tab" onclick="setFilter('queued')">Queued</button>
+      <button class="filter-tab" onclick="setFilter('running')">Running</button>
+      <button class="filter-tab" onclick="setFilter('done')">Done</button>
+      <div class="filter-spacer"></div>
+      <button class="clear-btn" onclick="clearDone()">Clear done</button>
+    </div>
+
     <main class="task-list"></main>
   </div>
 
