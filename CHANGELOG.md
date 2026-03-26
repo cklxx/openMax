@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.34
+
+- **Fix**: Stale session resume — interrupted sessions (Ctrl+C / SIGTERM) left `active` status because `SystemExit` bypasses `except Exception`; `finally` block now marks them `aborted`
+- **Fix**: Auto-abort stale sessions on startup — `expire_old_sessions()` marks `active` sessions older than 2h as `aborted`, clearing residual state without manual cleanup
+- **Fix**: Session staleness guard — `_detect_resumable_session` ignores sessions older than 2h, preventing false resume prompts
+
 ## 0.9.33
 
 - **Feature**: React + shadcn/ui dashboard — replaces vanilla JS with React component tree, zustand state management, and shadcn/ui design system (Geist font, Linear/Vercel aesthetic)
