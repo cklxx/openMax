@@ -116,7 +116,10 @@ def _check_claude_auth() -> CheckResult:
     return CheckResult(
         name="Claude auth",
         ok=False,
-        fix_hint="Run `openmax setup` to configure authentication",
+        fix_hint=(
+            "Run `openmax setup`, set ANTHROPIC_API_KEY env var,"
+            " or add it to ~/.claude/settings.json env"
+        ),
     )
 
 

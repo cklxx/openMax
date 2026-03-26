@@ -141,8 +141,8 @@ def _classify_startup_failure(exc: Exception, stage: str) -> LeadAgentStartupErr
             stage=stage,
             detail=detail,
             remediation=(
-                "Run `openmax setup` to configure a long-lived API token. "
-                "This avoids OAuth expiration issues."
+                "Run `openmax setup` to configure a long-lived API token, "
+                "or set ANTHROPIC_API_KEY in ~/.claude/settings.json env."
             ),
         )
 

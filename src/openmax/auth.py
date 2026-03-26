@@ -6,10 +6,12 @@ provides token detection for health checks.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 
 def run_claude_setup_token() -> bool:
@@ -29,6 +31,22 @@ def run_claude_setup_token() -> bool:
     return result.returncode == 0
 
 
+def _check_claude_settings_api_key() -> str | None:
+    """Check Claude Code settings files for ANTHROPIC_API_KEY in env."""
+    for name in ("settings.local.json", "settings.json"):
+        path = Path.home() / ".claude" / name
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text())
+            env = data.get("env") or {}
+            if env.get("ANTHROPIC_API_KEY"):
+                return f"settings ({name})"
+        except Exception:
+            continue
+    return None
+
+
 def has_claude_auth() -> tuple[bool, str]:
     """Check whether Claude authentication is available.
 
@@ -42,7 +60,12 @@ def has_claude_auth() -> tuple[bool, str]:
     if os.environ.get("ANTHROPIC_API_KEY"):
         return True, "ANTHROPIC_API_KEY env var"
 
-    # 3. Probe via `claude auth status`
+    # 3. API key in Claude Code settings (users who set apiKey + baseUrl)
+    settings_detail = _check_claude_settings_api_key()
+    if settings_detail:
+        return True, settings_detail
+
+    # 4. Probe via `claude auth status`
     claude_bin = shutil.which("claude")
     if claude_bin:
         try:
