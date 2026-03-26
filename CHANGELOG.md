@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.19
+
+- **Feature**: Auto-decompose multi-task input — single prompt/file containing numbered lists, `---` separators, or `## ` headings is automatically split into independent tasks with user confirmation
+- **Feature**: Direct execution mode — multi-task runs skip lead agent overhead, executing `claude -p` directly per task (zero orchestration tokens)
+- **Feature**: Auto concurrency — scales to `min(task_count, 30)` instead of hardcoded 6
+- **Improvement**: Staggered task launch (1s intervals) to avoid API rate limit spikes
+- **Improvement**: Mailbox socket backlog increased from 16 to 64 for high-concurrency scenarios
+
 ## 0.9.18
 
 - **Feature**: Persistent employee system — sub-agents now have durable identities stored in `~/.config/openmax/employees/` that accumulate experience over time. Employees' profiles, principles, and past learnings are auto-injected into agent prompts when dispatched
