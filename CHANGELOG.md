@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.33
+
+- **Feature**: React + shadcn/ui dashboard — replaces vanilla JS with React component tree, zustand state management, and shadcn/ui design system (Geist font, Linear/Vercel aesthetic)
+- **Improvement**: Reactive rendering via zustand signals — WebSocket events update store, only affected components re-render (no scroll/focus loss during activity log updates)
+- **Improvement**: Collapsible task cards with subtask list, progress bar, and activity log (powered by shadcn Collapsible component)
+- **Fix**: Remove unused asyncio.Lock from TaskQueue (asyncio single-thread model makes dict operations atomic between awaits)
+- **Fix**: WebSocket handler exception leak — catch all exceptions in ws_hub.handle(), not just WebSocketDisconnect
+- **Improvement**: Refactor task_runner oversized functions — `_run_single_task()` split from 51 to 15 lines, `run_tasks()` from 33 to 10 lines
+
 ## 0.9.32
 
 - **Improvement**: Task input bar moved to floating bottom dock — sticky positioning keeps the input visible while scrolling, with subtle shadow and gradient fade
