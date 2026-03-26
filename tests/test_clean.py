@@ -101,9 +101,7 @@ class TestExpireSessions:
         assert removed == 2
         assert (tmp_path / "hash2" / "session-2").exists()
 
-    def test_keeps_minimum_sessions(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_keeps_minimum_sessions(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from openmax import clean
 
         monkeypatch.setattr(clean, "_sessions_dir", lambda: tmp_path)

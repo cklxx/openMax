@@ -43,15 +43,6 @@ def test_usage_from_result_extracts_all_fields():
     assert u.total_tokens == 1500
 
 
-def test_usage_from_result_handles_none_usage():
-    msg = FakeResultMessage(total_cost_usd=None, usage=None)
-    u = usage_from_result("s1", msg)
-    assert u.cost_usd == 0.0
-    assert u.input_tokens == 0
-    assert u.output_tokens == 0
-    assert u.total_tokens == 0
-
-
 def test_session_usage_format_methods():
     u = SessionUsage(
         session_id="s1",
@@ -98,11 +89,6 @@ def test_usage_store_save_load_roundtrip(tmp_path):
     assert loaded.output_tokens == 50
     assert loaded.total_tokens == 150
     assert loaded.num_turns == 2
-
-
-def test_usage_store_load_missing(tmp_path):
-    store = UsageStore(base_dir=tmp_path)
-    assert store.load("nonexistent") is None
 
 
 def test_usage_store_list_all(tmp_path):

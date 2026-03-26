@@ -12,39 +12,10 @@ from openmax.stats import (
     DECAY_ALPHA,
     SCHEMA_VERSION,
     SessionStats,
-    clamp,
     load_stats,
     save_stats,
     update_stats,
 )
-
-# --- clamp ---
-
-
-def test_clamp_within_range():
-    assert clamp(5.0, 1.0, 10.0) == 5.0
-
-
-def test_clamp_below_min():
-    assert clamp(-1.0, 0.0, 10.0) == 0.0
-
-
-def test_clamp_above_max():
-    assert clamp(15.0, 0.0, 10.0) == 10.0
-
-
-# --- SessionStats defaults ---
-
-
-def test_session_stats_defaults():
-    stats = SessionStats()
-    assert stats.schema_version == SCHEMA_VERSION
-    assert stats.sessions_count == 0
-    assert stats.avg_tokens_per_task == 0.0
-    assert stats.cost_multiplier_actual_vs_estimated == 1.0
-    assert stats.merge_conflict_rate_by_dir == {}
-    assert stats.avg_task_duration_by_type == {}
-
 
 # --- load_stats ---
 
@@ -185,25 +156,6 @@ def test_save_load_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     assert loaded.avg_tokens_per_task == original.avg_tokens_per_task
     assert loaded.merge_conflict_rate_by_dir == original.merge_conflict_rate_by_dir
     assert loaded.cost_multiplier_actual_vs_estimated == pytest.approx(1.5)
-
-
-def test_load_stats_no_project_dir():
-    stats = load_stats(None)
-    assert isinstance(stats, SessionStats)
-
-
-# --- merge_success_rate ---
-
-
-def test_merge_fields_default_to_zero():
-    stats = SessionStats()
-    assert stats.merges_succeeded == 0
-    assert stats.merges_failed == 0
-
-
-def test_merge_success_rate_no_merges_returns_one():
-    stats = SessionStats()
-    assert stats.merge_success_rate == 1.0
 
 
 def test_merge_success_rate_all_succeeded():

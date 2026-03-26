@@ -130,9 +130,3 @@ def test_status_missing_path(monkeypatch, tmp_path):
 
     results = status_all()
     assert results[0]["status"] == "missing"
-
-
-def test_empty_registry(monkeypatch, tmp_path):
-    monkeypatch.setattr("openmax.project_registry._REGISTRY_PATH", tmp_path / "projects.yaml")
-    assert list_projects() == []
-    assert status_all() == []

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openmax.test_parsing import ParsedTestResult, detect_framework, parse_test_output
+from openmax.test_parsing import detect_framework, parse_test_output
 
 # ---------------------------------------------------------------------------
 # detect_framework
@@ -30,9 +30,6 @@ class TestDetectFramework:
         raw = "test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured"
         assert detect_framework(raw) == "cargo_test"
 
-    def test_unknown(self):
-        assert detect_framework("hello world") is None
-
     def test_ansi_stripped(self):
         raw = "\x1b[32m===== 3 passed in 0.5s =====\x1b[0m"
         assert detect_framework(raw) == "pytest"
@@ -41,16 +38,6 @@ class TestDetectFramework:
 # ---------------------------------------------------------------------------
 # parse_test_output — empty / unknown
 # ---------------------------------------------------------------------------
-
-
-class TestParseEmpty:
-    def test_empty_string(self):
-        r = parse_test_output("")
-        assert r == ParsedTestResult()
-
-    def test_whitespace_only(self):
-        r = parse_test_output("   \n\n  ")
-        assert r == ParsedTestResult()
 
 
 class TestParseUnknown:

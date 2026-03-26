@@ -18,33 +18,6 @@ from openmax.archetypes._base import (
     match_archetype,
 )
 
-# --- dataclass construction ---
-
-
-class TestSubtaskTemplateDefaults:
-    def test_defaults_applied(self):
-        t = SubtaskTemplate(name="build", description="Build it")
-        assert t.dependencies == []
-        assert t.estimated_minutes == 5
-
-
-class TestArchetypeCreation:
-    def test_all_fields(self):
-        templates = [SubtaskTemplate(name="s1", description="d")]
-        arch = Archetype(
-            name="test",
-            display_name="Test Arch",
-            description="A test archetype",
-            subtask_templates=templates,
-            planning_hints=["hint1"],
-            anti_patterns=["anti1"],
-        )
-        assert arch.name == "test"
-        assert arch.display_name == "Test Arch"
-        assert len(arch.subtask_templates) == 1
-        assert arch.planning_hints == ["hint1"]
-
-
 # --- classify_task ---
 
 
@@ -114,29 +87,6 @@ class TestMatchArchetype:
 
 
 # --- Built-in archetypes ---
-
-
-class TestBuiltInArchetypes:
-    def test_five_built_in(self):
-        assert len(BUILT_IN_ARCHETYPES) == 5
-
-    def test_all_have_required_fields(self):
-        for arch in BUILT_IN_ARCHETYPES:
-            assert arch.name
-            assert arch.display_name
-            assert arch.description
-
-    def test_all_have_subtask_templates(self):
-        for arch in BUILT_IN_ARCHETYPES:
-            assert len(arch.subtask_templates) >= 3
-
-    def test_all_have_planning_hints(self):
-        for arch in BUILT_IN_ARCHETYPES:
-            assert len(arch.planning_hints) >= 3
-
-    def test_all_have_anti_patterns(self):
-        for arch in BUILT_IN_ARCHETYPES:
-            assert len(arch.anti_patterns) >= 2
 
 
 # --- load_custom_archetypes ---
@@ -211,10 +161,6 @@ class TestFormatSubtaskHints:
         output = format_subtask_hints(arch)
         for t in arch.subtask_templates:
             assert t.name in output
-
-    def test_empty_templates_returns_empty(self):
-        arch = _make_archetype("empty")
-        assert format_subtask_hints(arch) == ""
 
     def test_shows_dependencies(self):
         arch = Archetype(

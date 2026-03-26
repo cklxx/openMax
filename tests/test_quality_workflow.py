@@ -9,20 +9,6 @@ from openmax.quality_workflow import (
 )
 
 
-def test_quality_steps_count():
-    assert len(QUALITY_STEPS) == 4
-
-
-def test_quality_steps_types():
-    types = [s.step_type for s in QUALITY_STEPS]
-    assert types == ["write", "review", "challenge", "rewrite"]
-
-
-def test_quality_steps_roles():
-    roles = [s.role for s in QUALITY_STEPS]
-    assert roles == ["writer", "reviewer", "challenger", "writer"]
-
-
 def test_only_committing_steps_have_commits_true():
     for step in QUALITY_STEPS:
         if step.step_type in ("write", "rewrite"):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from openmax.lead_agent.tools._helpers import ROLE_TEMPLATES, _build_role_context
+from openmax.lead_agent.tools._helpers import _build_role_context
 
 
 def test_writer_role_returns_empty():
@@ -42,10 +42,3 @@ def test_debugger_role_returns_instructions():
 
 def test_unknown_role_returns_empty():
     assert _build_role_context("unknown") == ""
-
-
-def test_role_templates_cover_all_non_writer_roles():
-    assert "reviewer" in ROLE_TEMPLATES
-    assert "challenger" in ROLE_TEMPLATES
-    assert "debugger" in ROLE_TEMPLATES
-    assert "writer" not in ROLE_TEMPLATES

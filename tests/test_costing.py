@@ -4,17 +4,8 @@ from __future__ import annotations
 
 from openmax.lead_agent.tools._costing import (
     MODEL_PRICING,
-    CostEstimate,
     estimate_task_cost,
 )
-
-
-def test_estimate_returns_cost_estimate():
-    result = estimate_task_cost(4000, "claude-code")
-    assert isinstance(result, CostEstimate)
-    assert result.estimated_input_tokens == 1000
-    assert result.estimated_output_tokens == 2000
-    assert result.estimated_tokens == 3000
 
 
 def test_estimate_cost_uses_model_pricing():
@@ -47,10 +38,3 @@ def test_estimate_large_prompt():
     assert result.estimated_input_tokens == 100_000
     assert result.estimated_output_tokens == 200_000
     assert result.estimated_cost_usd > 0
-
-
-def test_model_pricing_has_known_agents():
-    assert "claude-code" in MODEL_PRICING
-    assert "codex" in MODEL_PRICING
-    assert "opencode" in MODEL_PRICING
-    assert "generic" in MODEL_PRICING

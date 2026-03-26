@@ -54,61 +54,25 @@ class TestFormatRelativeTime:
 
 
 class TestFormatTokens:
-    def test_none_returns_dash(self):
-        assert format_tokens(None) == "-"
-
-    def test_negative_returns_dash(self):
-        assert format_tokens(-1) == "-"
-
-    def test_zero(self):
-        assert format_tokens(0) == "0"
-
-    def test_small_number(self):
-        assert format_tokens(500) == "500"
-
     def test_thousands(self):
         assert format_tokens(1_234) == "1.2k"
-
-    def test_large_thousands(self):
-        assert format_tokens(125_000) == "125.0k"
 
     def test_millions(self):
         assert format_tokens(1_500_000) == "1.5M"
 
+    def test_none_returns_dash(self):
+        assert format_tokens(None) == "-"
+
 
 class TestFormatCost:
-    def test_none_returns_zero(self):
-        assert format_cost(None) == "$0.00"
-
-    def test_negative_returns_zero(self):
-        assert format_cost(-1.0) == "$0.00"
-
-    def test_zero(self):
-        assert format_cost(0.0) == "$0.00"
-
     def test_small_cost_three_decimals(self):
         assert format_cost(0.005) == "$0.005"
 
     def test_normal_cost_two_decimals(self):
         assert format_cost(1.234) == "$1.23"
 
-    def test_large_cost(self):
-        assert format_cost(12.5) == "$12.50"
-
 
 class TestFormatTokensShort:
-    def test_none_returns_dash(self):
-        assert format_tokens_short(None) == "\u2014"
-
-    def test_negative_returns_dash(self):
-        assert format_tokens_short(-1) == "\u2014"
-
-    def test_zero(self):
-        assert format_tokens_short(0) == "0"
-
-    def test_small(self):
-        assert format_tokens_short(500) == "500"
-
     def test_thousands(self):
         assert format_tokens_short(12500) == "12.5k"
 

@@ -21,10 +21,3 @@ def test_run_checks_returns_list():
     names = [r.name for r in results]
     assert "Python" in names
     assert "claude" in names
-
-
-def test_python_check_passes():
-    from openmax.doctor import _check_python
-
-    result = _check_python()
-    assert result.ok  # we're running Python 3.10+

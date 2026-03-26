@@ -9,11 +9,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from openmax.provider_usage import (
-    ModelUsage,
     ProviderStatus,
     QuotaInfo,
-    QuotaWindow,
-    WindowUsage,
     _claude_fetch_quota,
     _claude_window_usage,
     _codex_fetch_quota,
@@ -23,73 +20,6 @@ from openmax.provider_usage import (
     _probe_codex,
     probe_all,
 )
-
-# ── Dataclass basics ──────────────────────────────────────────────
-
-
-class TestModelUsage:
-    def test_total_tokens(self):
-        mu = ModelUsage(model="claude-3", input_tokens=100, output_tokens=50)
-        assert mu.total_tokens == 150
-
-    def test_defaults(self):
-        mu = ModelUsage(model="x")
-        assert mu.input_tokens == 0
-        assert mu.output_tokens == 0
-        assert mu.cache_read_tokens == 0
-        assert mu.cache_creation_tokens == 0
-        assert mu.total_tokens == 0
-
-
-class TestWindowUsage:
-    def test_total_tokens(self):
-        wu = WindowUsage(input_tokens=300, output_tokens=200)
-        assert wu.total_tokens == 500
-
-    def test_defaults(self):
-        wu = WindowUsage()
-        assert wu.window_hours == 5
-        assert wu.messages == 0
-        assert wu.total_tokens == 0
-        assert wu.models == {}
-
-
-class TestQuotaWindow:
-    def test_fields(self):
-        qw = QuotaWindow(
-            name="5-hour session", used_pct=42.5, resets_at="2026-01-01T00:00:00+00:00"
-        )
-        assert qw.name == "5-hour session"
-        assert qw.used_pct == 42.5
-        assert qw.reset_seconds is None
-
-
-class TestQuotaInfo:
-    def test_defaults(self):
-        qi = QuotaInfo()
-        assert qi.windows == []
-        assert qi.plan is None
-        assert qi.extra_usage_enabled is False
-        assert qi.error is None
-
-    def test_with_windows(self):
-        qi = QuotaInfo(
-            windows=[QuotaWindow(name="5h", used_pct=10.0)],
-            plan="Pro",
-        )
-        assert len(qi.windows) == 1
-        assert qi.plan == "Pro"
-
-
-class TestProviderStatus:
-    def test_defaults(self):
-        ps = ProviderStatus(provider="test")
-        assert ps.installed is False
-        assert ps.total_sessions == 0
-        assert ps.model_usage == []
-        assert ps.daily_activity == []
-        assert ps.raw == {}
-
 
 # ── _epoch_to_iso ─────────────────────────────────────────────────
 

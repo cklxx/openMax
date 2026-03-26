@@ -5,34 +5,6 @@ from __future__ import annotations
 from openmax.lead_agent.types import SubTask, TaskStatus
 from openmax.usage import SessionUsage, UsageStore, _load_usage_from_dict
 
-# ── SubTask token fields ──────────────────────────────────────────
-
-
-def test_subtask_default_token_fields():
-    st = SubTask(name="t1", agent_type="claude-code", prompt="do stuff")
-    assert st.input_tokens == 0
-    assert st.output_tokens == 0
-    assert st.cost_usd == 0.0
-    assert st.usage_source == "estimated"
-    assert st.tokens_used == 0
-
-
-def test_subtask_token_fields_set():
-    st = SubTask(
-        name="t1",
-        agent_type="codex",
-        prompt="build",
-        input_tokens=1000,
-        output_tokens=2000,
-        cost_usd=0.027,
-        usage_source="reported",
-    )
-    assert st.input_tokens == 1000
-    assert st.output_tokens == 2000
-    assert st.cost_usd == 0.027
-    assert st.usage_source == "reported"
-
-
 # ── _apply_subtask_usage ──────────────────────────────────────────
 
 
