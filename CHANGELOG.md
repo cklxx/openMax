@@ -1,13 +1,15 @@
 # Changelog
 
+## 0.9.20
+
+- **Feature**: Batch task mode — single prompt/file containing multiple tasks is auto-decomposed (numbered lists, `---` separators, `## ` headings, or LLM fallback via haiku), confirmed with user, and executed through a single lead agent that dispatches all sub-agents in parallel
+- **Feature**: LLM-powered task decomposition — unstructured natural language prompts are split into independent tasks via Claude Haiku when structural patterns aren't found
+- **Improvement**: Max concurrent agents raised from 6 to 30 in lead agent prompt
+- **Improvement**: Mailbox socket backlog increased from 16 to 64 for high-concurrency scenarios
+
 ## 0.9.19
 
 - **Fix**: Recognize `ANTHROPIC_AUTH_TOKEN` for auth detection and settings forwarding
-- **Feature**: Auto-decompose multi-task input — single prompt/file containing numbered lists, `---` separators, or `## ` headings is automatically split into independent tasks with user confirmation
-- **Feature**: Direct execution mode — multi-task runs skip lead agent overhead, executing `claude -p` directly per task (zero orchestration tokens)
-- **Feature**: Auto concurrency — scales to `min(task_count, 30)` instead of hardcoded 6
-- **Improvement**: Staggered task launch (1s intervals) to avoid API rate limit spikes
-- **Improvement**: Mailbox socket backlog increased from 16 to 64 for high-concurrency scenarios
 
 ## 0.9.18
 
