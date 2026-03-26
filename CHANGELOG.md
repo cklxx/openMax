@@ -3,6 +3,13 @@
 ## 0.9.32
 
 - **Improvement**: Task input bar moved to floating bottom dock — sticky positioning keeps the input visible while scrolling, with subtle shadow and gradient fade
+- **Fix**: Add asyncio.Lock to TaskQueue for thread-safe concurrent access from scheduler, HTTP routes, and progress bridge
+- **Fix**: Replace deprecated `asyncio.get_event_loop()` with `get_running_loop()` across server module
+- **Fix**: Track detached async tasks in scheduler for proper cancellation on shutdown
+- **Fix**: ProgressBridge `call_soon_threadsafe` race condition — wrap in try/except for loop-closed edge case
+- **Improvement**: Initialize module globals as Optional to avoid NameError before `create_app()`
+- **Improvement**: Split `create_app()` to comply with 15-line function body rule
+- **Tests**: 16 new scheduler integration tests — state transitions, slot cost accounting, progress bridge forwarding
 
 ## 0.9.31
 
