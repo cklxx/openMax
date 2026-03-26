@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.21
+
+- **Fix**: LLM task decomposition uses `claude -p` CLI instead of Anthropic SDK, supporting OAuth auth (not just API key)
+- **Fix**: Lower LLM decomposition threshold from 200 to 80 chars for CJK text
+- **Fix**: Handle markdown code fences in LLM decomposition response
+
 ## 0.9.20
 
 - **Feature**: Batch task mode — single prompt/file containing multiple tasks is auto-decomposed (numbered lists, `---` separators, `## ` headings, or LLM fallback via haiku), confirmed with user, and executed through a single lead agent that dispatches all sub-agents in parallel
