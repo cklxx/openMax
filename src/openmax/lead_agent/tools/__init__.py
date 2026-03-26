@@ -10,6 +10,7 @@ import anyio as anyio
 from openmax.lead_agent.tools._branch import _sanitize_branch_name as _sanitize_branch_name
 from openmax.lead_agent.tools._dispatch import _check_budget_warning as _check_budget_warning
 from openmax.lead_agent.tools._dispatch import dispatch_agent, read_pane_output, send_text_to_pane
+from openmax.lead_agent.tools._dispatch import drain_dispatch_queue as drain_dispatch_queue
 from openmax.lead_agent.tools._error_context import extract_error_context as extract_error_context
 from openmax.lead_agent.tools._error_context import is_rate_limit_error as is_rate_limit_error
 from openmax.lead_agent.tools._helpers import _append_session_event as _append_session_event

@@ -404,6 +404,7 @@ async def _run_lead_agent_async(
         plan_confirm=plan_confirm,
         quality_mode=quality_mode,
         ui_coordinator=ui_coordinator,
+        max_concurrent_agents=max_concurrent_agents,
     )
     runtime.session_stats = load_stats(cwd)
     token = bind_lead_agent_runtime(runtime)
