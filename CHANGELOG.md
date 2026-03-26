@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.31
+
+- **Feature**: Serve mode auto-approve — `openmax serve` no longer prompts for plan confirmation in the CLI terminal; tasks execute autonomously
+- **Feature**: Mailbox observer callback — `SessionMailbox.on_message` enables real-time progress forwarding from sub-agents to WebSocket dashboard
+- **Feature**: Auto-retry on rate limit — serve mode automatically waits and retries on API rate limits instead of blocking on `input()`
+- **Fix**: Progress bridge rewritten from polling to callback-based — sub-agent activity now properly appears in the dashboard instead of being consumed by the lead agent's internal monitoring loop
+- **Improvement**: Dashboard UI polish — chevron toggle for expand/collapse, live duration counter on running tasks, better subtask layout with status badges, agent source highlighting in activity logs, pulse animation on running indicators
+
 ## 0.9.30
 
 - **Feature**: Agent dispatch queue — `--max-agents N` limits concurrent sub-agents, excess tasks queued as pending and auto-dispatched when slots open
