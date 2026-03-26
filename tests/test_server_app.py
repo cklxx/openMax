@@ -91,4 +91,4 @@ def test_stats(client):
 def test_static_index(client):
     resp = client.get("/")
     assert resp.status_code == 200
-    assert "openMax Dashboard" in resp.text
+    assert "openMax" in resp.text

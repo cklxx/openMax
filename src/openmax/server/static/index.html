@@ -3,39 +3,69 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>openMax Dashboard</title>
+  <title>openMax</title>
   <link rel="stylesheet" href="/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
 </head>
 <body>
-  <div class="header">
-    <h1>openMax Dashboard</h1>
-    <div class="status">
-      <span class="status-dot"></span>
-      <span class="status-text">Connecting...</span>
-    </div>
-  </div>
+  <div class="shell">
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="logo">
+          <span class="logo-icon">⚡</span>
+          <span class="logo-text">openMax</span>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div class="conn-badge">
+          <span class="conn-dot"></span>
+          <span class="conn-label">Connecting...</span>
+        </div>
+      </div>
+    </header>
 
-  <div class="stats">
-    <div class="stat">
-      <span>Queue</span>
-      <span class="count" id="stat-queued">0</span>
+    <div class="stats-row">
+      <div class="stat-card stat-queued">
+        <div class="stat-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        </div>
+        <div class="stat-body">
+          <span class="stat-num" id="stat-queued">0</span>
+          <span class="stat-label">Queued</span>
+        </div>
+      </div>
+      <div class="stat-card stat-running">
+        <div class="stat-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/></svg>
+        </div>
+        <div class="stat-body">
+          <span class="stat-num" id="stat-running">0</span>
+          <span class="stat-label">Running</span>
+        </div>
+      </div>
+      <div class="stat-card stat-done">
+        <div class="stat-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+        </div>
+        <div class="stat-body">
+          <span class="stat-num" id="stat-done">0</span>
+          <span class="stat-label">Done</span>
+        </div>
+      </div>
     </div>
-    <div class="stat">
-      <span>Running</span>
-      <span class="count" id="stat-running">0</span>
-    </div>
-    <div class="stat">
-      <span>Done</span>
-      <span class="count" id="stat-done">0</span>
-    </div>
-  </div>
 
-  <div class="new-task">
-    <input type="text" id="task-input" placeholder="Describe your task..." autocomplete="off">
-    <button onclick="submitTask()">Submit</button>
-  </div>
+    <div class="input-area">
+      <div class="input-wrap">
+        <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v8m-4-4h8"/></svg>
+        <input type="text" id="task-input" placeholder="What should I work on?" autocomplete="off" spellcheck="false">
+        <button id="submit-btn" onclick="submitTask()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14m-7-7l7 7-7 7"/></svg>
+        </button>
+      </div>
+    </div>
 
-  <div class="task-list"></div>
+    <main class="task-list"></main>
+  </div>
 
   <script src="/app.js"></script>
 </body>

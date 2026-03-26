@@ -13,13 +13,13 @@ function connectWS() {
   ws = new WebSocket(`${proto}//${location.host}/ws`);
 
   ws.onopen = () => {
-    $(".status-dot").classList.add("connected");
-    $(".status-text").textContent = "Connected";
+    $(".conn-dot").classList.add("connected");
+    $(".conn-label").textContent = "Live";
   };
 
   ws.onclose = () => {
-    $(".status-dot").classList.remove("connected");
-    $(".status-text").textContent = "Reconnecting...";
+    $(".conn-dot").classList.remove("connected");
+    $(".conn-label").textContent = "Reconnecting...";
     setTimeout(connectWS, 2000);
   };
 
@@ -82,9 +82,17 @@ function renderStats() {
     const k = t.status in counts ? t.status : "queued";
     counts[k]++;
   });
-  $("#stat-queued").textContent = counts.queued + counts.sizing;
-  $("#stat-running").textContent = counts.running;
-  $("#stat-done").textContent = counts.done;
+  animateNum("stat-queued", counts.queued + counts.sizing);
+  animateNum("stat-running", counts.running);
+  animateNum("stat-done", counts.done);
+}
+
+function animateNum(id, target) {
+  const el = document.getElementById(id);
+  if (el.textContent === String(target)) return;
+  el.textContent = target;
+  el.style.transform = "scale(1.15)";
+  setTimeout(() => (el.style.transition = "transform 0.2s", el.style.transform = ""), 50);
 }
 
 function renderTasks() {
@@ -100,21 +108,23 @@ function renderTasks() {
   let html = "";
 
   if (running.length) {
-    html += '<div class="section-header">Running</div>';
+    html += `<div class="section-header">Running (${running.length})</div>`;
     html += running.map(taskCard).join("");
   }
   if (queued.length) {
-    html += '<div class="section-header">Queued</div>';
+    html += `<div class="section-header">Queued (${queued.length})</div>`;
     html += queued.map(taskCard).join("");
   }
   if (done.length) {
-    html += '<div class="section-header">Completed</div>';
+    html += `<div class="section-header">Completed (${done.length})</div>`;
     html += done.map(taskCard).join("");
   }
 
   if (!tasks.length) {
     html = `<div class="empty-state">
-      <p>No tasks yet. Submit one above to get started.</p>
+      <div class="empty-icon">⚡</div>
+      <h3>No tasks yet</h3>
+      <p>Submit a task above to get started</p>
     </div>`;
   }
 
@@ -126,33 +136,49 @@ function taskCard(t) {
   const sizeClass = `badge-${t.size || "unknown"}`;
   const pct = calcProgress(t);
   const progressClass = pct >= 100 ? "done" : "";
-  const label = t.task.length > 80 ? t.task.slice(0, 80) + "..." : t.task;
+  const label = t.task.length > 100 ? t.task.slice(0, 100) + "..." : t.task;
+  const isRunning = t.status === "running";
+  const glowClass = isRunning ? " running-glow" : "";
 
   let subtasksHtml = "";
   if (t.subtasks && t.subtasks.length) {
     subtasksHtml = '<div class="subtasks">' +
       t.subtasks.map((s) => {
-        const icon = s.status === "done" ? "&#x2705;" :
-          s.status === "running" ? "&#x1F504;" : "&#x23F3;";
-        return `<div class="subtask">${icon} ${esc(s.name)} <span class="${statusClass}">${s.status}</span></div>`;
+        const cls = s.status === "done" ? "done" : s.status === "running" ? "running" : "pending";
+        const icon = s.status === "done" ? "&#10003;" : s.status === "running" ? "&#8226;" : "&#8226;";
+        return `<div class="subtask">
+          <span class="subtask-icon ${cls}">${icon}</span>
+          <span class="subtask-name">${esc(s.name)}</span>
+          <span class="${statusClass}" style="font-size:11px">${s.status}</span>
+        </div>`;
       }).join("") + "</div>";
   }
 
   const canCancel = t.status === "queued" || t.status === "running";
   const canAdjust = t.status === "queued";
 
-  return `<div class="task-card" data-id="${t.id}" onclick="toggleExpand(this)">
+  let progressHtml = "";
+  if (isRunning) {
+    const subInfo = t.subtasks && t.subtasks.length
+      ? `${t.subtasks.filter(s => s.status === "done").length}/${t.subtasks.length} subtasks`
+      : "processing...";
+    progressHtml = `
+      <div class="progress-meta"><span>${subInfo}</span><span>${pct}%</span></div>
+      <div class="progress-bar"><div class="progress-fill ${progressClass}" style="width:${pct}%"></div></div>`;
+  }
+
+  return `<div class="task-card${glowClass}" data-id="${t.id}" onclick="toggleExpand(this)">
     <div class="task-header">
       <span class="task-name">${esc(label)}</span>
       <span class="badge ${sizeClass}">${t.size || "..."}</span>
       <span class="task-status ${statusClass}">${t.status}</span>
       <div class="task-actions">
-        ${canAdjust ? `<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();adjustPriority('${t.id}',-10)" title="Higher priority">&#9650;</button>` : ""}
-        ${canAdjust ? `<button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();adjustPriority('${t.id}',10)" title="Lower priority">&#9660;</button>` : ""}
-        ${canCancel ? `<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();cancelTask('${t.id}')">&#10005;</button>` : ""}
+        ${canAdjust ? `<button class="act-btn" onclick="event.stopPropagation();adjustPriority('${t.id}',-10)" title="Higher priority">&#9650;</button>` : ""}
+        ${canAdjust ? `<button class="act-btn" onclick="event.stopPropagation();adjustPriority('${t.id}',10)" title="Lower priority">&#9660;</button>` : ""}
+        ${canCancel ? `<button class="act-btn danger" onclick="event.stopPropagation();cancelTask('${t.id}')" title="Cancel">&#10005;</button>` : ""}
       </div>
     </div>
-    ${t.status === "running" ? `<div class="progress-bar"><div class="progress-fill ${progressClass}" style="width:${pct}%"></div></div>` : ""}
+    ${progressHtml}
     ${subtasksHtml}
   </div>`;
 }
@@ -182,6 +208,7 @@ function submitTask() {
   if (!text) return;
   sendWS("submit_task", { task: text });
   input.value = "";
+  input.focus();
 }
 
 function cancelTask(id) {
