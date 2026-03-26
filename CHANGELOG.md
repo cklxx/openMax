@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.18
+
+- **Feature**: Persistent employee system — sub-agents now have durable identities stored in `~/.config/openmax/employees/` that accumulate experience over time. Employees' profiles, principles, and past learnings are auto-injected into agent prompts when dispatched
+- **Feature**: `openmax employee` CLI — `add`, `list`, `show`, `edit`, `remove` commands for managing employee profiles
+- **Feature**: Auto-learning — agents include `## Learnings` in their task reports, which are automatically extracted and appended to the employee's experience file
+- **Feature**: `list_employees` MCP tool — lead agent can browse available employees and match them to tasks by specialty
+
 ## 0.9.17
 
 - **Fix**: Forward `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` from Claude Code settings to lead agent subprocess — the SDK passes `--setting-sources ""` which skips settings files, causing login errors for users with settings-based auth
