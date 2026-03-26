@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.11
+
+- **Refactor**: Declutter end-of-session output — consolidated redundant panels into a single clean Done banner, simplified Result panel and usage line, agent table only shown for multi-agent runs
+
 ## 0.9.10
 
 - **Feature**: Auto-open Terminal.app for sub-agent panes on macOS — when no Kaku/Ghostty is available and not inside tmux, automatically opens a Terminal.app window attached to the tmux session. Lead agent output stays in the current terminal, sub-agents visible in the new window
