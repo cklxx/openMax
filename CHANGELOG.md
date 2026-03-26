@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.29
+## 0.9.30
 
 - **Feature**: Agent dispatch queue — `--max-agents N` limits concurrent sub-agents, excess tasks queued as pending and auto-dispatched when slots open
 - **Feature**: Rate limit resilience — lead agent pauses and prompts user to confirm before retrying (up to 5 attempts)
