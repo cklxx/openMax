@@ -1428,3 +1428,50 @@ def test_employee_list_empty(monkeypatch, tmp_path):
     result = runner.invoke(cli.main, ["employee", "list"])
     assert result.exit_code == 0
     assert "No employees" in result.output
+
+
+# --- auto-decompose multi-task ---
+
+
+def test_run_auto_decompose_triggers_multi_task(monkeypatch, tmp_path):
+    """A single input with numbered tasks triggers multi-task mode."""
+    captured = {}
+
+    def fake_run_tasks(cfg):
+        captured["cfg"] = cfg
+        return []
+
+    monkeypatch.setattr("openmax.task_runner.run_tasks", fake_run_tasks)
+    monkeypatch.setattr(
+        "openmax.task_runner.confirm_tasks",
+        lambda tasks: True,
+    )
+    monkeypatch.setattr(
+        "openmax.task_runner.list_projects",
+        lambda: [],
+    )
+    monkeypatch.setattr("openmax.task_runner.find_project", lambda n: None)
+
+    task_file = tmp_path / "tasks.txt"
+    task_file.write_text("1. Fix login bug\n2. Add pagination\n3. Write tests")
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["run", f"@{task_file}"])
+    assert result.exit_code == 0
+    assert "cfg" in captured
+    assert len(captured["cfg"].tasks) == 3
+
+
+def test_run_auto_decompose_cancelled(monkeypatch, tmp_path):
+    """User declining confirmation aborts execution."""
+    monkeypatch.setattr(
+        "openmax.task_runner.confirm_tasks",
+        lambda tasks: False,
+    )
+
+    task_file = tmp_path / "tasks.txt"
+    task_file.write_text("1. Task A\n2. Task B")
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["run", f"@{task_file}"])
+    assert "Cancelled" in result.output

@@ -57,7 +57,7 @@ class SessionMailbox:
         self.socket_path.unlink(missing_ok=True)
         self._server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._server_sock.bind(str(self.socket_path))
-        self._server_sock.listen(16)
+        self._server_sock.listen(64)
         self._server_sock.settimeout(1.0)
         threading.Thread(target=self._serve, daemon=True).start()
 

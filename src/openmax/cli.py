@@ -464,16 +464,31 @@ def run(
 
     cwd = _resolve_cwd(cwd)
 
+    # Auto-decompose: single input may contain multiple tasks
+    if len(tasks) == 1:
+        from openmax.task_runner import split_multi_tasks
+
+        split = split_multi_tasks(tasks[0])
+        if len(split) > 1:
+            tasks = tuple(split)
+
     # Multi-task mode
     if len(tasks) > 1:
-        from openmax.task_runner import MultiTaskConfig, resolve_task_cwds, run_tasks
+        from openmax.task_runner import (
+            MultiTaskConfig,
+            confirm_tasks,
+            resolve_task_cwds,
+            run_tasks,
+        )
 
+        if not confirm_tasks(list(tasks)):
+            console.print("  Cancelled.")
+            return
         task_list = resolve_task_cwds(tasks, project, cwd)
         cfg = MultiTaskConfig(
             tasks=task_list,
             model=model or get_model(),
             max_turns=max_turns,
-            concurrency=6,
             keep_panes=keep_panes,
             no_confirm=no_confirm,
             verbose=verbose,
