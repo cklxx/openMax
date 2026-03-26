@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import re
 import subprocess
 import sys
 import time
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,14 +16,23 @@ from openmax.output import console
 from openmax.project_registry import find_project, list_projects
 from openmax.ui_coordinator import UICoordinator
 
+logger = logging.getLogger(__name__)
+
 _NUMBERED_RE = re.compile(r"^\s*\d+[\.\)]\s+", re.MULTILINE)
 _SEPARATOR_RE = re.compile(r"^---+\s*$", re.MULTILINE)
 _HEADING_RE = re.compile(r"^##\s+", re.MULTILINE)
-_MAX_AUTO_CONCURRENCY = 30
+_LLM_MIN_LENGTH = 200  # only attempt LLM split for prompts longer than this
+
+_DECOMPOSE_SYSTEM = (
+    "You decompose a user request into independent tasks. "
+    "Return a JSON array of task strings. Each task should be a self-contained instruction. "
+    "If the input is already a single coherent task, return a single-element array. "
+    'Example: ["Fix login bug in auth.py", "Add pagination to /users endpoint"]'
+)
 
 
 def split_multi_tasks(text: str) -> list[str]:
-    """Extract independent tasks from a multi-task prompt via structural patterns."""
+    """Extract independent tasks from a multi-task prompt via structural patterns or LLM."""
     tasks = _split_by_numbered_list(text)
     if len(tasks) > 1:
         return tasks
@@ -29,7 +40,13 @@ def split_multi_tasks(text: str) -> list[str]:
     if len(tasks) > 1:
         return tasks
     tasks = _split_by_headings(text)
-    return tasks if len(tasks) > 1 else [text.strip()]
+    if len(tasks) > 1:
+        return tasks
+    if len(text) > _LLM_MIN_LENGTH:
+        tasks = _split_via_llm(text)
+        if len(tasks) > 1:
+            return tasks
+    return [text.strip()]
 
 
 def _split_by_numbered_list(text: str) -> list[str]:
@@ -62,6 +79,26 @@ def _split_by_headings(text: str) -> list[str]:
     return [p for p in parts if p]
 
 
+def _split_via_llm(text: str) -> list[str]:
+    """Use a fast LLM to decompose unstructured text into independent tasks."""
+    try:
+        import anthropic
+
+        resp = anthropic.Anthropic().messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=2048,
+            system=_DECOMPOSE_SYSTEM,
+            messages=[{"role": "user", "content": text}],
+        )
+        raw = resp.content[0].text.strip()
+        tasks = json.loads(raw)
+        if isinstance(tasks, list) and all(isinstance(t, str) for t in tasks):
+            return [t.strip() for t in tasks if t.strip()]
+    except Exception as exc:
+        logger.debug("LLM task decomposition failed: %s", exc)
+    return []
+
+
 def confirm_tasks(tasks: list[str]) -> bool:
     """Display decomposed tasks and prompt user for confirmation."""
     console.print(f"\n  [bold cyan]Decomposed into {len(tasks)} tasks:[/bold cyan]")
@@ -71,6 +108,18 @@ def confirm_tasks(tasks: list[str]) -> bool:
     console.print()
     answer = console.input("  Run all in parallel? [Y/n]: ").strip().lower()
     return answer in ("", "y", "yes")
+
+
+def format_batch_prompt(tasks: tuple[str, ...] | list[str]) -> str:
+    """Format multiple tasks into a structured prompt for the lead agent."""
+    lines = [
+        f"Execute the following {len(tasks)} INDEPENDENT tasks in parallel.",
+        "Each task should be dispatched as a separate sub-agent.",
+        "All tasks are independent — no dependencies between them.\n",
+    ]
+    for i, t in enumerate(tasks, 1):
+        lines.append(f"{i}. {t}")
+    return "\n".join(lines)
 
 
 @dataclass
@@ -92,15 +141,13 @@ class MultiTaskConfig:
     tasks: list[tuple[str, str]]  # [(prompt, cwd), ...]
     model: str | None = None
     max_turns: int | None = None
-    concurrency: int = 0  # 0 = auto (min(len(tasks), 30))
+    concurrency: int = 6
     keep_panes: bool = False
     no_confirm: bool = True
     verbose: bool = False
     pane_backend_name: str = "auto"
     agents: list[str] | None = None
     on_progress: Any = None  # callback(task_idx, status, detail)
-    direct: bool = True  # skip lead agent, run claude -p directly
-    stagger_s: float = 1.0  # seconds between task launches
 
 
 def route_task(prompt: str, projects: list[dict[str, str]]) -> str | None:
@@ -167,32 +214,6 @@ def _run_single_task(
     return result
 
 
-def _run_direct_task(idx: int, prompt: str, cwd: str, cfg: MultiTaskConfig) -> TaskResult:
-    """Run one task directly via 'claude -p' without lead agent overhead."""
-    result = TaskResult(task=prompt[:80], cwd=cwd, status="running")
-    if cfg.on_progress:
-        cfg.on_progress(idx, "running", prompt[:60])
-    t0 = time.monotonic()
-    try:
-        proc = subprocess.run(
-            ["claude", "-p", prompt],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=1800,
-        )
-        result.status = "done" if proc.returncode == 0 else "failed"
-        if proc.returncode != 0:
-            result.error = (proc.stderr or proc.stdout)[:200]
-    except Exception as exc:
-        result.status = "failed"
-        result.error = str(exc)
-    result.duration_s = round(time.monotonic() - t0, 1)
-    if cfg.on_progress:
-        cfg.on_progress(idx, result.status, result.error or "")
-    return result
-
-
 def resolve_task_cwds(
     tasks: tuple[str, ...],
     projects: tuple[str, ...],
@@ -212,64 +233,36 @@ def resolve_task_cwds(
     return result
 
 
-def _resolve_concurrency(cfg: MultiTaskConfig) -> int:
-    if cfg.concurrency > 0:
-        return min(cfg.concurrency, len(cfg.tasks))
-    return min(len(cfg.tasks), _MAX_AUTO_CONCURRENCY)
-
-
-def _submit_staggered(
-    pool: ThreadPoolExecutor,
-    cfg: MultiTaskConfig,
-    ui: UICoordinator,
-) -> dict[Future[TaskResult], int]:
-    """Submit tasks with staggered delays to avoid API rate limit spikes."""
-    futures: dict[Future[TaskResult], int] = {}
-    for i, (prompt, cwd) in enumerate(cfg.tasks):
-        if cfg.direct:
-            fut = pool.submit(_run_direct_task, i, prompt, cwd, cfg)
-        else:
-            fut = pool.submit(_run_single_task, i, prompt, cwd, cfg, ui)
-        futures[fut] = i
-        if i < len(cfg.tasks) - 1 and cfg.stagger_s > 0:
-            time.sleep(cfg.stagger_s)
-    return futures
-
-
-def _collect_results(
-    futures: dict[Future[TaskResult], int],
-    tasks: list[tuple[str, str]],
-) -> list[TaskResult]:
-    """Gather results from completed futures in submission order."""
-    results: list[TaskResult | None] = [None] * len(tasks)
-    for future in as_completed(futures):
-        idx = futures[future]
-        try:
-            results[idx] = future.result()
-        except Exception as exc:
-            results[idx] = TaskResult(
-                task=tasks[idx][0][:80],
-                cwd=tasks[idx][1],
-                status="failed",
-                error=str(exc),
-            )
-    return [r for r in results if r is not None]
-
-
 def run_tasks(cfg: MultiTaskConfig) -> list[TaskResult]:
     """Run multiple tasks concurrently. Returns results in submission order."""
     if not cfg.tasks:
         return []
-    max_workers = _resolve_concurrency(cfg)
-    mode = "direct" if cfg.direct else "lead-agent"
+
+    results: list[TaskResult | None] = [None] * len(cfg.tasks)
+    max_workers = min(cfg.concurrency, len(cfg.tasks))
     ui = UICoordinator(tasks=[prompt for prompt, _ in cfg.tasks])
     ui.print_banner(f"batch-{int(time.time())}")
-    console.print(
-        f"  [bold]Running {len(cfg.tasks)} tasks[/bold] (concurrency={max_workers}, mode={mode})"
-    )
+
+    console.print(f"  [bold]Running {len(cfg.tasks)} tasks[/bold] (concurrency={max_workers})")
+
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = _submit_staggered(pool, cfg, ui)
-        final = _collect_results(futures, cfg.tasks)
+        futures = {
+            pool.submit(_run_single_task, i, prompt, cwd, cfg, ui): i
+            for i, (prompt, cwd) in enumerate(cfg.tasks)
+        }
+        for future in as_completed(futures):
+            idx = futures[future]
+            try:
+                results[idx] = future.result()
+            except Exception as exc:
+                results[idx] = TaskResult(
+                    task=cfg.tasks[idx][0][:80],
+                    cwd=cfg.tasks[idx][1],
+                    status="failed",
+                    error=str(exc),
+                )
+
+    final = [r for r in results if r is not None]
     _print_summary(final)
     _notify_completion(final)
     return final

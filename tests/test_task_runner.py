@@ -9,9 +9,8 @@ from openmax.task_runner import (
     TaskResult,
     _notify_completion,
     _print_summary,
-    _resolve_concurrency,
-    _run_direct_task,
     confirm_tasks,
+    format_batch_prompt,
     resolve_task_cwds,
     route_task,
     split_multi_tasks,
@@ -102,9 +101,7 @@ def test_notify_completion_darwin(monkeypatch):
 
 def test_multi_task_config_defaults():
     cfg = MultiTaskConfig(tasks=[("t1", "/a"), ("t2", "/b")])
-    assert cfg.concurrency == 0  # auto
-    assert cfg.direct is True
-    assert cfg.stagger_s == 1.0
+    assert cfg.concurrency == 6
     assert cfg.no_confirm is True
 
 
@@ -152,6 +149,45 @@ def test_split_empty_lines_filtered():
     assert all(t.strip() for t in result)
 
 
+# --- LLM split fallback ---
+
+
+def test_split_via_llm_parses_json(monkeypatch):
+    """LLM fallback parses JSON array response correctly."""
+    from openmax.task_runner import _split_via_llm
+
+    mock_resp = MagicMock()
+    mock_resp.content = [MagicMock(text='["Fix login", "Add pagination", "Write tests"]')]
+
+    mock_anthropic = MagicMock()
+    mock_anthropic.Anthropic.return_value.messages.create.return_value = mock_resp
+
+    monkeypatch.setitem(__import__("sys").modules, "anthropic", mock_anthropic)
+
+    result = _split_via_llm("x" * 300)
+    assert len(result) == 3
+    assert result[0] == "Fix login"
+
+
+def test_split_via_llm_fallback_on_error(monkeypatch):
+    """LLM failure falls back to original text."""
+    from openmax.task_runner import _split_via_llm
+
+    mock_anthropic = MagicMock()
+    mock_anthropic.Anthropic.side_effect = RuntimeError("no API key")
+
+    monkeypatch.setitem(__import__("sys").modules, "anthropic", mock_anthropic)
+
+    result = _split_via_llm("x" * 300)
+    assert result == []
+
+
+def test_split_via_llm_skipped_for_short_text():
+    """Short text doesn't trigger LLM call."""
+    result = split_multi_tasks("short task")
+    assert result == ["short task"]
+
+
 # --- confirm_tasks ---
 
 
@@ -170,77 +206,19 @@ def test_confirm_tasks_no(monkeypatch):
     assert confirm_tasks(["task1", "task2"]) is False
 
 
-# --- _resolve_concurrency ---
+# --- format_batch_prompt ---
 
 
-def test_resolve_concurrency_auto():
-    cfg = MultiTaskConfig(tasks=[("t", "/a")] * 20, concurrency=0)
-    assert _resolve_concurrency(cfg) == 20
+def test_format_batch_prompt_structure():
+    result = format_batch_prompt(["Fix login", "Add pagination"])
+    assert "2 INDEPENDENT tasks" in result
+    assert "1. Fix login" in result
+    assert "2. Add pagination" in result
+    assert "parallel" in result.lower()
 
 
-def test_resolve_concurrency_auto_capped():
-    cfg = MultiTaskConfig(tasks=[("t", "/a")] * 50, concurrency=0)
-    assert _resolve_concurrency(cfg) == 30
-
-
-def test_resolve_concurrency_manual():
-    cfg = MultiTaskConfig(tasks=[("t", "/a")] * 20, concurrency=10)
-    assert _resolve_concurrency(cfg) == 10
-
-
-# --- _run_direct_task ---
-
-
-def test_run_direct_task_success(monkeypatch, tmp_path):
-    fake_proc = MagicMock(returncode=0, stdout="ok", stderr="")
-    monkeypatch.setattr("openmax.task_runner.subprocess.run", lambda *a, **kw: fake_proc)
-    cfg = MultiTaskConfig(tasks=[("t", str(tmp_path))])
-    result = _run_direct_task(0, "do something", str(tmp_path), cfg)
-    assert result.status == "done"
-    assert result.duration_s >= 0
-
-
-def test_run_direct_task_failure(monkeypatch, tmp_path):
-    fake_proc = MagicMock(returncode=1, stdout="", stderr="error msg")
-    monkeypatch.setattr("openmax.task_runner.subprocess.run", lambda *a, **kw: fake_proc)
-    cfg = MultiTaskConfig(tasks=[("t", str(tmp_path))])
-    result = _run_direct_task(0, "do something", str(tmp_path), cfg)
-    assert result.status == "failed"
-    assert "error msg" in result.error
-
-
-def test_run_direct_task_exception(monkeypatch, tmp_path):
-    def raise_exc(*a, **kw):
-        raise OSError("no claude")
-
-    monkeypatch.setattr("openmax.task_runner.subprocess.run", raise_exc)
-    cfg = MultiTaskConfig(tasks=[("t", str(tmp_path))])
-    result = _run_direct_task(0, "do something", str(tmp_path), cfg)
-    assert result.status == "failed"
-    assert "no claude" in result.error
-
-
-# --- stagger ---
-
-
-def test_submit_staggered_sleeps(monkeypatch):
-    from openmax.task_runner import _submit_staggered
-
-    sleep_calls: list[float] = []
-    monkeypatch.setattr("openmax.task_runner.time.sleep", lambda s: sleep_calls.append(s))
-    fake_proc = MagicMock(returncode=0, stdout="", stderr="")
-    monkeypatch.setattr("openmax.task_runner.subprocess.run", lambda *a, **kw: fake_proc)
-
-    from concurrent.futures import ThreadPoolExecutor
-
-    cfg = MultiTaskConfig(
-        tasks=[("t1", "/a"), ("t2", "/b"), ("t3", "/c")],
-        stagger_s=0.5,
-        direct=True,
-    )
-    ui = MagicMock()
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        futures = _submit_staggered(pool, cfg, ui)
-        assert len(futures) == 3
-    assert len(sleep_calls) == 2  # N-1 sleeps
-    assert all(s == 0.5 for s in sleep_calls)
+def test_format_batch_prompt_many_tasks():
+    tasks = [f"Task {i}" for i in range(20)]
+    result = format_batch_prompt(tasks)
+    assert "20 INDEPENDENT tasks" in result
+    assert "20. Task 19" in result

@@ -472,33 +472,16 @@ def run(
         if len(split) > 1:
             tasks = tuple(split)
 
-    # Multi-task mode
+    # Batch mode: multiple tasks → confirm → format as single lead agent prompt
     if len(tasks) > 1:
-        from openmax.task_runner import (
-            MultiTaskConfig,
-            confirm_tasks,
-            resolve_task_cwds,
-            run_tasks,
-        )
+        from openmax.task_runner import confirm_tasks, format_batch_prompt
 
         if not confirm_tasks(list(tasks)):
             console.print("  Cancelled.")
             return
-        task_list = resolve_task_cwds(tasks, project, cwd)
-        cfg = MultiTaskConfig(
-            tasks=task_list,
-            model=model or get_model(),
-            max_turns=max_turns,
-            keep_panes=keep_panes,
-            no_confirm=no_confirm,
-            verbose=verbose,
-            pane_backend_name=resolve_pane_backend_name(pane_backend_name),
-            agents=_parse_allowed_agents(agents, set()) if agents else None,
-        )
-        run_tasks(cfg)
-        return
+        tasks = (format_batch_prompt(tasks),)
 
-    # Single-task mode (existing behavior)
+    # Single lead-agent session (handles both single task and batch prompt)
     task = tasks[0]
     pane_backend_name = resolve_pane_backend_name(pane_backend_name)
 

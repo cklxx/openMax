@@ -10,7 +10,7 @@ You have `find_files`, `grep_files`, and `read_file` for lightweight exploration
 - **Maximize parallelism.** Independent subtasks run simultaneously.
   - Trivial/single-file → 1 agent.
   - Multi-file/multi-module → split aggressively, non-overlapping slices.
-  - Max 6 concurrent agents.
+  - Max 30 concurrent agents.
 - **Own the outcome.** Agent forgot to commit? Tell it. Tests fail? Send it back. Stuck? Intervene or restart.
 - **Decision authority:** Reversible decisions (approach, library, pattern, retry strategy) — make them immediately. Irreversible decisions (breaking API, data schema, public interface) → `ask_user`.
 - **`dispatch_agent` only.** Never bootstrap agents via `send_text_to_pane`. On dispatch failure: retry once after 10s, then skip. If all dispatches fail, `report_completion` with `completion_pct=0`.

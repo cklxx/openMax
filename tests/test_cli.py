@@ -1433,24 +1433,23 @@ def test_employee_list_empty(monkeypatch, tmp_path):
 # --- auto-decompose multi-task ---
 
 
-def test_run_auto_decompose_triggers_multi_task(monkeypatch, tmp_path):
-    """A single input with numbered tasks triggers multi-task mode."""
-    captured = {}
-
-    def fake_run_tasks(cfg):
-        captured["cfg"] = cfg
-        return []
-
-    monkeypatch.setattr("openmax.task_runner.run_tasks", fake_run_tasks)
+def test_run_auto_decompose_routes_to_single_lead_agent(monkeypatch, tmp_path):
+    """A single input with numbered tasks decomposes and passes batch prompt to lead agent."""
+    monkeypatch.setattr(cli, "ensure_kaku", lambda: True)
+    monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
     monkeypatch.setattr(
         "openmax.task_runner.confirm_tasks",
         lambda tasks: True,
     )
-    monkeypatch.setattr(
-        "openmax.task_runner.list_projects",
-        lambda: [],
-    )
-    monkeypatch.setattr("openmax.task_runner.find_project", lambda n: None)
+
+    captured: dict[str, object] = {}
+
+    def fake_run_lead_agent(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(subtasks=[])
+
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run_lead_agent)
 
     task_file = tmp_path / "tasks.txt"
     task_file.write_text("1. Fix login bug\n2. Add pagination\n3. Write tests")
@@ -1458,8 +1457,9 @@ def test_run_auto_decompose_triggers_multi_task(monkeypatch, tmp_path):
     runner = CliRunner()
     result = runner.invoke(cli.main, ["run", f"@{task_file}"])
     assert result.exit_code == 0
-    assert "cfg" in captured
-    assert len(captured["cfg"].tasks) == 3
+    assert "task" in captured
+    assert "3 INDEPENDENT tasks" in captured["task"]
+    assert "Fix login bug" in captured["task"]
 
 
 def test_run_auto_decompose_cancelled(monkeypatch, tmp_path):
