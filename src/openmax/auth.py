@@ -1,8 +1,4 @@
-"""Authentication helpers for openMax.
-
-Wraps `claude setup-token` for a seamless setup experience and
-provides token detection for health checks.
-"""
+"""Authentication and token-detection helpers for Claude Code integration."""
 
 from __future__ import annotations
 
