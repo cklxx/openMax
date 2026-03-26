@@ -16,9 +16,9 @@
 
 ---
 
-Stop babysitting. Stop switching windows. Give openMax your tasks and walk away — it orchestrates multiple AI agents ([Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), [OpenCode](https://github.com/opencode-ai/opencode)) in parallel terminal panes, monitors them, and merges the results. If you already juggle multiple Claude Code windows, openMax replaces that chaos with a single command that manages everything. Built-in **Project Archetypes** give the lead agent domain-aware decomposition strategies — it knows how to split a web app, CLI tool, API service, or library without you telling it.
+Give openMax your tasks and walk away — it orchestrates multiple AI agents ([Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), [OpenCode](https://github.com/opencode-ai/opencode)) in parallel terminal panes, monitors them, and merges the results. Built-in **Project Archetypes** give the lead agent domain-aware decomposition strategies — it knows how to split a web app, CLI tool, API service, or library without you telling it.
 
-Works with [Kaku](https://github.com/niceda/kaku) on macOS and [tmux](https://github.com/tmux/tmux) on any platform.
+Works with [Kaku](https://github.com/niceda/kaku) and [Ghostty](https://ghostty.org/) on macOS, and [tmux](https://github.com/tmux/tmux) on any platform.
 
 ## Architecture
 
@@ -60,20 +60,29 @@ pip install openmax
 
 - Python 3.10+
 - A terminal backend (one of the following):
-  - **macOS:** [Kaku](https://github.com/niceda/kaku) (auto-detected, auto-prompted to install via Homebrew)
-  - **macOS / Linux / WSL:** [tmux](https://github.com/tmux/tmux) (auto-detected if you're in a tmux session)
+  - **macOS:** [Kaku](https://github.com/niceda/kaku) or [Ghostty](https://ghostty.org/) (auto-detected)
+  - **macOS / Linux / WSL:** [tmux](https://github.com/tmux/tmux) (auto-detected)
 - At least one agent CLI: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`), [Codex](https://github.com/openai/codex) (`codex`), or [OpenCode](https://github.com/opencode-ai/opencode) (`opencode`)
 
 ### Terminal Backend Setup
 
-openMax auto-detects the best available backend. On macOS it prefers Kaku; on Linux/WSL it uses tmux. If the required backend is missing, openMax will prompt you to install it.
+openMax auto-detects the best available backend: Kaku > Ghostty > tmux. If none is found, it prompts you to install one.
 
 <details>
 <summary><strong>macOS with Kaku (recommended)</strong></summary>
 
 ```bash
 brew install --cask kaku
-# Open Kaku, then run openmax inside it
+openmax run "your task"
+```
+
+</details>
+
+<details>
+<summary><strong>macOS with Ghostty</strong></summary>
+
+```bash
+brew install --cask ghostty
 openmax run "your task"
 ```
 
@@ -103,95 +112,120 @@ openMax auto-creates a detached tmux session named `openmax` and spawns agent pa
 ## Quick Start
 
 ```bash
-# Run multiple tasks in parallel — one command handles everything
-openmax run "Build the API" "Add authentication" "Write tests"
-
-# Run tasks from a file
-openmax run -f tasks.txt
-
-# Single task — give it a job and let it work
+# Single task
 openmax run "Build a blog with Next.js"
 
-# Specify a working directory
-openmax run "Add authentication to the app" --cwd ~/projects/my-app
+# Multiple tasks in parallel
+openmax run "Build the API" "Add authentication" "Write tests"
 
-# Use a specific model for the lead agent
-openmax run "Refactor the database layer" --model claude-sonnet-4-20250514
+# Read prompt from a file
+openmax run @task.md
 
-# Keep panes open after completion for manual inspection
+# Mix file prompts and inline prompts
+openmax run @tasks/api.md "Write tests for the API"
+
+# Quality mode — write, review, challenge, rewrite
+openmax run "Refactor the auth module" --quality
+
+# Keep panes open after completion
 openmax run "Fix all failing tests" --keep-panes
 
-# Only use Claude Code and Codex (first one is preferred)
+# Restrict to specific agents
 openmax run "Build the API" --agents claude-code,codex
-
-# Force all tasks to use a single agent type
-openmax run "Fix lint errors" --agents claude-code
 ```
 
-## Multi-Task Mode
+### File Prompts (`@file`)
 
-Run multiple tasks in parallel — each gets its own Lead Agent, its own set of agent panes, and its own isolated branch. TaskRunner coordinates everything from a single command.
+Prefix a task argument with `@` to read the prompt from a file. Supports relative paths, absolute paths, and `~` expansion:
 
 ```bash
-# Three tasks, fully parallel
-openmax run "Build the REST API" "Create React components" "Write integration tests"
-
-# Load tasks from a file (one per line)
-openmax run -f tasks.txt
+openmax run @task.md                        # relative path
+openmax run @tasks/refactor.txt             # subdirectory
+openmax run @~/prompts/big-task.md          # home directory
+openmax run @/absolute/path/to/prompt.md    # absolute path
+openmax run @task1.md @task2.md             # multiple file prompts
+openmax run @task.md "also do this"         # mix file and inline
 ```
 
-- Each task runs independently with its own Lead Agent and terminal panes
-- TaskRunner handles orchestration, failure isolation, and result merging
-- Tasks that fail don't block others — you get partial results instead of nothing
-- Perfect for power users who currently juggle multiple Claude Code windows
-
-## Project Management
-
-Track and monitor multiple projects from a single place.
-
-```bash
-# Add a project for monitoring
-openmax projects add ~/code/my-app
-
-# List all tracked projects
-openmax projects list
-
-# Check status across all projects
-openmax projects status
-```
-
-## Usage
+## Commands
 
 ### `openmax run`
 
-The core command. The lead agent (powered by [claude-agent-sdk](https://github.com/anthropics/claude-agent-sdk-python)) will:
+The core command. Decomposes tasks and dispatches sub-agents in terminal panes.
 
-1. **Align** — clarify your goal, identify scope
-2. **Plan** — decompose into parallelizable sub-tasks
-3. **Dispatch** — spawn agents into terminal panes (one window, auto grid layout)
-4. **Monitor** — read agent output, intervene if stuck or off-track
-5. **Review** — cross-check deliverables, run tests, verify integration
-6. **Report** — summarize results, ensure changes are committed
+The lead agent (powered by [claude-agent-sdk](https://github.com/anthropics/claude-agent-sdk-python)) will:
 
-```bash
-openmax run "Build a REST API with FastAPI and SQLAlchemy"
-```
-
-**All options:**
+1. **Plan** — decompose into parallelizable sub-tasks
+2. **Dispatch** — spawn agents into terminal panes (one window, auto grid layout)
+3. **Monitor** — read agent output, intervene if stuck or off-track
+4. **Review** — cross-check deliverables, run tests, verify integration
+5. **Report** — summarize results, ensure changes are committed
 
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--cwd PATH` | Working directory for agents | Current directory |
+| `--project NAME` | Project name per task (from registry, repeatable) | — |
 | `--model MODEL` | Model for the lead agent | `claude-sonnet-4-20250514` |
-| `--max-turns N` | Max lead agent loop turns | `50` |
+| `--max-turns N` | Max lead agent loop turns | Unlimited |
 | `--keep-panes` | Don't close panes on exit | `false` |
 | `--session-id ID` | Persistent session identifier | Auto-generated |
 | `--resume` | Resume a persistent session (requires `--session-id`) | `false` |
 | `--agents LIST` | Comma-separated allowed agent types, in preference order | All available |
+| `--pane-backend` | Force a backend: `kaku`, `ghostty`, `tmux`, `terminal-tmux`, `headless`, `auto` | Auto-detect |
+| `--no-confirm` | Skip interactive plan confirmation (for automation) | `false` |
+| `-v, --verbose` | Show detailed subtask output | `false` |
+| `-q, --quality` | Quality mode: write, review, challenge, rewrite cycle | `false` |
+
+### `openmax loop`
+
+Run openMax in a continuous loop, pursuing a goal across unlimited iterations. Memory accumulates between iterations — the lead agent discovers new improvements each run.
+
+```bash
+# Continuously improve test coverage
+openmax loop "Increase test coverage to 90%"
+
+# Cap at 5 iterations with 30s delay between each
+openmax loop "Polish the UI" --max-iterations 5 --delay 30
+```
+
+### `openmax sessions`
+
+List, inspect, and analyze past sessions.
+
+```bash
+# List recent sessions
+openmax sessions
+
+# Inspect a specific session
+openmax inspect <session-id>
+
+# Show cost and token usage
+openmax usage
+openmax usage --last 7d
+
+# View or follow a session's message log
+openmax log <session-id>
+openmax log <session-id> --follow
+```
+
+### `openmax clean`
+
+Remove residual artifacts from interrupted or completed runs.
+
+```bash
+# Clean branches, worktrees, task files, sockets
+openmax clean
+
+# Preview what would be removed
+openmax clean --dry-run
+
+# Also expire old sessions
+openmax clean --all
+```
 
 ### `openmax doctor`
 
-Check that your environment is ready before running tasks.
+Check that your environment is ready.
 
 ```bash
 $ openmax doctor
@@ -209,48 +243,46 @@ openMax environment check
 
 ### `openmax panes`
 
-List all terminal panes and their status, or read a specific pane by ID.
+List terminal panes or read a specific pane's output.
 
 ```bash
-$ openmax panes
-Found 4 panes:
-  Pane 1: claude-code (120x30) ★
-  Pane 2: codex (120x30)
-  Pane 3: claude-code (120x30)
-  Pane 4: opencode (120x30)
-
-$ openmax panes 1
+openmax panes        # list all panes
+openmax panes 1      # read pane 1
 ```
 
-### `openmax memories`
+### `openmax agents`
 
-Show learned workspace memory from previous runs.
+List the effective agent registry (built-in + configured).
 
 ```bash
-# Show memory for the current directory
-$ openmax memories
-
-# Show memory for a specific workspace
-$ openmax memories --cwd ~/projects/my-app
-
-# Limit number of entries
-$ openmax memories --limit 5
+openmax agents
+openmax agents --cwd /path/to/repo
 ```
 
-### `openmax recommend-agents`
+### `openmax projects`
 
-Show ranked agent recommendations for a task based on past runs in the workspace.
+Track and route tasks to project directories.
 
 ```bash
-$ openmax recommend-agents "Build REST API" --cwd ~/projects/my-app
-Agent recommendations for Build REST API
-- codex: 12
-  Converged fastest on API work in last 3 runs
-- claude-code: 8
-  Good for general coding tasks
+openmax projects add ~/code/my-app
+openmax projects list
+openmax projects status
+openmax projects remove my-app
 ```
 
-### Session Resume
+## Multi-Task Mode
+
+Pass multiple tasks to run them concurrently — each gets its own Lead Agent, its own set of agent panes, and its own isolated branch.
+
+```bash
+openmax run "Build the REST API" "Create React components" "Write integration tests"
+```
+
+- Each task runs independently with its own Lead Agent and terminal panes
+- Tasks that fail don't block others — you get partial results
+- Use `--project` to route tasks to different directories
+
+## Session Resume
 
 Resume a previous session to continue where you left off:
 
@@ -262,34 +294,6 @@ openmax run "Build the frontend" --session-id my-frontend
 openmax run "Continue the work" --session-id my-frontend --resume
 ```
 
-## Examples
-
-```bash
-# Ship a feature end-to-end (3 parallel tasks)
-openmax run "Build the REST API" "Create React components" "Write integration tests"
-
-# Fix multiple issues at once
-openmax run "Fix auth bug #123" "Fix pagination #456" "Fix search #789"
-
-# Morning kickoff — start all your day's work
-openmax run -f today-tasks.txt
-
-# Full-stack app development
-openmax run "Build a todo app with React frontend and Express backend"
-
-# Bug fixing across a codebase
-openmax run "Find and fix all TypeScript type errors in src/"
-
-# Code refactoring
-openmax run "Migrate all class components to functional components with hooks"
-
-# Testing
-openmax run "Write comprehensive unit tests for the utils/ directory"
-
-# Multi-language projects
-openmax run "Add Python bindings for the Rust core library"
-```
-
 ## Supported Agents
 
 | Agent | Command | Notes |
@@ -298,40 +302,30 @@ openmax run "Add Python bindings for the Rust core library"
 | [Codex](https://github.com/openai/codex) | `codex` | OpenAI Codex CLI |
 | [OpenCode](https://github.com/opencode-ai/opencode) | `opencode` | OpenCode CLI |
 
-All agents run interactively in their own pane by default. You can click into any pane and type to intervene at any time. The lead agent also monitors and sends corrections automatically.
-
-You can also define your own agents in config, including arbitrary local CLIs or remote entrypoints over SSH.
+All agents run interactively in their own pane. You can click into any pane and type to intervene at any time. The lead agent also monitors and sends corrections automatically.
 
 ### Agent Selection
 
-By default, the lead agent automatically picks the best agent for each sub-task (`claude-code` is the default). Use `--agents` to restrict and prioritize built-in or configured agent names:
+The lead agent automatically picks the best agent for each sub-task (`claude-code` is the default). Use `--agents` to restrict and prioritize:
 
 ```bash
-# Prefer Codex, fall back to Claude Code if needed
+# Prefer Codex, fall back to Claude Code
 openmax run "Build the API" --agents codex,claude-code
 
-# Only use Claude Code for everything
+# Only use Claude Code
 openmax run "Refactor auth module" --agents claude-code
 ```
 
-The order matters — the **first agent in the list is the preferred default**. If the lead agent tries to use an agent not in the list, it automatically falls back to the first one.
-
-The lead agent also learns from past runs. After completing a task, it stores what worked well via `remember_learning`. Future runs in the same workspace will receive these recommendations automatically. View them with `openmax memories`.
+The **first agent in the list is the preferred default**. If the lead agent tries to use an agent not in the list, it falls back to the first one.
 
 ### Custom Agent Config
 
-openMax merges agents from these locations, in this order:
+openMax merges agents from these locations (later sources override earlier ones):
 
 1. Built-in agents
 2. `~/.config/openmax/agents.toml`
 3. `<workspace>/.openmax/agents.toml`
 4. `OPENMAX_AGENTS_FILE=/path/to/agents.toml`
-
-List the effective agent registry for a workspace with:
-
-```bash
-openmax agents --cwd /path/to/repo
-```
 
 Example config:
 
@@ -346,47 +340,21 @@ command = ["ssh", "devbox", "bash", "-lc", "codex exec {prompt_sh}"]
 interactive = false
 ```
 
-Supported placeholders:
-
-- `{cwd}` / `{prompt}`: raw substitution
-- `{cwd_sh}` / `{prompt_sh}`: shell-escaped substitution for commands such as `ssh ... "cd ... && tool"`
-
-Notes:
-
-- Interactive agents start the command first, then openMax sends the task prompt into the pane.
-- Non-interactive agents must include `{prompt}` or `{prompt_sh}` in `command`.
-- Use `startup_delay` for slow-starting commands such as SSH sessions or remote shells.
-
-## How It Works
-
-openMax uses a **lead agent** that has no direct access to files or code. Instead, it orchestrates through MCP tools:
-
-| Tool | Purpose |
-|------|---------|
-| `dispatch_agent` | Spawn an agent in a terminal pane |
-| `read_pane_output` | Check what an agent is doing |
-| `send_text_to_pane` | Send follow-up instructions |
-| `list_managed_panes` | Get pane states |
-| `mark_task_done` | Track sub-task progress |
-| `report_completion` | Finalize and report results |
-
-**Cleanup:** On exit (normal completion, Ctrl-C, or SIGTERM), all managed panes are killed automatically. Use `--keep-panes` to keep them open.
+Placeholders: `{cwd}` / `{prompt}` (raw), `{cwd_sh}` / `{prompt_sh}` (shell-escaped).
 
 ## Project Archetypes
 
-openMax recognizes common project types and automatically applies the right decomposition strategy:
+openMax recognizes common project types and applies the right decomposition strategy automatically:
 
 | Archetype | Detected when | Decomposition |
 |-----------|--------------|---------------|
-| **Web App** | "web app", "full-stack", "SPA" | schema → API + frontend (parallel) → auth → tests |
-| **CLI Tool** | "CLI", "command-line", "terminal tool" | arg parsing → core logic → output formatting → tests |
-| **API Service** | "API", "REST", "microservice" | endpoints → middleware + auth (parallel) → models → tests |
-| **Library** | "library", "package", "SDK" | core module → public API → docs + tests → packaging |
-| **Refactor** | "refactor", "migrate", "restructure" | analysis → transform → update callers → tests |
+| **Web App** | "web app", "full-stack", "SPA" | schema > API + frontend (parallel) > auth > tests |
+| **CLI Tool** | "CLI", "command-line", "terminal tool" | arg parsing > core logic > output formatting > tests |
+| **API Service** | "API", "REST", "microservice" | endpoints > middleware + auth (parallel) > models > tests |
+| **Library** | "library", "package", "SDK" | core module > public API > docs + tests > packaging |
+| **Refactor** | "refactor", "migrate", "restructure" | analysis > transform > update callers > tests |
 
-Each archetype includes planning hints, common failure modes, and anti-patterns — injected directly into agent briefs.
-
-**Custom archetypes:** Add `.openmax/archetypes/*.yaml` to your project:
+Custom archetypes: add `.openmax/archetypes/*.yaml` to your project:
 
 ```yaml
 name: my_archetype
@@ -404,9 +372,24 @@ anti_patterns:
   - "Don't do Z"
 ```
 
+## How It Works
+
+The lead agent has no direct access to files or code. It orchestrates entirely through MCP tools:
+
+| Tool | Purpose |
+|------|---------|
+| `dispatch_agent` | Spawn an agent in a terminal pane |
+| `read_pane_output` | Check what an agent is doing |
+| `send_text_to_pane` | Send follow-up instructions |
+| `list_managed_panes` | Get pane states |
+| `mark_task_done` | Track sub-task progress |
+| `report_completion` | Finalize and report results |
+
+**Cleanup:** On exit (normal, Ctrl-C, or SIGTERM), all managed panes and branches are cleaned up automatically. Use `--keep-panes` to keep them open, or `openmax clean` to remove leftovers from interrupted runs.
+
 ## Best Practice: Let Your Agent Call openMax
 
-The most powerful way to use openMax is to **let your AI agent delegate work to it asynchronously**. Instead of running openMax manually, instruct your agent (Claude Code, Cursor, etc.) to spawn openMax as a background process:
+The most powerful way to use openMax is to **let your AI agent delegate work to it**. Instead of running openMax manually, instruct your agent (Claude Code, Cursor, etc.) to spawn openMax as a background process:
 
 ```bash
 # In your agent's prompt or CLAUDE.md:
@@ -414,24 +397,20 @@ The most powerful way to use openMax is to **let your AI agent delegate work to 
  run openmax in the background and continue with other tasks."
 ```
 
-Example workflow — your agent is building a full-stack app:
+Example — your agent is building a full-stack app:
 
 ```bash
-# Your agent runs this in the background, then continues its own work
-openmax run "Build React components for dashboard" --cwd ./frontend --agents claude-code &
+# Agent spawns openMax in the background, then continues its own work
+openmax run "Build React dashboard components" --cwd ./frontend &
 
-# Meanwhile, your agent works on the backend itself
+# Meanwhile, the agent works on the backend itself
 # ...
 
 # Later, check the results
-openmax panes 1
+openmax panes
 ```
 
-This turns a single agent into a **team of agents** — your primary agent handles the high-level architecture while openMax manages the parallel sub-tasks. The key benefits:
-
-- **Async by nature** — openMax runs independently; your agent doesn't block
-- **Automatic monitoring** — the lead agent watches all sub-agents, intervenes when stuck
-- **Clean separation** — each agent works in its own terminal pane, no conflicts
+This turns a single agent into a **team of agents** — your primary agent handles the high-level architecture while openMax manages the parallel sub-tasks.
 
 ## License
 
