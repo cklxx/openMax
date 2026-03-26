@@ -49,3 +49,10 @@ export async function fetchTasks() {
     if (r.ok) useStore.getState().setTasks(await r.json())
   } catch { /* offline */ }
 }
+
+export async function fetchEmployees() {
+  try {
+    const r = await fetch("/api/employees")
+    if (r.ok) useStore.getState().setEmployees(await r.json())
+  } catch { /* offline */ }
+}

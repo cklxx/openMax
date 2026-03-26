@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Send } from "lucide-react"
+import { ArrowUp } from "lucide-react"
 import { submitTask } from "@/lib/api"
 
 export function TaskInput() {
@@ -14,20 +14,17 @@ export function TaskInput() {
   }
 
   return (
-    <div className="sticky bottom-0 bg-gradient-to-b from-transparent via-background to-background pt-6 pb-5 px-1">
-      <div className="flex gap-2">
-        <Input
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-          placeholder="What needs to be done?"
-          className="shadow-sm"
-        />
-        <Button onClick={handleSubmit} className="shrink-0 gap-1.5">
-          <Send className="h-4 w-4" />
-          Submit
-        </Button>
-      </div>
+    <div className="py-3 flex gap-2">
+      <Input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+        placeholder="Describe a task..."
+        className="h-9"
+      />
+      <Button size="sm" onClick={handleSubmit} disabled={!value.trim()} className="h-9 px-3">
+        <ArrowUp className="h-4 w-4" />
+      </Button>
     </div>
   )
 }

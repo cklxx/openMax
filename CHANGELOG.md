@@ -3,6 +3,10 @@
 ## 0.9.34
 
 - **Fix**: Stale session resume — interrupted sessions (Ctrl+C / SIGTERM) left `active` status because `SystemExit` bypasses `except Exception`; `finally` block now marks them `aborted`
+- **Feature**: Employee API (`GET /api/employees`) — exposes team roster to dashboard
+- **Feature**: Sidebar Team section — shows onboarded employees with avatar initials, role, specialty, and task count
+- **Improvement**: Stats bar shows employee count alongside task metrics
+- **Improvement**: Better empty state with icon, refined header with active task spinner, sticky bottom input bar
 - **Fix**: Auto-abort stale sessions on startup — `expire_old_sessions()` marks `active` sessions older than 2h as `aborted`, clearing residual state without manual cleanup
 - **Fix**: Session staleness guard — `_detect_resumable_session` ignores sessions older than 2h, preventing false resume prompts
 

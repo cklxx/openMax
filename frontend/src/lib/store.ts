@@ -35,15 +35,26 @@ export interface Task {
   error: string | null
 }
 
+export interface Employee {
+  name: string
+  role: string
+  specialty: string
+  agent_type: string
+  task_count: number
+  created: string
+}
+
 export type Filter = "all" | "running" | "queued" | "done"
 
 interface Store {
   tasks: Task[]
+  employees: Employee[]
   filter: Filter
   connected: boolean
   setFilter: (f: Filter) => void
   setConnected: (v: boolean) => void
   setTasks: (tasks: Task[]) => void
+  setEmployees: (employees: Employee[]) => void
   upsertTask: (task: Task) => void
   removeTask: (id: string) => void
   addActivity: (taskId: string, entry: ActivityEntry) => void
@@ -52,8 +63,10 @@ interface Store {
 
 export const useStore = create<Store>((set) => ({
   tasks: [],
+  employees: [],
   filter: "all",
   connected: false,
+  setEmployees: (employees) => set({ employees }),
   setFilter: (filter) => set({ filter }),
   setConnected: (connected) => set({ connected }),
   setTasks: (tasks) => set({ tasks }),
