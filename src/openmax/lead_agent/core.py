@@ -50,7 +50,9 @@ from openmax.stats import load_stats
 from openmax.usage import SessionUsage, UsageStore, usage_from_result
 
 _PROMPT_DIR = Path(__file__).parent / "prompts"
-_MAX_TRANSIENT_RETRIES = 2
+_MAX_TRANSIENT_RETRIES = 5
+_RATE_LIMIT_BASE_WAIT = 30  # seconds
+_RATE_LIMIT_MAX_WAIT = 300  # 5 minutes cap
 
 # API error patterns that are transient and safe to retry
 _TRANSIENT_ERROR_PATTERNS = (
@@ -360,9 +362,14 @@ def run_lead_agent(
             if attempt >= _MAX_TRANSIENT_RETRIES:
                 raise
             console.print(
-                f"\n  [yellow]Transient API error — retrying"
-                f" ({attempt + 1}/{_MAX_TRANSIENT_RETRIES})...[/yellow]\n"
+                f"\n  [bold yellow]⚠ Rate limited[/bold yellow]"
+                f" (attempt {attempt + 1}/{_MAX_TRANSIENT_RETRIES})"
             )
+            console.print("  [dim]Press Enter to retry, or Ctrl+C to abort...[/dim]")
+            try:
+                input()
+            except (KeyboardInterrupt, EOFError):
+                raise RuntimeError("Aborted by user after rate limit")
     raise RuntimeError("unreachable")
 
 

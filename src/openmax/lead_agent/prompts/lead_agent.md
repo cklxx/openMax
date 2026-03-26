@@ -162,7 +162,8 @@ Simple tasks: skip to `implement` → `verify` only. Each transition requires a 
 | Checkpoint file detected | `check_checkpoints` → decide → `resolve_checkpoint`. |
 | Need deeper context mid-task | Dispatch research agent to investigate and report. |
 | Agent exited successfully | `mark_task_done` → `merge_agent_branch` immediately. |
-| Agent exited with error | `permanent_error(task_name)`. |
+| Agent exited with rate limit (`rate_limited: true`) | **Stop and `ask_user`**: "Rate limited — press Enter when ready to retry." Do NOT auto-retry. One rate limit likely means all agents are limited. After user confirms, re-dispatch. No retry cap for rate limits. |
+| Agent exited with error (not rate limit) | `permanent_error(task_name)`. |
 | Agent exited unexpectedly | retry_count <2: re-dispatch. ≥2: `permanent_error`. |
 | All agents done | `run_verification` for lint + test immediately. |
 

@@ -8,6 +8,21 @@ _ANSI_ESC_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\].*?\x07")
 _ERROR_MARKERS = ("Error", "FAILED", "Traceback", "panic:", "FATAL", "Exception", "[ERROR]")
 _CONTEXT_BEFORE = 5
 
+_RATE_LIMIT_PATTERNS = (
+    "rate limit",
+    "rate_limit",
+    "429",
+    "too many requests",
+    "overloaded",
+    "resource_exhausted",
+)
+
+
+def is_rate_limit_error(text: str) -> bool:
+    """Detect rate-limit / overloaded signals in agent output."""
+    lower = _strip_ansi(text).lower()
+    return any(p in lower for p in _RATE_LIMIT_PATTERNS)
+
 
 def _strip_ansi(text: str) -> str:
     return _ANSI_ESC_RE.sub("", text)

@@ -15,7 +15,7 @@ from openmax.lead_agent.tools._branch import (
     _sanitize_branch_name,
 )
 from openmax.lead_agent.tools._costing import estimate_task_cost
-from openmax.lead_agent.tools._error_context import extract_error_context
+from openmax.lead_agent.tools._error_context import extract_error_context, is_rate_limit_error
 from openmax.lead_agent.tools._helpers import (
     _CHECKPOINT_PROTOCOL,
     _append_session_event,
@@ -515,6 +515,7 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
             text = _extract_smart_output(text, tail_lines=100) if text else ""
             error_ctx = extract_error_context(raw_text) if raw_text else ""
             retry_info = _get_retry_info_for_pane(pane_id)
+            rate_limited = is_rate_limit_error(raw_text) if raw_text else False
             response: dict[str, Any] = {
                 "text": text or "(pane no longer exists)",
                 "stuck": False,
@@ -523,6 +524,8 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
             }
             if error_ctx:
                 response["error_context"] = error_ctx
+            if rate_limited:
+                response["rate_limited"] = True
             report = _read_subtask_report_for_pane(pane_id)
             if report:
                 response["report"] = report[:4000]
