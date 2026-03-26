@@ -1,4 +1,4 @@
-"""Session Mailbox: Unix socket server for sub-agent push messaging."""
+"""Mailbox IPC module."""
 
 from __future__ import annotations
 
