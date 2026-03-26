@@ -80,7 +80,7 @@ def _build_lead_env() -> dict[str, str]:
 
     env: dict[str, str] = {"CLAUDECODE": ""}
     settings_env = _read_claude_settings_env()
-    for key in ("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"):
+    for key in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
         if key not in os.environ and key in settings_env:
             env[key] = settings_env[key]
     return env

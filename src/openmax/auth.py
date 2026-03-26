@@ -51,8 +51,11 @@ def _read_claude_settings_env() -> dict[str, str]:
     return merged
 
 
+_AUTH_KEY_VARS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+
+
 def _check_claude_settings_api_key() -> str | None:
-    """Check Claude Code settings files for ANTHROPIC_API_KEY in env."""
+    """Check Claude Code settings files for API key / auth token in env."""
     for name in ("settings.local.json", "settings.json"):
         path = Path.home() / ".claude" / name
         if not path.is_file():
@@ -60,7 +63,7 @@ def _check_claude_settings_api_key() -> str | None:
         try:
             data = json.loads(path.read_text())
             env = data.get("env") or {}
-            if env.get("ANTHROPIC_API_KEY"):
+            if any(env.get(k) for k in _AUTH_KEY_VARS):
                 return f"settings ({name})"
         except Exception:
             continue
@@ -76,9 +79,10 @@ def has_claude_auth() -> tuple[bool, str]:
     if os.environ.get("CLAUDE_CODE_SETUP_TOKEN"):
         return True, "setup token (env)"
 
-    # 2. API key env var
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return True, "ANTHROPIC_API_KEY env var"
+    # 2. API key / auth token env var
+    for var in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+        if os.environ.get(var):
+            return True, f"{var} env var"
 
     # 3. API key in Claude Code settings (users who set apiKey + baseUrl)
     settings_detail = _check_claude_settings_api_key()
