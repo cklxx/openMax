@@ -666,6 +666,13 @@ async def _run_lead_agent_async(
             raise startup_failure from exc
         raise
     finally:
+        if (
+            runtime.session_meta is not None
+            and runtime.session_store is not None
+            and runtime.session_meta.status == "active"
+        ):
+            runtime.session_meta.status = "aborted"
+            runtime.session_store.save_meta(runtime.session_meta)
         if runtime.mailbox is not None and external_mailbox is None:
             runtime.mailbox.stop()
         if dashboard:

@@ -51,5 +51,7 @@ class WSHub:
                     await on_message(msg)
         except WebSocketDisconnect:
             pass
+        except Exception:
+            logger.exception("WebSocket handler error")
         finally:
             self.disconnect(ws)

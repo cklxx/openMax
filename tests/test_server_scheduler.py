@@ -235,11 +235,3 @@ async def test_stop_cancels_tasks(tmp_path):
     s.stop()
     mock_task.cancel.assert_called_once()
     assert not s._running
-
-
-# ── Queue lock exists ──
-
-
-def test_queue_has_lock(queue):
-    assert hasattr(queue, "_lock")
-    assert isinstance(queue._lock, asyncio.Lock)

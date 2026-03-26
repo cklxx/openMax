@@ -315,6 +315,19 @@ def _inspect_elapsed(task) -> str:
     return f"{m}:{s:02d}" if m else f"{s}s"
 
 
+_SESSION_STALE_MINUTES = 120
+
+
+def _is_session_stale(updated_at: str) -> bool:
+    """Return True if session was last updated more than _SESSION_STALE_MINUTES ago."""
+    try:
+        ago_dt = datetime.fromisoformat(updated_at)
+        delta = datetime.now(timezone.utc) - ago_dt
+        return delta.total_seconds() > _SESSION_STALE_MINUTES * 60
+    except Exception:
+        return True
+
+
 def _detect_resumable_session(task: str, cwd: str) -> tuple[str | None, bool]:
     """Return (session_id, should_resume) if an unfinished session is found."""
     try:
@@ -323,6 +336,8 @@ def _detect_resumable_session(task: str, cwd: str) -> tuple[str | None, bool]:
 
         existing = _SS().find_active_session(_th(task, cwd))
         if not existing or existing.status in ("completed", "aborted", "failed"):
+            return None, False
+        if _is_session_stale(existing.updated_at):
             return None, False
         ago_str = _format_session_age(existing.updated_at)
         pct = getattr(existing, "completion_pct", None)

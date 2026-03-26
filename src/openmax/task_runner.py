@@ -182,53 +182,49 @@ def route_task(prompt: str, projects: list[dict[str, str]]) -> str | None:
     return None
 
 
-def _run_single_task(
-    idx: int,
-    prompt: str,
-    cwd: str,
-    cfg: MultiTaskConfig,
-    ui: UICoordinator,
-) -> TaskResult:
-    """Run one task in its own thread with its own lead agent session."""
+def _execute_task(idx: int, prompt: str, cwd: str, cfg: MultiTaskConfig, ui: UICoordinator) -> Any:
+    """Create a lead agent session and run one task. Returns PlanResult."""
     from openmax.agent_registry import built_in_agent_registry
-    from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
+    from openmax.lead_agent import run_lead_agent
     from openmax.pane_manager import PaneManager
 
+    pane_mgr = PaneManager(backend_name=cfg.pane_backend_name)
+    plan = run_lead_agent(
+        task=prompt,
+        pane_mgr=pane_mgr,
+        cwd=cwd,
+        model=cfg.model,
+        max_turns=cfg.max_turns,
+        session_id=f"multi-{idx}-{int(time.time())}",
+        allowed_agents=cfg.agents,
+        agent_registry=built_in_agent_registry(),
+        plan_confirm=not cfg.no_confirm,
+        verbose=cfg.verbose,
+        ui_coordinator=ui,
+    )
+    if not cfg.keep_panes:
+        try:
+            pane_mgr.cleanup_all()
+        except Exception:
+            pass
+    return plan
+
+
+def _run_single_task(
+    idx: int, prompt: str, cwd: str, cfg: MultiTaskConfig, ui: UICoordinator
+) -> TaskResult:
+    """Run one task in its own thread with timing and error handling."""
     result = TaskResult(task=prompt[:80], cwd=cwd, status="running")
     if cfg.on_progress:
         cfg.on_progress(idx, "running", prompt[:60])
-
     t0 = time.monotonic()
     try:
-        pane_mgr = PaneManager(backend_name=cfg.pane_backend_name)
-        session_id = f"multi-{idx}-{int(time.time())}"
-        plan = run_lead_agent(
-            task=prompt,
-            pane_mgr=pane_mgr,
-            cwd=cwd,
-            model=cfg.model,
-            max_turns=cfg.max_turns,
-            session_id=session_id,
-            allowed_agents=cfg.agents,
-            agent_registry=built_in_agent_registry(),
-            plan_confirm=not cfg.no_confirm,
-            verbose=cfg.verbose,
-            ui_coordinator=ui,
-        )
+        plan = _execute_task(idx, prompt, cwd, cfg, ui)
         result.status = "done"
         result.subtask_count = len(plan.subtasks)
-        if not cfg.keep_panes:
-            try:
-                pane_mgr.cleanup_all()
-            except Exception:
-                pass
-    except LeadAgentStartupError as exc:
-        result.status = "failed"
-        result.error = str(exc)
     except Exception as exc:
         result.status = "failed"
         result.error = str(exc)
-
     result.duration_s = round(time.monotonic() - t0, 1)
     if cfg.on_progress:
         cfg.on_progress(idx, result.status, result.error or "")
@@ -254,18 +250,10 @@ def resolve_task_cwds(
     return result
 
 
-def run_tasks(cfg: MultiTaskConfig) -> list[TaskResult]:
-    """Run multiple tasks concurrently. Returns results in submission order."""
-    if not cfg.tasks:
-        return []
-
+def _run_concurrent(cfg: MultiTaskConfig, ui: UICoordinator) -> list[TaskResult]:
+    """Execute tasks in a thread pool and collect results."""
     results: list[TaskResult | None] = [None] * len(cfg.tasks)
     max_workers = min(cfg.concurrency, len(cfg.tasks))
-    ui = UICoordinator(tasks=[prompt for prompt, _ in cfg.tasks])
-    ui.print_banner(f"batch-{int(time.time())}")
-
-    console.print(f"  [bold]Running {len(cfg.tasks)} tasks[/bold] (concurrency={max_workers})")
-
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {
             pool.submit(_run_single_task, i, prompt, cwd, cfg, ui): i
@@ -282,11 +270,21 @@ def run_tasks(cfg: MultiTaskConfig) -> list[TaskResult]:
                     status="failed",
                     error=str(exc),
                 )
+    return [r for r in results if r is not None]
 
-    final = [r for r in results if r is not None]
-    _print_summary(final)
-    _notify_completion(final)
-    return final
+
+def run_tasks(cfg: MultiTaskConfig) -> list[TaskResult]:
+    """Run multiple tasks concurrently. Returns results in submission order."""
+    if not cfg.tasks:
+        return []
+    ui = UICoordinator(tasks=[prompt for prompt, _ in cfg.tasks])
+    ui.print_banner(f"batch-{int(time.time())}")
+    n = min(cfg.concurrency, len(cfg.tasks))
+    console.print(f"  [bold]Running {len(cfg.tasks)} tasks[/bold] (concurrency={n})")
+    results = _run_concurrent(cfg, ui)
+    _print_summary(results)
+    _notify_completion(results)
+    return results
 
 
 def _print_summary(results: list[TaskResult]) -> None:
