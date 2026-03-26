@@ -48,7 +48,8 @@ def test_dashboard_all_done_signal():
     dash.update_subtask("task-b", "codex", 2, "done", started_at=now, finished_at=now)
 
     output = _render_to_string(dash)
-    assert "ALL DONE" in output
+    assert "Done" in output
+    assert "2/2 tasks" in output
     dash.stop()
 
 
@@ -61,7 +62,7 @@ def test_dashboard_no_done_signal_when_tasks_pending():
     dash.update_subtask("task-b", "codex", 2, "running", started_at=time.time())
 
     output = _render_to_string(dash)
-    assert "ALL DONE" not in output
+    assert "2/2 tasks" not in output
     dash.stop()
 
 
@@ -111,8 +112,8 @@ def test_done_banner_shows_tokens():
     dash.stop()
 
 
-def test_done_banner_shows_time_saved():
-    """Time saved line appears when estimated minutes are provided."""
+def test_done_banner_compact_format():
+    """Done banner shows compact one-liner with tasks and time."""
     dash = RunDashboard("test goal")
     dash.start()
     now = time.time()
@@ -136,8 +137,8 @@ def test_done_banner_shows_time_saved():
     )
 
     output = _render_to_string(dash)
-    assert "saved" in output
-    assert "8m est" in output
+    assert "2/2 tasks" in output
+    assert "Done" in output
     dash.stop()
 
 
@@ -149,9 +150,8 @@ def test_done_banner_no_metrics_when_empty():
     dash.update_subtask("t1", "claude", 1, "done", started_at=now, finished_at=now)
 
     output = _render_to_string(dash)
-    assert "ALL DONE" in output
-    assert "tokens" not in output
-    assert "saved" not in output
+    assert "Done" in output
+    assert "1/1 tasks" in output
     dash.stop()
 
 
@@ -406,27 +406,27 @@ def test_done_banner_is_panel():
 
 
 def test_done_banner_yellow_on_errors():
-    """Done banner shows yellow style when errors exist."""
+    """Done banner shows error count when errors exist."""
     dash = RunDashboard("test goal")
     dash.start()
     now = time.time()
     dash.update_subtask("t1", "claude", 1, "done", started_at=now, finished_at=now)
     dash.update_subtask("t2", "claude", 2, "error", started_at=now, finished_at=now)
     output = _render_to_string(dash)
-    assert "ALL DONE" in output
+    assert "1/2 tasks" in output
     assert "1 error" in output
     dash.stop()
 
 
-def test_done_banner_shows_total_tokens():
-    """Done banner shows combined token count."""
+def test_done_banner_shows_cost():
+    """Done banner shows estimated cost when tokens are provided."""
     dash = RunDashboard("test goal")
     dash.start()
     now = time.time()
     dash.update_subtask("t1", "claude", 1, "done", started_at=now, finished_at=now)
     dash.set_session_metrics(total_input_tokens=100_000, total_output_tokens=25_000)
     output = _render_to_string(dash)
-    assert "125.0k tokens" in output
+    assert "$" in output
     dash.stop()
 
 

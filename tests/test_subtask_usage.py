@@ -108,8 +108,7 @@ def test_session_usage_session_total_line_with_subtasks():
     )
     line = usage.session_total_line()
     assert "Total: $0.6000" in line
-    assert "lead 300" in line
-    assert "agents 3,000" in line
+    assert "Agents: 1" in line
 
 
 def test_session_usage_session_total_line_no_subtasks():
