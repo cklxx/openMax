@@ -1,8 +1,11 @@
 # Changelog
 
+## 0.9.17
+
+- **Fix**: Forward `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` from Claude Code settings to lead agent subprocess — the SDK passes `--setting-sources ""` which skips settings files, causing login errors for users with settings-based auth
+
 ## 0.9.16
 
-- **Fix**: Forward `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` from Claude Code settings to lead agent subprocess — the SDK passes `--setting-sources ""` which skips settings files, so users relying on settings-based auth were getting login errors
 - **Improvement**: Faster startup — prompt building runs in parallel with SDK subprocess startup via ThreadPoolExecutor; git status and branch detection run concurrently with Popen
 - **Improvement**: Spinner stays visible through full startup with stage labels (starting up → connecting → thinking)
 - **Improvement**: Modern banner redesign — `⚡ openMax` with tagline, replacing basic reversed-cyan block
