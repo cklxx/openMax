@@ -1,4 +1,4 @@
-"""Execution backend abstraction for pane-based agent management."""
+"""Pane backend module."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Project registry — manage registered projects in ~/.openmax/projects.yaml."""
+"""Project registry module."""
 
 from __future__ import annotations
 

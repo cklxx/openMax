@@ -1,4 +1,4 @@
-"""Pane manager — tracks windows, panes, and their relationships."""
+"""Pane manager module."""
 
 from __future__ import annotations
 

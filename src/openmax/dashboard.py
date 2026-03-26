@@ -1,4 +1,4 @@
-"""Compact status bar and shared console for openMax runs."""
+"""Dashboard module."""
 
 from __future__ import annotations
 

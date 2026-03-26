@@ -1,4 +1,4 @@
-"""Workspace and session cleanup for openMax artifacts."""
+"""Cleanup utilities module."""
 
 from __future__ import annotations
 
