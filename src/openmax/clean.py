@@ -75,9 +75,39 @@ def cleanup_branches_and_worktrees(cwd: str) -> list[str]:
 
 def expire_old_sessions(max_age_days: int = _SESSION_MAX_AGE_DAYS) -> int:
     """Remove sessions older than max_age_days. Returns count removed."""
+    abort_stale_sessions()
     report = CleanupReport()
     _expire_sessions(report, max_age_days=max_age_days)
     return len(report.sessions_removed)
+
+
+_STALE_ACTIVE_MINUTES = 120
+
+
+def abort_stale_sessions(stale_minutes: int = _STALE_ACTIVE_MINUTES) -> int:
+    """Mark 'active' sessions older than stale_minutes as 'aborted'. Returns count."""
+    import json
+
+    sessions_root = _sessions_dir()
+    if not sessions_root.exists():
+        return 0
+    cutoff = time.time() - stale_minutes * 60
+    count = 0
+    for d in _collect_session_dirs(sessions_root):
+        meta_file = d / "meta.json"
+        if not meta_file.exists():
+            continue
+        try:
+            meta = json.loads(meta_file.read_text())
+            if meta.get("status") != "active":
+                continue
+            if d.stat().st_mtime < cutoff:
+                meta["status"] = "aborted"
+                meta_file.write_text(json.dumps(meta))
+                count += 1
+        except Exception:
+            continue
+    return count
 
 
 # -- Branch helpers ----------------------------------------------------------
