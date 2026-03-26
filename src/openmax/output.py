@@ -1,4 +1,4 @@
-"""Shared console output for openMax."""
+"""Output formatting module."""
 
 from rich.console import Console
 
