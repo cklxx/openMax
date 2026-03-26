@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.28
+
+- **Feature**: Rate limit resilience — lead agent pauses and prompts user to confirm before retrying (up to 5 attempts with Enter-to-retry)
+- **Feature**: Sub-agent rate limit detection — `read_pane_output` detects rate limit errors in exited panes and flags `rate_limited: true`
+- **Improvement**: Lead agent prompt instructs `ask_user` before re-dispatching rate-limited sub-agents (one limit likely means all are limited)
+
 ## 0.9.27
 
 - **Feature**: Stream-JSON execution mode (`claude-code-stream` adapter) — sub-agents run via `claude -p --output-format stream-json --verbose` with real-time event parsing
