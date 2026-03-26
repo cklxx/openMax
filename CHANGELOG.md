@@ -2,6 +2,7 @@
 
 ## 0.9.19
 
+- **Fix**: Recognize `ANTHROPIC_AUTH_TOKEN` for auth detection and settings forwarding
 - **Feature**: Auto-decompose multi-task input — single prompt/file containing numbered lists, `---` separators, or `## ` headings is automatically split into independent tasks with user confirmation
 - **Feature**: Direct execution mode — multi-task runs skip lead agent overhead, executing `claude -p` directly per task (zero orchestration tokens)
 - **Feature**: Auto concurrency — scales to `min(task_count, 30)` instead of hardcoded 6
