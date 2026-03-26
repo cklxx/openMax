@@ -1313,3 +1313,50 @@ def test_setup_skills_flag(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert len(installed) == 1
+
+
+# --- @file prompt resolution ---
+
+
+def test_resolve_task_prompt_passthrough():
+    assert cli._resolve_task_prompt("Build feature") == "Build feature"
+
+
+def test_resolve_task_prompt_reads_file(tmp_path):
+    f = tmp_path / "task.md"
+    f.write_text("  Refactor the auth module  \n")
+    assert cli._resolve_task_prompt(f"@{f}") == "Refactor the auth module"
+
+
+def test_resolve_task_prompt_missing_file():
+    import click as _click
+    import pytest
+
+    with pytest.raises(_click.UsageError, match="Prompt file not found"):
+        cli._resolve_task_prompt("@/nonexistent/task.md")
+
+
+def test_run_with_file_prompt(monkeypatch, tmp_path):
+    prompt_file = tmp_path / "prompt.txt"
+    prompt_file.write_text("Fix the login bug\n")
+
+    monkeypatch.setattr(cli, "ensure_kaku", lambda: True)
+    monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+
+    captured: dict[str, object] = {}
+
+    def fake_run_lead_agent(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(subtasks=[])
+
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run_lead_agent)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        ["run", f"@{prompt_file}", "--cwd", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0
+    assert captured["task"] == "Fix the login bug"

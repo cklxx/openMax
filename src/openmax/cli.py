@@ -57,7 +57,7 @@ class GroupedGroup(click.Group):
         ("Run", ["run", "loop"]),
         ("Sessions", ["sessions", "inspect", "usage", "log"]),
         ("Environment", ["status", "agents", "panes", "models"]),
-        ("Setup", ["setup", "doctor"]),
+        ("Setup", ["setup", "doctor", "clean"]),
         ("Benchmark", ["benchmark"]),
     ]
 
@@ -122,6 +122,16 @@ def _make_table(**overrides: Any) -> Table:
     )
     defaults.update(overrides)
     return Table(**defaults)
+
+
+def _resolve_task_prompt(raw: str) -> str:
+    """If *raw* starts with ``@``, read the referenced file as the prompt."""
+    if not raw.startswith("@"):
+        return raw
+    path = Path(raw[1:]).expanduser().resolve()
+    if not path.is_file():
+        raise click.UsageError(f"Prompt file not found: {path}")
+    return path.read_text().strip()
 
 
 def _resolve_cwd(cwd: str | None) -> str:
@@ -442,6 +452,15 @@ def run(
 
     if not tasks:
         raise click.UsageError("At least one task is required")
+    tasks = tuple(_resolve_task_prompt(t) for t in tasks)
+
+    # Expire old sessions in background (non-blocking, best-effort)
+    try:
+        from openmax.clean import expire_old_sessions
+
+        expire_old_sessions()
+    except Exception:
+        pass
 
     cwd = _resolve_cwd(cwd)
 
@@ -507,6 +526,13 @@ def run(
         _cleaned_up = True
         try:
             pane_mgr.cleanup_all()
+        except Exception:
+            pass
+        # Auto-clean branches and worktrees so interrupts don't leave debris
+        try:
+            from openmax.clean import cleanup_branches_and_worktrees
+
+            cleanup_branches_and_worktrees(cwd)
         except Exception:
             pass
 
@@ -1439,6 +1465,52 @@ def doctor(cwd: str | None) -> None:
     for line in lines:
         console.print(line)
     raise SystemExit(0 if issue_count == 0 else 1)
+
+
+@main.command()
+@click.option("--all", "include_all", is_flag=True, default=False, help="Also expire old sessions")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would be removed")
+@click.option("--cwd", default=None, help="Workspace to clean (default: current)")
+def clean(include_all: bool, dry_run: bool, cwd: str | None) -> None:
+    """Remove openMax artifacts: branches, worktrees, task files, sockets.
+
+    Cleans up residual openmax/* branches, .openmax-worktrees/, task files
+    in .openmax/, stale Unix sockets, and (with --all) expired sessions.
+    """
+    from openmax.clean import clean_workspace, scan_artifacts
+
+    cwd = _resolve_cwd(cwd)
+    report = (
+        scan_artifacts(cwd, include_sessions=include_all)
+        if dry_run
+        else (clean_workspace(cwd, include_sessions=include_all))
+    )
+
+    if report.total_removed == 0 and not report.errors:
+        console.print("[green]Workspace is clean — nothing to remove.[/green]")
+        return
+
+    prefix = "[dim](dry-run)[/dim] " if dry_run else ""
+    if report.branches_removed:
+        console.print(f"{prefix}Branches: {len(report.branches_removed)}")
+        for b in report.branches_removed:
+            console.print(f"  [dim]{b}[/dim]")
+    if report.worktrees_removed:
+        console.print(f"{prefix}Worktrees: {len(report.worktrees_removed)}")
+    if report.task_dirs_removed:
+        console.print(f"{prefix}Task dirs: {', '.join(report.task_dirs_removed)}")
+    if report.message_logs_removed:
+        console.print(f"{prefix}Message logs: {len(report.message_logs_removed)}")
+    if report.sockets_removed:
+        console.print(f"{prefix}Sockets: {len(report.sockets_removed)}")
+    if report.sessions_removed:
+        console.print(f"{prefix}Expired sessions: {len(report.sessions_removed)}")
+    if report.errors:
+        for err in report.errors:
+            console.print(f"[red]Error: {err}[/red]")
+
+    verb = "would remove" if dry_run else "removed"
+    console.print(f"\n[bold]{report.total_removed} artifact(s) {verb}.[/bold]")
 
 
 @main.command()

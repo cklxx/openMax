@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.13
+
+- **Feature**: Support `@file` syntax for reading prompts from files — `openmax run @task.md` reads the file contents as the prompt. Works with multi-task mode and mixed inline/file arguments
+- **Feature**: `openmax clean` command — removes residual branches, worktrees, task files, sockets, and (with `--all`) expired sessions
+
 ## 0.9.12
 
 - **Chore**: Remove agent test artifacts (hello.py, fib.py, prime.py, stack.py) from repo
