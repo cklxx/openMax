@@ -35,6 +35,7 @@ class SubTask:
     cost_usd: float = 0.0
     usage_source: str = "estimated"
     role: str = "writer"
+    employee: str | None = None
     estimated_cost_usd: float | None = None
 
 

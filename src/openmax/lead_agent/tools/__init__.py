@@ -16,6 +16,7 @@ from openmax.lead_agent.tools._helpers import _compress_context as _compress_con
 from openmax.lead_agent.tools._misc import (
     ask_user,
     check_conflicts,
+    list_employees_tool,
     read_task_report,
     run_command,
     wait_for_agent_message,
@@ -44,6 +45,7 @@ ALL_TOOLS = [
     dispatch_agent,
     find_files_tool,
     grep_files_tool,
+    list_employees_tool,
     mark_task_done,
     merge_agent_branch,
     list_managed_panes,

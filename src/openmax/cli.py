@@ -56,7 +56,7 @@ class GroupedGroup(click.Group):
     command_groups = [
         ("Run", ["run", "loop"]),
         ("Sessions", ["sessions", "inspect", "usage", "log"]),
-        ("Environment", ["status", "agents", "panes", "models"]),
+        ("Environment", ["status", "agents", "employee", "panes", "models"]),
         ("Setup", ["setup", "doctor", "clean"]),
         ("Benchmark", ["benchmark"]),
     ]
@@ -1718,6 +1718,102 @@ def _log_replay(log_path: Path) -> None:
         detail = ev.get("summary") or ev.get("msg") or ""
         pct = f" {ev['pct']}%" if "pct" in ev else ""
         console.print(f"  [dim]{ts_str}[/dim]  [bold]{task}[/bold]  [{msg_type}]{pct}  {detail}")
+
+
+# ---------------------------------------------------------------------------
+# employee
+# ---------------------------------------------------------------------------
+
+
+@main.group()
+def employee() -> None:
+    """Manage persistent employee profiles for sub-agents."""
+
+
+@employee.command("add")
+@click.argument("name")
+@click.option("--role", default="writer", help="Default role (writer/reviewer/challenger/debugger)")
+@click.option("--agent-type", default="", help="Preferred agent type (claude-code/codex)")
+@click.option("--specialty", default="", help="Employee specialty description")
+@click.option("--identity", default="", help="Custom identity paragraph")
+def employee_add(name: str, role: str, agent_type: str, specialty: str, identity: str) -> None:
+    """Create a new employee profile."""
+    from openmax.employees import create_employee, get_employee
+
+    if get_employee(name):
+        raise click.UsageError(f"Employee '{name}' already exists")
+    emp = create_employee(
+        name,
+        role=role,
+        agent_type=agent_type,
+        specialty=specialty,
+        identity=identity,
+    )
+    console.print(f"[bold green]Created[/bold green] employee '{emp.name}' at {emp.path}")
+
+
+@employee.command("list")
+def employee_list() -> None:
+    """List all employees."""
+    from openmax.employees import list_employees
+
+    employees = list_employees()
+    if not employees:
+        msg = "No employees yet. Create one with: openmax employee add <name>"
+        console.print(f"[yellow]{msg}[/yellow]")
+        return
+    tbl = _make_table(expand=True)
+    tbl.add_column("Name", style="bold")
+    tbl.add_column("Role")
+    tbl.add_column("Specialty")
+    tbl.add_column("Tasks", justify="right")
+    for emp in employees:
+        tbl.add_row(emp.name, emp.role, emp.specialty or "-", str(emp.task_count))
+    console.print(tbl)
+
+
+@employee.command("show")
+@click.argument("name")
+def employee_show(name: str) -> None:
+    """Show an employee's full profile."""
+    from openmax.employees import get_employee
+
+    emp = get_employee(name)
+    if emp is None:
+        raise click.UsageError(f"Employee '{name}' not found")
+    console.print(f"[bold]{emp.name}[/bold]  role={emp.role}  tasks={emp.task_count}")
+    if emp.specialty:
+        console.print(f"Specialty: {emp.specialty}")
+    if emp.body:
+        console.print(f"\n{emp.body}")
+    if emp.experience_entries:
+        console.print(f"\n## Experience ({len(emp.experience_entries)} entries)\n")
+        for entry in emp.experience_entries[-5:]:
+            console.print(entry)
+            console.print()
+
+
+@employee.command("edit")
+@click.argument("name")
+def employee_edit(name: str) -> None:
+    """Open an employee profile in $EDITOR."""
+    from openmax.employees import get_employee
+
+    emp = get_employee(name)
+    if emp is None:
+        raise click.UsageError(f"Employee '{name}' not found")
+    click.edit(filename=str(emp.path))
+
+
+@employee.command("remove")
+@click.argument("name")
+def employee_remove(name: str) -> None:
+    """Remove an employee profile."""
+    from openmax.employees import remove_employee
+
+    if not remove_employee(name):
+        raise click.UsageError(f"Employee '{name}' not found")
+    console.print(f"[bold red]Removed[/bold red] employee '{name}'")
 
 
 # ---------------------------------------------------------------------------

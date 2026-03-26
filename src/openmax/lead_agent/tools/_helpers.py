@@ -170,6 +170,18 @@ def _build_role_context(role: str) -> str:
     return ROLE_TEMPLATES.get(role, "")
 
 
+def _build_employee_context(employee_name: str | None) -> str:
+    """Load employee profile and build prompt context block. Empty string if not found."""
+    if not employee_name:
+        return ""
+    from openmax.employees import build_employee_context, get_employee
+
+    emp = get_employee(employee_name)
+    if emp is None:
+        return ""
+    return build_employee_context(emp)
+
+
 def _build_blackboard_block(cwd: str) -> str:
     content = read_shared_context(cwd)
     if not content:

@@ -1360,3 +1360,71 @@ def test_run_with_file_prompt(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert captured["task"] == "Fix the login bug"
+
+
+# ---------------------------------------------------------------------------
+# Employee CLI tests
+# ---------------------------------------------------------------------------
+
+
+def test_employee_add_and_list(monkeypatch, tmp_path):
+    monkeypatch.setattr("openmax.employees._EMPLOYEES_DIR", tmp_path / "emp")
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.main,
+        ["employee", "add", "alice", "--role", "writer", "--specialty", "Python"],
+    )
+    assert result.exit_code == 0
+    assert "Created" in result.output
+
+    result = runner.invoke(cli.main, ["employee", "list"])
+    assert result.exit_code == 0
+    assert "alice" in result.output
+
+
+def test_employee_show(monkeypatch, tmp_path):
+    monkeypatch.setattr("openmax.employees._EMPLOYEES_DIR", tmp_path / "emp")
+    runner = CliRunner()
+
+    runner.invoke(cli.main, ["employee", "add", "bob", "--specialty", "Go"])
+    result = runner.invoke(cli.main, ["employee", "show", "bob"])
+    assert result.exit_code == 0
+    assert "bob" in result.output
+
+
+def test_employee_remove(monkeypatch, tmp_path):
+    monkeypatch.setattr("openmax.employees._EMPLOYEES_DIR", tmp_path / "emp")
+    runner = CliRunner()
+
+    runner.invoke(cli.main, ["employee", "add", "charlie"])
+    result = runner.invoke(cli.main, ["employee", "remove", "charlie"])
+    assert result.exit_code == 0
+    assert "Removed" in result.output
+
+
+def test_employee_add_duplicate(monkeypatch, tmp_path):
+    monkeypatch.setattr("openmax.employees._EMPLOYEES_DIR", tmp_path / "emp")
+    runner = CliRunner()
+
+    runner.invoke(cli.main, ["employee", "add", "dave"])
+    result = runner.invoke(cli.main, ["employee", "add", "dave"])
+    assert result.exit_code != 0
+    assert "already exists" in result.output
+
+
+def test_employee_show_nonexistent(monkeypatch, tmp_path):
+    monkeypatch.setattr("openmax.employees._EMPLOYEES_DIR", tmp_path / "emp")
+    runner = CliRunner()
+
+    result = runner.invoke(cli.main, ["employee", "show", "nobody"])
+    assert result.exit_code != 0
+
+
+def test_employee_list_empty(monkeypatch, tmp_path):
+    monkeypatch.setattr("openmax.employees._EMPLOYEES_DIR", tmp_path / "emp")
+    runner = CliRunner()
+
+    result = runner.invoke(cli.main, ["employee", "list"])
+    assert result.exit_code == 0
+    assert "No employees" in result.output

@@ -26,6 +26,31 @@ from openmax.output import P, console
 
 
 @tool(
+    "list_employees",
+    "List available employees with their specialties. Use to choose "
+    "which employee to assign via dispatch_agent(employee=name).",
+    {},
+)
+async def list_employees_tool(args: dict[str, Any]) -> dict[str, Any]:
+    from openmax.employees import list_employees
+
+    employees = list_employees()
+    if not employees:
+        return _tool_response({"employees": [], "hint": "No employees yet. Create with CLI."})
+    items = [
+        {
+            "name": e.name,
+            "role": e.role,
+            "specialty": e.specialty,
+            "agent_type": e.agent_type,
+            "task_count": e.task_count,
+        }
+        for e in employees
+    ]
+    return _tool_response({"employees": items})
+
+
+@tool(
     "ask_user",
     "Ask the human operator a question. Only for genuinely ambiguous or "
     "irreversible decisions. Pass choices as a list of options.",
@@ -540,6 +565,22 @@ async def _run_all_done_pipeline(
     return result
 
 
+def _try_append_employee_experience(runtime: Any, task_name: str) -> None:
+    """Extract learnings from report and append to employee profile."""
+    from openmax.employees import append_experience, extract_learnings
+
+    for st in runtime.plan.subtasks:
+        if st.name == task_name and st.employee:
+            report = _read_subtask_report(task_name)
+            if not report:
+                return
+            learnings = extract_learnings(report)
+            if learnings:
+                append_experience(st.employee, task_name, learnings)
+                console.print(f"  [dim]{P}  updated employee {st.employee} with learnings[/dim]")
+            return
+
+
 async def _handle_message(runtime: Any, msg: Any) -> dict[str, Any]:
     """Process a single mailbox message. Returns an entry dict for the response."""
     runtime.mailbox_messaged_tasks.add(msg.task)
@@ -548,6 +589,7 @@ async def _handle_message(runtime: Any, msg: Any) -> dict[str, Any]:
     merge_result = None
     if msg.type == "done":
         _apply_subtask_usage(msg.task, msg.raw)
+        _try_append_employee_experience(runtime, msg.task)
         merge_result = await _auto_mark_and_merge(runtime, msg.task)
 
     if msg.type == "progress" and runtime.dashboard is not None:

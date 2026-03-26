@@ -20,6 +20,7 @@ from openmax.lead_agent.tools._helpers import (
     _CHECKPOINT_PROTOCOL,
     _append_session_event,
     _build_blackboard_block,
+    _build_employee_context,
     _build_identity_block,
     _build_role_context,
     _build_subagent_context,
@@ -222,6 +223,7 @@ def _build_full_prompt(
     role_context: str = "",
     session_id: str | None = None,
     archetype_hints: str = "",
+    employee_context: str = "",
 ) -> str:
     identity = _build_identity_block(task_name, session_id)
     context_block = _build_subagent_context(branch_name=branch_name, agent_cwd=agent_cwd)
@@ -235,6 +237,8 @@ def _build_full_prompt(
         parts.append(archetype_hints)
     if role_context:
         parts.append("\n\n" + role_context)
+    if employee_context:
+        parts.append("\n\n" + employee_context)
     parts.append(_CHECKPOINT_PROTOCOL.format(task_name=task_name))
     parts.append(_file_protocol_section(rep_file, agent_cwd))
     return "".join(parts)
@@ -270,7 +274,8 @@ def _dispatch_failure_response(
 @tool(
     "dispatch_agent",
     "Dispatch a sub-task to an AI agent. Include file paths, constraints, "
-    "and context in the prompt — it is the agent's only briefing. Returns pane_id.",
+    "and context in the prompt — it is the agent's only briefing. Returns pane_id. "
+    "Use employee to assign a named employee profile (from list_employees).",
     {
         "type": "object",
         "properties": {
@@ -285,6 +290,7 @@ def _dispatch_failure_response(
                 "type": "string",
                 "enum": ["writer", "reviewer", "challenger", "debugger"],
             },
+            "employee": {"type": "string"},
         },
         "required": ["task_name", "prompt"],
     },
@@ -325,6 +331,8 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
 
     role_context = _build_role_context(role)
     hints = _get_archetype_hints(runtime, task_name)
+    employee_name = args.get("employee")
+    employee_ctx = _build_employee_context(employee_name)
     prompt = _build_full_prompt(
         prompt,
         branch_name,
@@ -334,6 +342,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         role_context=role_context,
         session_id=session_id,
         archetype_hints=hints,
+        employee_context=employee_ctx,
     )
 
     cost_estimate = estimate_task_cost(len(prompt), agent_type)
@@ -382,6 +391,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
         started_at=time.time(),
         token_budget=token_budget,
         role=role,
+        employee=employee_name,
         estimated_cost_usd=cost_estimate.estimated_cost_usd,
     )
     _upsert_subtask(subtask)

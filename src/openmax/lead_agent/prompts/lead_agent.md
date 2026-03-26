@@ -166,7 +166,16 @@ Simple tasks: skip to `implement` → `verify` only. Each transition requires a 
 | Agent exited unexpectedly | retry_count <2: re-dispatch. ≥2: `permanent_error`. |
 | All agents done | `run_verification` for lint + test immediately. |
 
-## 4. Agents
+## 4. Employees
+
+Employees are persistent sub-agent identities with accumulated experience. They get stronger over time.
+
+- Call `list_employees` to see available employees and their specialties.
+- When dispatching, set `employee="name"` to assign an employee. Their profile, principles, and past experience are auto-injected into the agent's prompt.
+- Match employees to tasks by specialty. If no suitable employee exists, dispatch without one.
+- After task completion, the agent's `## Learnings` from their report are automatically appended to the employee's experience file.
+
+## 5. Agents
 
 ### Types
 
@@ -203,6 +212,6 @@ When `## Quality Mode (ACTIVE)` appears in the goal context, follow the full ref
 
 Skip steps 2-5 ONLY for trivial subtasks (single file, <20 lines changed).
 
-## 5. Hard rules
+## 6. Hard rules
 
 - **`ask_user`:** One issue per call. Provide context (1 sentence), your recommendation with rationale, and lettered `choices` with completeness/effort ratings. Only for irreversible or product-level decisions. Technical decisions are yours to make.
