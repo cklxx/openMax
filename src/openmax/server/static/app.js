@@ -52,6 +52,8 @@ function handleEvent(event, data) {
     if (idx >= 0) tasks[idx].status = "cancelled";
   } else if (event === "subtask_progress") {
     updateSubtask(data);
+  } else if (event === "activity") {
+    appendActivity(data);
   }
   render();
 }
@@ -67,6 +69,14 @@ function updateSubtask(data) {
       sub.progress_pct = data.data.progress_pct;
     }
   }
+}
+
+function appendActivity(data) {
+  const task = tasks.find((t) => t.id === data.task_id);
+  if (!task) return;
+  if (!task.activity) task.activity = [];
+  task.activity.push(data.entry);
+  if (task.activity.length > 200) task.activity = task.activity.slice(-200);
 }
 
 /* ── Render ── */
@@ -97,6 +107,7 @@ function animateNum(id, target) {
 
 function renderTasks() {
   const list = $(".task-list");
+  const expanded = new Set($$(".task-card.expanded").map((el) => el.dataset.id));
   const sorted = [...tasks].sort((a, b) => a.priority - b.priority);
 
   const running = sorted.filter((t) => t.status === "running" || t.status === "sizing");
@@ -109,15 +120,15 @@ function renderTasks() {
 
   if (running.length) {
     html += `<div class="section-header">Running (${running.length})</div>`;
-    html += running.map(taskCard).join("");
+    html += running.map((t) => taskCard(t, expanded.has(t.id))).join("");
   }
   if (queued.length) {
     html += `<div class="section-header">Queued (${queued.length})</div>`;
-    html += queued.map(taskCard).join("");
+    html += queued.map((t) => taskCard(t, expanded.has(t.id))).join("");
   }
   if (done.length) {
     html += `<div class="section-header">Completed (${done.length})</div>`;
-    html += done.map(taskCard).join("");
+    html += done.map((t) => taskCard(t, expanded.has(t.id))).join("");
   }
 
   if (!tasks.length) {
@@ -131,7 +142,7 @@ function renderTasks() {
   list.innerHTML = html;
 }
 
-function taskCard(t) {
+function taskCard(t, isExpanded) {
   const statusClass = `status-${t.status}`;
   const sizeClass = `badge-${t.size || "unknown"}`;
   const pct = calcProgress(t);
@@ -139,13 +150,14 @@ function taskCard(t) {
   const label = t.task.length > 100 ? t.task.slice(0, 100) + "..." : t.task;
   const isRunning = t.status === "running";
   const glowClass = isRunning ? " running-glow" : "";
+  const expandClass = isExpanded ? " expanded" : "";
 
   let subtasksHtml = "";
   if (t.subtasks && t.subtasks.length) {
     subtasksHtml = '<div class="subtasks">' +
       t.subtasks.map((s) => {
         const cls = s.status === "done" ? "done" : s.status === "running" ? "running" : "pending";
-        const icon = s.status === "done" ? "&#10003;" : s.status === "running" ? "&#8226;" : "&#8226;";
+        const icon = s.status === "done" ? "&#10003;" : "&#8226;";
         return `<div class="subtask">
           <span class="subtask-icon ${cls}">${icon}</span>
           <span class="subtask-name">${esc(s.name)}</span>
@@ -153,6 +165,8 @@ function taskCard(t) {
         </div>`;
       }).join("") + "</div>";
   }
+
+  const activityHtml = renderActivity(t);
 
   const canCancel = t.status === "queued" || t.status === "running";
   const canAdjust = t.status === "queued";
@@ -167,7 +181,7 @@ function taskCard(t) {
       <div class="progress-bar"><div class="progress-fill ${progressClass}" style="width:${pct}%"></div></div>`;
   }
 
-  return `<div class="task-card${glowClass}" data-id="${t.id}" onclick="toggleExpand(this)">
+  return `<div class="task-card${glowClass}${expandClass}" data-id="${t.id}" onclick="toggleExpand(this)">
     <div class="task-header">
       <span class="task-name">${esc(label)}</span>
       <span class="badge ${sizeClass}">${t.size || "..."}</span>
@@ -180,7 +194,33 @@ function taskCard(t) {
     </div>
     ${progressHtml}
     ${subtasksHtml}
+    ${activityHtml}
   </div>`;
+}
+
+function renderActivity(t) {
+  const entries = t.activity || [];
+  if (!entries.length) return "";
+  const recent = entries.slice(-20);
+  const lines = recent.map((a) => {
+    const time = formatTime(a.timestamp);
+    const typeClass = `log-${a.type || "info"}`;
+    const src = a.source === "system" ? "sys" : a.source;
+    return `<div class="log-line ${typeClass}">
+      <span class="log-time">${time}</span>
+      <span class="log-src">[${esc(src)}]</span>
+      <span class="log-msg">${esc(a.message)}</span>
+    </div>`;
+  }).join("");
+  return `<div class="activity-log">${lines}</div>`;
+}
+
+function formatTime(ts) {
+  if (!ts) return "";
+  try {
+    const d = new Date(ts);
+    return d.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  } catch { return ""; }
 }
 
 function calcProgress(t) {

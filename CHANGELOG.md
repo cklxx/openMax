@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.24
+
+- **Feature**: Real-time activity log per task — sub-agent progress, lifecycle events, and error messages stream into an expandable monospace log panel on each task card
+- **Improvement**: Dashboard UI redesign — card-style stats with colored icons, gradient progress bars, running glow effect, animated counters, polished input area with focus glow, responsive layout
+
 ## 0.9.23
 
 - **Improvement**: Dashboard UI redesign — card-style stats with colored icons, gradient progress bars, running glow effect, animated counters, polished input area with focus glow, responsive layout

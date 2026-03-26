@@ -38,6 +38,17 @@ class SubtaskInfo:
 
 
 @dataclass
+class ActivityEntry:
+    timestamp: str
+    source: str  # subtask name or "system"
+    message: str
+    type: str = "info"  # info | done | error | question
+
+
+_MAX_ACTIVITY = 200
+
+
+@dataclass
 class QueuedTask:
     id: str
     task: str
@@ -51,8 +62,18 @@ class QueuedTask:
     finished_at: str | None = None
     session_id: str | None = None
     subtasks: list[SubtaskInfo] = field(default_factory=list)
+    activity: list[ActivityEntry] = field(default_factory=list)
     cwd: str = "."
     error: str | None = None
+
+    def add_activity(self, source: str, message: str, entry_type: str = "info") -> ActivityEntry:
+        from openmax._paths import utc_now_iso
+
+        entry = ActivityEntry(utc_now_iso(), source, message, entry_type)
+        self.activity.append(entry)
+        if len(self.activity) > _MAX_ACTIVITY:
+            self.activity = self.activity[-_MAX_ACTIVITY:]
+        return entry
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -60,9 +81,10 @@ class QueuedTask:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> QueuedTask:
         subs = [SubtaskInfo(**s) for s in data.pop("subtasks", [])]
+        acts = [ActivityEntry(**a) for a in data.pop("activity", [])]
         data["status"] = QueueStatus(data["status"])
         data["size"] = TaskSize(data["size"])
-        return cls(**data, subtasks=subs)
+        return cls(**data, subtasks=subs, activity=acts)
 
 
 class TaskQueue:

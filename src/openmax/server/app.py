@@ -124,7 +124,7 @@ def create_app(queue_dir: Path | None = None, max_slots: int = 6) -> Starlette:
 
     _queue = TaskQueue(queue_dir)
     _hub = WSHub()
-    _bridge = ProgressBridge(_hub)
+    _bridge = ProgressBridge(_hub, _queue)
     _scheduler = Scheduler(_queue, _hub, _bridge, max_slots=max_slots)
 
     from contextlib import asynccontextmanager

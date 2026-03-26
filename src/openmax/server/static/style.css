@@ -364,6 +364,63 @@ body {
 
 .subtask-name { flex: 1; }
 
+/* ── Activity log ── */
+.activity-log {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: #0f0f12;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.task-card.expanded .activity-log {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.activity-log::-webkit-scrollbar { width: 4px; }
+.activity-log::-webkit-scrollbar-track { background: transparent; }
+.activity-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.log-line {
+  display: flex;
+  gap: 8px;
+  padding: 1px 0;
+  white-space: nowrap;
+}
+
+.log-time {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  min-width: 60px;
+}
+
+.log-src {
+  color: var(--accent);
+  flex-shrink: 0;
+  min-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-msg {
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-done .log-msg { color: var(--green); }
+.log-error .log-msg { color: var(--red); }
+.log-question .log-msg { color: var(--yellow); }
+.log-info .log-src { color: var(--blue); }
+
 /* ── Actions ── */
 .task-actions {
   display: flex;

@@ -10,7 +10,14 @@ from typing import TYPE_CHECKING
 import anyio
 
 from openmax._paths import utc_now_iso
-from openmax.server.queue import SLOT_COST, QueuedTask, QueueStatus, TaskQueue, TaskSize
+from openmax.server.queue import (
+    SLOT_COST,
+    QueuedTask,
+    QueueStatus,
+    SubtaskInfo,
+    TaskQueue,
+    TaskSize,
+)
 from openmax.server.sizer import estimate_task_size
 
 if TYPE_CHECKING:
@@ -67,23 +74,26 @@ class Scheduler:
             if t.size_override:
                 continue
             t.status = QueueStatus.SIZING
-            self._queue.update(t)
-            await self._hub.broadcast("task_updated", t.to_dict())
+            await self._log_activity(t, "system", "Estimating task size...")
             estimate = await anyio.to_thread.run_sync(lambda: estimate_task_size(t.task, t.cwd))
             t.size = estimate.size
             t.size_confidence = estimate.confidence
             if not t.size_override:
                 t.priority = estimate.suggested_priority
             t.status = QueueStatus.QUEUED
-            self._queue.update(t)
-            await self._hub.broadcast("task_updated", t.to_dict())
+            await self._log_activity(
+                t,
+                "system",
+                f"Sized as {t.size.value} (confidence: {t.size_confidence:.0%}). "
+                f"{estimate.reasoning}",
+            )
 
     async def _dispatch(self, task: QueuedTask) -> None:
         task.status = QueueStatus.RUNNING
         task.started_at = utc_now_iso()
         task.session_id = f"serve-{task.id}-{int(time.time())}"
-        self._queue.update(task)
-        await self._hub.broadcast("task_updated", task.to_dict())
+        mode = "direct" if task.size == TaskSize.SMALL else "lead agent"
+        await self._log_activity(task, "system", f"Dispatching via {mode}...")
         asyncio.get_event_loop().create_task(self._execute(task))
 
     async def _execute(self, task: QueuedTask) -> None:
@@ -95,11 +105,13 @@ class Scheduler:
                 await self._run_lead_agent(task)
             task.status = QueueStatus.DONE
             task.finished_at = utc_now_iso()
+            await self._log_activity(task, "system", "Task completed successfully")
         except Exception as exc:
             logger.error("Task %s failed: %s", task.id, exc)
             task.status = QueueStatus.ERROR
             task.error = str(exc)
             task.finished_at = utc_now_iso()
+            await self._log_activity(task, "system", f"Error: {exc}", "error")
         finally:
             self._bridge.unwatch_session(task.id)
             self._queue.update(task)
@@ -108,6 +120,7 @@ class Scheduler:
 
     async def _run_direct(self, task: QueuedTask) -> None:
         """Run a small task directly via claude -p."""
+        await self._log_activity(task, "agent", "Running claude -p...")
         result = await anyio.to_thread.run_sync(lambda: _run_claude_direct(task.task, task.cwd))
         if result != 0:
             raise RuntimeError(f"Direct execution failed with exit code {result}")
@@ -121,6 +134,7 @@ class Scheduler:
 
         mailbox = SessionMailbox(task.session_id, self._queue._base.parent)
         self._bridge.watch_session(task.id, mailbox)
+        await self._log_activity(task, "system", "Lead agent planning...")
 
         plan = await anyio.to_thread.run_sync(
             lambda: run_lead_agent(
@@ -132,11 +146,27 @@ class Scheduler:
             )
         )
         task.subtasks = [
-            __import__("openmax.server.queue", fromlist=["SubtaskInfo"]).SubtaskInfo(
-                name=st.name, status=st.status.value, agent_type=st.agent_type
-            )
+            SubtaskInfo(name=st.name, status=st.status.value, agent_type=st.agent_type)
             for st in plan.subtasks
         ]
+
+    async def _log_activity(
+        self, task: QueuedTask, source: str, message: str, entry_type: str = "info"
+    ) -> None:
+        entry = task.add_activity(source, message, entry_type)
+        self._queue.update(task)
+        await self._hub.broadcast(
+            "activity",
+            {
+                "task_id": task.id,
+                "entry": {
+                    "timestamp": entry.timestamp,
+                    "source": entry.source,
+                    "message": entry.message,
+                    "type": entry.type,
+                },
+            },
+        )
 
 
 def _run_claude_direct(prompt: str, cwd: str) -> int:
