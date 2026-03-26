@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import json
 
-from openmax.auth import _check_claude_settings_api_key, has_claude_auth
+from openmax.auth import (
+    _check_claude_settings_api_key,
+    _read_claude_settings_env,
+    has_claude_auth,
+)
 
 
 def test_settings_api_key_detected(tmp_path, monkeypatch):
@@ -56,7 +60,6 @@ def test_has_claude_auth_picks_up_settings(tmp_path, monkeypatch):
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
     monkeypatch.delenv("CLAUDE_CODE_SETUP_TOKEN", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    # Prevent shutil.which from finding claude binary
     monkeypatch.setattr("shutil.which", lambda _name: None)
 
     ok, detail = has_claude_auth()
@@ -79,3 +82,83 @@ def test_has_claude_auth_env_var_before_settings(tmp_path, monkeypatch):
     ok, detail = has_claude_auth()
     assert ok is True
     assert detail == "ANTHROPIC_API_KEY env var"
+
+
+# -- _read_claude_settings_env tests --
+
+
+def test_read_settings_env_merges(tmp_path, monkeypatch):
+    """Local settings override global, other keys merge."""
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    (claude_dir / "settings.json").write_text(
+        json.dumps(
+            {
+                "env": {
+                    "ANTHROPIC_API_KEY": "sk-global",
+                    "ANTHROPIC_BASE_URL": "https://global",
+                }
+            }
+        )
+    )
+    (claude_dir / "settings.local.json").write_text(
+        json.dumps({"env": {"ANTHROPIC_API_KEY": "sk-local"}})
+    )
+
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    env = _read_claude_settings_env()
+    assert env["ANTHROPIC_API_KEY"] == "sk-local"
+    assert env["ANTHROPIC_BASE_URL"] == "https://global"
+
+
+def test_read_settings_env_empty(tmp_path, monkeypatch):
+    """No settings files returns empty dict."""
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    assert _read_claude_settings_env() == {}
+
+
+# -- _build_lead_env integration tests --
+
+
+def test_build_lead_env_forwards_settings_api_key(tmp_path, monkeypatch):
+    """API key from settings is forwarded when not in process env."""
+    from openmax.lead_agent.core import _build_lead_env
+
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    (claude_dir / "settings.json").write_text(
+        json.dumps(
+            {
+                "env": {
+                    "ANTHROPIC_API_KEY": "sk-from-settings",
+                    "ANTHROPIC_BASE_URL": "https://custom",
+                }
+            }
+        )
+    )
+
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+
+    env = _build_lead_env()
+    assert env["ANTHROPIC_API_KEY"] == "sk-from-settings"
+    assert env["ANTHROPIC_BASE_URL"] == "https://custom"
+    assert env["CLAUDECODE"] == ""
+
+
+def test_build_lead_env_prefers_process_env(tmp_path, monkeypatch):
+    """Process env vars take precedence over settings."""
+    from openmax.lead_agent.core import _build_lead_env
+
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    (claude_dir / "settings.json").write_text(
+        json.dumps({"env": {"ANTHROPIC_API_KEY": "sk-from-settings"}})
+    )
+
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-from-env")
+
+    env = _build_lead_env()
+    assert "ANTHROPIC_API_KEY" not in env  # not overridden; process env wins

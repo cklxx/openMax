@@ -73,9 +73,17 @@ def _build_lead_env() -> dict[str, str]:
     """Build env dict for the lead agent SDK client.
 
     Unsets CLAUDECODE to prevent nested-session errors.
-    Auth is handled by `claude setup-token` (stored in Claude's own config).
+    The SDK passes --setting-sources "" which skips Claude's settings files,
+    so we forward API key / base URL from settings into env vars.
     """
-    return {"CLAUDECODE": ""}
+    from openmax.auth import _read_claude_settings_env
+
+    env: dict[str, str] = {"CLAUDECODE": ""}
+    settings_env = _read_claude_settings_env()
+    for key in ("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"):
+        if key not in os.environ and key in settings_env:
+            env[key] = settings_env[key]
+    return env
 
 
 def _subtask_cost(st: SubTask) -> float:

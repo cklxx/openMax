@@ -31,6 +31,26 @@ def run_claude_setup_token() -> bool:
     return result.returncode == 0
 
 
+def _read_claude_settings_env() -> dict[str, str]:
+    """Read the merged env dict from Claude Code settings files.
+
+    Checks settings.local.json first (higher priority), then settings.json.
+    Returns a merged dict with local overriding global.
+    """
+    merged: dict[str, str] = {}
+    for name in ("settings.json", "settings.local.json"):
+        path = Path.home() / ".claude" / name
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text())
+            env = data.get("env") or {}
+            merged.update(env)
+        except Exception:
+            continue
+    return merged
+
+
 def _check_claude_settings_api_key() -> str | None:
     """Check Claude Code settings files for ANTHROPIC_API_KEY in env."""
     for name in ("settings.local.json", "settings.json"):
