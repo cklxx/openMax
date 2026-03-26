@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.26
+## 0.9.27
 
 - **Feature**: Stream-JSON execution mode (`claude-code-stream` adapter) — sub-agents run via `claude -p --output-format stream-json --verbose` with real-time event parsing
 - **Feature**: Stream parser — extracts tool_use, text, and result events from stream-json output, updates dashboard activity lines in real-time
