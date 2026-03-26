@@ -5,6 +5,8 @@
 - **Feature**: Stream-JSON execution mode (`claude-code-stream` adapter) — sub-agents run via `claude -p --output-format stream-json --verbose` with real-time event parsing
 - **Feature**: Stream parser — extracts tool_use, text, and result events from stream-json output, updates dashboard activity lines in real-time
 - **Feature**: Per-agent log files — each agent's stream written to `.openmax/logs/{task}.jsonl`
+- **Feature**: Task management UI — status filter tabs (All/Queued/Running/Done), inline task editing, size selector (S/M/L), clear completed tasks
+- **Improvement**: Softer Notion-style dark theme (#1E1F24 base) replacing pure black for reduced eye strain
 - **Improvement**: HeadlessPaneBackend supports line-based stream capture with pluggable callbacks
 
 ## 0.9.25

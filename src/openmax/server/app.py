@@ -65,6 +65,8 @@ async def update_task(request: Request) -> JSONResponse:
     body = await request.json()
     if "priority" in body:
         task.priority = int(body["priority"])
+    if "task" in body and body["task"].strip():
+        task.task = body["task"].strip()
     if "size" in body:
         task.size = TaskSize(body["size"])
         task.size_override = True

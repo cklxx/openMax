@@ -5,6 +5,7 @@ const $$ = (sel) => [...document.querySelectorAll(sel)];
 
 let ws = null;
 let tasks = [];
+let currentFilter = "all";
 
 /* ── WebSocket ── */
 
@@ -48,8 +49,7 @@ function handleEvent(event, data) {
     else tasks.push(data);
   } else if (event === "task_cancelled") {
     const id = data.id || data;
-    const idx = tasks.findIndex((t) => t.id === id);
-    if (idx >= 0) tasks[idx].status = "cancelled";
+    tasks = tasks.filter((t) => t.id !== id);
   } else if (event === "subtask_progress") {
     updateSubtask(data);
   } else if (event === "activity") {
@@ -77,6 +77,24 @@ function appendActivity(data) {
   if (!task.activity) task.activity = [];
   task.activity.push(data.entry);
   if (task.activity.length > 200) task.activity = task.activity.slice(-200);
+}
+
+/* ── Filter ── */
+
+function setFilter(f) {
+  currentFilter = f;
+  $$(".filter-tab").forEach((el) => el.classList.remove("active"));
+  const btn = $$(".filter-tab").find((el) => el.textContent.toLowerCase() === f);
+  if (btn) btn.classList.add("active");
+  render();
+}
+
+function filterTasks(list) {
+  if (currentFilter === "all") return list;
+  if (currentFilter === "queued") return list.filter((t) => t.status === "queued" || t.status === "sizing");
+  if (currentFilter === "running") return list.filter((t) => t.status === "running");
+  if (currentFilter === "done") return list.filter((t) => t.status === "done" || t.status === "error" || t.status === "cancelled");
+  return list;
 }
 
 /* ── Render ── */
@@ -109,12 +127,11 @@ function renderTasks() {
   const list = $(".task-list");
   const expanded = new Set($$(".task-card.expanded").map((el) => el.dataset.id));
   const sorted = [...tasks].sort((a, b) => a.priority - b.priority);
+  const filtered = filterTasks(sorted);
 
-  const running = sorted.filter((t) => t.status === "running" || t.status === "sizing");
-  const queued = sorted.filter((t) => t.status === "queued");
-  const done = sorted.filter(
-    (t) => t.status === "done" || t.status === "error" || t.status === "cancelled"
-  );
+  const running = filtered.filter((t) => t.status === "running" || t.status === "sizing");
+  const queued = filtered.filter((t) => t.status === "queued");
+  const done = filtered.filter((t) => t.status === "done" || t.status === "error" || t.status === "cancelled");
 
   let html = "";
 
@@ -131,11 +148,13 @@ function renderTasks() {
     html += done.map((t) => taskCard(t, expanded.has(t.id))).join("");
   }
 
-  if (!tasks.length) {
+  if (!filtered.length) {
+    const msg = tasks.length ? "No tasks match this filter" : "Submit a task above to get started";
+    const title = tasks.length ? "No results" : "No tasks yet";
     html = `<div class="empty-state">
       <div class="empty-icon">⚡</div>
-      <h3>No tasks yet</h3>
-      <p>Submit a task above to get started</p>
+      <h3>${title}</h3>
+      <p>${msg}</p>
     </div>`;
   }
 
@@ -144,13 +163,21 @@ function renderTasks() {
 
 function taskCard(t, isExpanded) {
   const statusClass = `status-${t.status}`;
-  const sizeClass = `badge-${t.size || "unknown"}`;
   const pct = calcProgress(t);
   const progressClass = pct >= 100 ? "done" : "";
   const label = t.task.length > 100 ? t.task.slice(0, 100) + "..." : t.task;
   const isRunning = t.status === "running";
   const glowClass = isRunning ? " running-glow" : "";
   const expandClass = isExpanded ? " expanded" : "";
+
+  const sizes = ["small", "medium", "large"];
+  const sizeHtml = `<div class="size-selector">${sizes.map((s) => {
+    const active = t.size === s ? " active" : "";
+    return `<button class="size-opt${active}" onclick="event.stopPropagation();setSize('${t.id}','${s}')">${s[0].toUpperCase()}</button>`;
+  }).join("")}</div>`;
+
+  const sizeClass = `badge-${t.size || "unknown"}`;
+  const badgeHtml = `<span class="badge ${sizeClass}">${t.size || "..."}</span>`;
 
   let subtasksHtml = "";
   if (t.subtasks && t.subtasks.length) {
@@ -170,6 +197,7 @@ function taskCard(t, isExpanded) {
 
   const canCancel = t.status === "queued" || t.status === "running";
   const canAdjust = t.status === "queued";
+  const canEdit = t.status === "queued";
 
   let progressHtml = "";
   if (isRunning) {
@@ -184,9 +212,11 @@ function taskCard(t, isExpanded) {
   return `<div class="task-card${glowClass}${expandClass}" data-id="${t.id}" onclick="toggleExpand(this)">
     <div class="task-header">
       <span class="task-name">${esc(label)}</span>
-      <span class="badge ${sizeClass}">${t.size || "..."}</span>
+      ${badgeHtml}
+      ${canEdit ? sizeHtml : ""}
       <span class="task-status ${statusClass}">${t.status}</span>
       <div class="task-actions">
+        ${canEdit ? `<button class="act-btn" onclick="event.stopPropagation();editTask('${t.id}')" title="Edit">&#9998;</button>` : ""}
         ${canAdjust ? `<button class="act-btn" onclick="event.stopPropagation();adjustPriority('${t.id}',-10)" title="Higher priority">&#9650;</button>` : ""}
         ${canAdjust ? `<button class="act-btn" onclick="event.stopPropagation();adjustPriority('${t.id}',10)" title="Lower priority">&#9660;</button>` : ""}
         ${canCancel ? `<button class="act-btn danger" onclick="event.stopPropagation();cancelTask('${t.id}')" title="Cancel">&#10005;</button>` : ""}
@@ -261,6 +291,62 @@ function adjustPriority(id, delta) {
   const newP = Math.max(0, Math.min(100, task.priority + delta));
   sendWS("update_priority", { task_id: id, priority: newP });
   task.priority = newP;
+  render();
+}
+
+function setSize(id, size) {
+  fetch(`/api/tasks/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ size }),
+  }).then((r) => r.json()).then((data) => {
+    const idx = tasks.findIndex((t) => t.id === id);
+    if (idx >= 0) tasks[idx] = data;
+    render();
+  });
+}
+
+function editTask(id) {
+  const card = document.querySelector(`.task-card[data-id="${id}"]`);
+  if (!card) return;
+  const nameEl = card.querySelector(".task-name");
+  const task = tasks.find((t) => t.id === id);
+  if (!task) return;
+
+  const input = document.createElement("input");
+  input.className = "task-name-input";
+  input.value = task.task;
+  input.onclick = (e) => e.stopPropagation();
+  input.onkeydown = (e) => {
+    if (e.key === "Enter") saveEdit(id, input.value);
+    if (e.key === "Escape") render();
+  };
+  input.onblur = () => saveEdit(id, input.value);
+  nameEl.replaceWith(input);
+  input.focus();
+  input.select();
+}
+
+function saveEdit(id, newText) {
+  const text = newText.trim();
+  if (!text) { render(); return; }
+  fetch(`/api/tasks/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ task: text }),
+  }).then((r) => r.json()).then((data) => {
+    const idx = tasks.findIndex((t) => t.id === id);
+    if (idx >= 0) tasks[idx] = data;
+    render();
+  });
+}
+
+function clearDone() {
+  const doneTasks = tasks.filter((t) => t.status === "done" || t.status === "error" || t.status === "cancelled");
+  doneTasks.forEach((t) => {
+    fetch(`/api/tasks/${t.id}`, { method: "DELETE" });
+  });
+  tasks = tasks.filter((t) => t.status !== "done" && t.status !== "error" && t.status !== "cancelled");
   render();
 }
 
