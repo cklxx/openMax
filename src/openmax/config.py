@@ -1,4 +1,4 @@
-"""Persistent openMax user config (~/.openmax/config.json)."""
+"""Config management module."""
 
 from __future__ import annotations
 
