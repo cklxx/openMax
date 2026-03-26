@@ -65,6 +65,13 @@ class Theme:
     panel_border_active: str = "dim"
     panel_border_done: str = "green"
 
+    # ── Startup banner ──────────────────────────────────────────
+    banner_icon: str = "bold cyan"
+    banner_brand: str = "bold"
+    banner_version: str = "dim"
+    banner_meta: str = "dim"
+    banner_tagline: str = "dim italic"
+
     # ── Done banner ──────────────────────────────────────────────
     banner_done_label: str = "bold green"
     banner_done_elapsed: str = "dim"

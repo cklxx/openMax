@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import os
 import subprocess
 import time
@@ -19,7 +20,6 @@ from claude_agent_sdk import (
     create_sdk_mcp_server,
 )
 
-from openmax import __version__
 from openmax.agent_registry import AgentRegistry, built_in_agent_registry
 from openmax.dashboard import create_dashboard, print_agent_text
 from openmax.lead_agent.formatting import _format_tool_use, tool_category
@@ -161,24 +161,24 @@ def _gather_project_snapshot(cwd: str, *, minimal: bool = False) -> str:
     try:
         sections: list[str] = []
 
-        # Git status
-        git_result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=_SNAPSHOT_TIMEOUT,
-        )
-        if git_result.returncode == 0:
-            branch_result = subprocess.run(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                timeout=_SNAPSHOT_TIMEOUT,
-            )
-            branch = branch_result.stdout.strip() if branch_result.returncode == 0 else "unknown"
-            dirty_lines = [line for line in git_result.stdout.splitlines() if line.strip()]
+        # Git status + branch (parallel)
+        kw = dict(cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        status_proc = subprocess.Popen(["git", "status", "--porcelain"], **kw)
+        branch_proc = subprocess.Popen(["git", "rev-parse", "--abbrev-ref", "HEAD"], **kw)
+        try:
+            status_out, _ = status_proc.communicate(timeout=_SNAPSHOT_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            status_proc.kill()
+            status_out = None
+        try:
+            branch_out, _ = branch_proc.communicate(timeout=_SNAPSHOT_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            branch_proc.kill()
+            branch_out = None
+
+        if status_out is not None and status_proc.returncode == 0:
+            branch = branch_out.strip() if branch_out and branch_proc.returncode == 0 else "unknown"
+            dirty_lines = [line for line in status_out.splitlines() if line.strip()]
             dirty_count = len(dirty_lines)
             if dirty_count == 0:
                 sections.append(f"Branch: {branch} (clean)")
@@ -499,34 +499,40 @@ async def _run_lead_agent_async(
         if model:
             options.model = model
 
-        archetype_ctx, matched_arch = _match_archetype(task, cwd)
-        runtime.matched_archetype = matched_arch
+        # Build prompt in a background thread while SDK subprocess starts
+        def _sync_build_prompt() -> tuple[str, object]:
+            arch_ctx, matched = _match_archetype(task, cwd)
+            p = _build_lead_prompt(
+                task,
+                cwd,
+                session_id,
+                resume_context,
+                allowed_agents=allowed_agents,
+                loop_context=loop_context,
+                archetype_ctx=arch_ctx,
+                quality_mode=quality_mode,
+            )
+            return p, matched
 
-        prompt = _build_lead_prompt(
-            task,
-            cwd,
-            session_id,
-            resume_context,
-            allowed_agents=allowed_agents,
-            loop_context=loop_context,
-            archetype_ctx=archetype_ctx,
-            quality_mode=quality_mode,
-        )
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        prompt_future = executor.submit(_sync_build_prompt)
 
-        if not ui_coordinator:
-            console.print()
-            header = f"  [bold reverse cyan] OPENMAX [/bold reverse cyan] [dim]v{__version__}[/dim]"
-            meta_parts: list[str] = []
-            if session_id:
-                meta_parts.append(f"session: {session_id}")
-            if resume:
-                meta_parts.append("resume")
-            if meta_parts:
-                header += "  [dim]" + " \u2502 ".join(meta_parts) + "[/dim]"
-            console.print(header)
-            console.print()
+        if dashboard:
+            dashboard.update_spinner_label("connecting")
 
         async with ClaudeSDKClient(options=options) as client:
+            # Await prompt (likely already done while SDK was connecting)
+            prompt, matched_arch = await anyio.to_thread.run_sync(prompt_future.result)
+            executor.shutdown(wait=False)
+            runtime.matched_archetype = matched_arch
+
+            if not ui_coordinator:
+                from openmax.banner import print_banner as _print_banner
+
+                if dashboard:
+                    dashboard.update_spinner_label("thinking")
+                _print_banner(session_id=session_id, resume=resume)
+
             startup_stage = "prompt_submission"
             await client.query(prompt)
 

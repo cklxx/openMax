@@ -11,7 +11,7 @@ def test_print_banner_shows_all_tasks(capsys):
     ui = UICoordinator(tasks=["fix login", "add pagination"])
     ui.print_banner("batch-123")
     out = capsys.readouterr().out
-    assert "OPENMAX" in out
+    assert "openMax" in out
     assert "2 tasks" in out
     assert "fix login" in out
     assert "add pagination" in out

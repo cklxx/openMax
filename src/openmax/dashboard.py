@@ -82,6 +82,7 @@ class DashboardProtocol(Protocol):
     def start(self) -> None: ...
     def stop(self) -> None: ...
     def mark_connected(self) -> None: ...
+    def update_spinner_label(self, label: str) -> None: ...
     def update_phase(self, phase: str, pct: int | None = None) -> None: ...
 
     def update_subtask(
@@ -427,10 +428,14 @@ class RunDashboard:
             self._live = None
         self._active = False
 
+    def update_spinner_label(self, label: str) -> None:
+        """Update the startup spinner text (e.g. 'connecting', 'building prompt')."""
+        if self._spinner_live is not None:
+            self._spinner_live.update(self._spinner_renderable(label))
+
     def mark_connected(self) -> None:
         """Called when the first SDK response arrives — switch to 'thinking' state."""
-        if self._spinner_live is not None:
-            self._spinner_live.update(self._spinner_renderable("thinking"))
+        self.update_spinner_label("thinking")
 
     # ── State updates ─────────────────────────────────────────────
 

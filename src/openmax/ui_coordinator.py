@@ -6,7 +6,6 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from openmax import __version__
 from openmax.output import console
 
 
@@ -19,13 +18,11 @@ class UICoordinator:
 
     def print_banner(self, session_prefix: str) -> None:
         """Print a single unified banner listing all tasks."""
-        header = f"  [bold reverse cyan] OPENMAX [/bold reverse cyan] [dim]v{__version__}[/dim]"
-        header += f"  [dim]{len(self.tasks)} tasks[/dim]"
-        console.print()
-        console.print(header)
+        from openmax.banner import print_banner as _print_banner
+
+        _print_banner(task_count=len(self.tasks))
         for i, task in enumerate(self.tasks):
             console.print(f"    [dim]{i + 1}.[/dim] {task[:80]}")
-        console.print()
 
     def request_input(self, task_label: str, prompt_fn: Callable[[], str]) -> str:
         """Acquire lock, show task label, run prompt_fn, release. Thread-safe."""
