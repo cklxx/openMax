@@ -53,6 +53,9 @@ function onActivity(d) {
   if (!t.activity) t.activity = [];
   t.activity.push(d.entry);
   if (t.activity.length > 200) t.activity = t.activity.slice(-200);
+  // Auto-scroll activity log if visible
+  const logEl = document.querySelector(`.task-row[data-id="${d.task_id}"] .activity`);
+  if (logEl) requestAnimationFrame(() => { logEl.scrollTop = logEl.scrollHeight; });
 }
 
 /* ── Filter ── */
@@ -117,6 +120,7 @@ function row(t, open) {
   const pct = progress(t);
   const isQ = t.status === "queued";
   const canX = isQ || t.status === "running";
+  const dur = fmtDuration(t);
 
   let picker = "";
   if (isQ) {
@@ -134,34 +138,57 @@ function row(t, open) {
     </div>`;
   }
 
-  let detail = "";
+  let detail = '<div class="task-detail-inner">';
+
+  // Subtasks
   if (t.subtasks?.length) {
     detail += `<div class="subtask-list">${t.subtasks.map((s) => {
       const c = s.status === "done" ? "done" : s.status === "running" ? "running" : "pending";
-      return `<div class="subtask-item"><span class="subtask-dot ${c}"></span>${esc(s.name)} <span style="color:var(--text-3);font-size:11px;margin-left:auto">${s.status}</span></div>`;
-    }).join("")}</div>`;
-  }
-  if (t.activity?.length) {
-    detail += `<div class="activity">${t.activity.slice(-20).map((a) => {
-      const cls = a.type === "done" ? " log-done" : a.type === "error" ? " log-error" : "";
-      return `<div class="log-row${cls}"><span class="log-ts">${fmtTime(a.timestamp)}</span><span class="log-who">[${esc(a.source === "system" ? "sys" : a.source)}]</span><span class="log-what">${esc(a.message)}</span></div>`;
+      return `<div class="subtask-item">
+        <span class="subtask-dot ${c}"></span>
+        <span class="subtask-name">${esc(s.name)}</span>
+        <span class="subtask-status ${c}">${s.status}</span>
+      </div>`;
     }).join("")}</div>`;
   }
 
+  // Error
+  if (t.error) {
+    detail += `<div class="task-error">${esc(t.error)}</div>`;
+  }
+
+  // Activity log
+  if (t.activity?.length) {
+    detail += `<div class="activity-section">
+      <div class="activity-header">Activity log</div>
+      <div class="activity">${t.activity.slice(-30).map((a) => {
+        const cls = a.type === "done" ? " log-done" : a.type === "error" ? " log-error" : "";
+        const whoCls = a.source === "system" || a.source === "sys" ? " log-sys" : "";
+        return `<div class="log-row${cls}"><span class="log-ts">${fmtTime(a.timestamp)}</span><span class="log-who${whoCls}">${esc(a.source === "system" ? "sys" : a.source)}</span><span class="log-what">${esc(a.message)}</span></div>`;
+      }).join("")}</div>
+    </div>`;
+  }
+  detail += "</div>";
+
+  const chevron = `<span class="task-chevron"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg></span>`;
+
   return `<div class="task-row${glow}${exp}" data-id="${t.id}" onclick="toggle(this)">
-    <span class="task-indicator ind-${t.status}"></span>
-    <div class="task-body">
-      <div class="task-title">${esc(lbl)}</div>
-      <div class="task-meta">${szTag} ${picker}</div>
-      ${prog}
-      <div class="task-detail">${detail}</div>
+    <div class="task-header">
+      <span class="task-indicator ind-${t.status}"></span>
+      <div class="task-body">
+        <div class="task-title">${esc(lbl)}</div>
+        <div class="task-meta">${szTag} ${picker} ${dur ? `<span class="task-duration">${dur}</span>` : ""}</div>
+      </div>
+      <div class="task-actions">
+        ${isQ ? `<button class="icon-btn" onclick="event.stopPropagation();editTask('${t.id}')" title="Edit">&#9998;</button>` : ""}
+        ${isQ ? `<button class="icon-btn" onclick="event.stopPropagation();adjustP('${t.id}',-10)" title="Up">&#9650;</button>` : ""}
+        ${isQ ? `<button class="icon-btn" onclick="event.stopPropagation();adjustP('${t.id}',10)" title="Down">&#9660;</button>` : ""}
+        ${canX ? `<button class="icon-btn danger" onclick="event.stopPropagation();cancelTask('${t.id}')" title="Cancel">&#10005;</button>` : ""}
+      </div>
+      ${chevron}
     </div>
-    <div class="task-actions">
-      ${isQ ? `<button class="icon-btn" onclick="event.stopPropagation();editTask('${t.id}')" title="Edit">&#9998;</button>` : ""}
-      ${isQ ? `<button class="icon-btn" onclick="event.stopPropagation();adjustP('${t.id}',-10)" title="Up">&#9650;</button>` : ""}
-      ${isQ ? `<button class="icon-btn" onclick="event.stopPropagation();adjustP('${t.id}',10)" title="Down">&#9660;</button>` : ""}
-      ${canX ? `<button class="icon-btn danger" onclick="event.stopPropagation();cancelTask('${t.id}')" title="Cancel">&#10005;</button>` : ""}
-    </div>
+    ${prog}
+    <div class="task-detail">${detail}</div>
   </div>`;
 }
 
@@ -175,6 +202,17 @@ function fmtTime(ts) {
   if (!ts) return "";
   try { return new Date(ts).toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }); }
   catch { return ""; }
+}
+
+function fmtDuration(t) {
+  if (!t.started_at) return "";
+  const start = new Date(t.started_at).getTime();
+  const end = t.finished_at ? new Date(t.finished_at).getTime() : Date.now();
+  const sec = Math.round((end - start) / 1000);
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}m ${s}s`;
 }
 
 function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
@@ -229,6 +267,15 @@ function clearDone() {
   tasks = tasks.filter((t) => t.status !== "done" && t.status !== "error" && t.status !== "cancelled");
   render();
 }
+
+/* ── Live duration ticker ── */
+setInterval(() => {
+  $$(".task-row.glow .task-duration").forEach((el) => {
+    const id = el.closest(".task-row")?.dataset.id;
+    const t = tasks.find((x) => x.id === id);
+    if (t) el.textContent = fmtDuration(t);
+  });
+}, 1000);
 
 /* ── Init ── */
 

@@ -338,6 +338,8 @@ def run_lead_agent(
     quality_mode: bool = False,
     ui_coordinator: Any | None = None,
     max_concurrent_agents: int = 0,
+    mailbox: Any | None = None,
+    auto_retry: bool = False,
 ) -> PlanResult:
     """Run the lead agent synchronously (wraps async), with retry on transient API errors."""
     for attempt in range(_MAX_TRANSIENT_RETRIES + 1):
@@ -359,6 +361,7 @@ def run_lead_agent(
                 quality_mode,
                 ui_coordinator,
                 max_concurrent_agents,
+                mailbox,
             )
         except _TransientAPIError:
             if attempt >= _MAX_TRANSIENT_RETRIES:
@@ -367,11 +370,16 @@ def run_lead_agent(
                 f"\n  [bold yellow]⚠ Rate limited[/bold yellow]"
                 f" (attempt {attempt + 1}/{_MAX_TRANSIENT_RETRIES})"
             )
-            console.print("  [dim]Press Enter to retry, or Ctrl+C to abort...[/dim]")
-            try:
-                input()
-            except (KeyboardInterrupt, EOFError):
-                raise RuntimeError("Aborted by user after rate limit")
+            if auto_retry:
+                wait = min(_RATE_LIMIT_BASE_WAIT * (2**attempt), _RATE_LIMIT_MAX_WAIT)
+                console.print(f"  [dim]Auto-retrying in {wait}s...[/dim]")
+                time.sleep(wait)
+            else:
+                console.print("  [dim]Press Enter to retry, or Ctrl+C to abort...[/dim]")
+                try:
+                    input()
+                except (KeyboardInterrupt, EOFError):
+                    raise RuntimeError("Aborted by user after rate limit")
     raise RuntimeError("unreachable")
 
 
@@ -391,6 +399,7 @@ async def _run_lead_agent_async(
     quality_mode: bool = False,
     ui_coordinator: Any | None = None,
     max_concurrent_agents: int = 0,
+    external_mailbox: Any | None = None,
 ) -> PlanResult:
     normalized_cwd = str(Path(cwd).resolve())
     dashboard = None if ui_coordinator else create_dashboard(task, verbose=verbose)
@@ -476,14 +485,17 @@ async def _run_lead_agent_async(
                 _append_session_event("user.goal_received", {"task": task})
 
         if session_id:
-            from openmax.mailbox import SessionMailbox
+            if external_mailbox is not None:
+                runtime.mailbox = external_mailbox
+            else:
+                from openmax.mailbox import SessionMailbox
 
-            mailbox = SessionMailbox(
-                session_id=session_id,
-                log_dir=Path(cwd) / ".openmax",
-            )
-            mailbox.start()
-            runtime.mailbox = mailbox
+                mailbox = SessionMailbox(
+                    session_id=session_id,
+                    log_dir=Path(cwd) / ".openmax",
+                )
+                mailbox.start()
+                runtime.mailbox = mailbox
 
         # Create SDK MCP server with our tools
         server = create_sdk_mcp_server(
@@ -654,7 +666,7 @@ async def _run_lead_agent_async(
             raise startup_failure from exc
         raise
     finally:
-        if runtime.mailbox is not None:
+        if runtime.mailbox is not None and external_mailbox is None:
             runtime.mailbox.stop()
         if dashboard:
             dashboard.stop()

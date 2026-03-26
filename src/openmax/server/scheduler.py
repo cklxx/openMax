@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import anyio
@@ -42,9 +43,11 @@ class Scheduler:
         self._bridge = bridge
         self._max_slots = max_slots
         self._running = False
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     async def start(self) -> None:
         self._running = True
+        self._loop = asyncio.get_event_loop()
         logger.info("Scheduler started (max_slots=%d)", self._max_slots)
         while self._running:
             await self._tick()
@@ -132,23 +135,39 @@ class Scheduler:
         from openmax.mailbox import SessionMailbox
         from openmax.pane_manager import PaneManager
 
-        mailbox = SessionMailbox(task.session_id, self._queue._base.parent)
-        self._bridge.watch_session(task.id, mailbox)
+        log_dir = Path(task.cwd) / ".openmax"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        bridge = self._bridge
+        task_id = task.id
+
+        def on_message(msg):
+            bridge.on_agent_message(task_id, msg)
+
+        mailbox = SessionMailbox(task.session_id, log_dir, on_message=on_message)
+        mailbox.start()
+        self._bridge.register_task(task_id)
         await self._log_activity(task, "system", "Lead agent planning...")
 
-        plan = await anyio.to_thread.run_sync(
-            lambda: run_lead_agent(
-                task=task.task,
-                pane_mgr=PaneManager(),
-                cwd=task.cwd,
-                session_id=task.session_id,
-                agent_registry=built_in_agent_registry(),
+        try:
+            plan = await anyio.to_thread.run_sync(
+                lambda: run_lead_agent(
+                    task=task.task,
+                    pane_mgr=PaneManager(),
+                    cwd=task.cwd,
+                    session_id=task.session_id,
+                    agent_registry=built_in_agent_registry(),
+                    plan_confirm=False,
+                    mailbox=mailbox,
+                    auto_retry=True,
+                )
             )
-        )
-        task.subtasks = [
-            SubtaskInfo(name=st.name, status=st.status.value, agent_type=st.agent_type)
-            for st in plan.subtasks
-        ]
+            task.subtasks = [
+                SubtaskInfo(name=st.name, status=st.status.value, agent_type=st.agent_type)
+                for st in plan.subtasks
+            ]
+        finally:
+            mailbox.stop()
+            self._bridge.unregister_task(task_id)
 
     async def _log_activity(
         self, task: QueuedTask, source: str, message: str, entry_type: str = "info"

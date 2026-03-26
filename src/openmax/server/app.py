@@ -133,6 +133,7 @@ def create_app(queue_dir: Path | None = None, max_slots: int = 6) -> Starlette:
 
     @asynccontextmanager
     async def lifespan(app: Starlette):
+        _bridge._loop = asyncio.get_event_loop()
         task = asyncio.create_task(_scheduler.start())
         logger.info("openMax server ready")
         yield

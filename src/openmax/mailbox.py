@@ -7,6 +7,7 @@ import queue
 import socket
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -44,13 +45,19 @@ class MailboxMessage:
 
 
 class SessionMailbox:
-    def __init__(self, session_id: str, log_dir: Path) -> None:
+    def __init__(
+        self,
+        session_id: str,
+        log_dir: Path,
+        on_message: Callable[[MailboxMessage], None] | None = None,
+    ) -> None:
         self.session_id = session_id
         self.socket_path = mailbox_socket_path(session_id)
         self.log_path = log_dir / f"messages-{session_id}.jsonl"
         self._queue: queue.Queue[MailboxMessage] = queue.Queue()
         self._server_sock: socket.socket | None = None
         self._stop = threading.Event()
+        self._on_message = on_message
 
     def start(self) -> None:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -111,11 +118,15 @@ class SessionMailbox:
         entry = {**raw, "_ts": time.time()}
         with self.log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        self._queue.put_nowait(
-            MailboxMessage(
-                type=raw["type"],
-                task=raw.get("task", ""),
-                raw=raw,
-                received_at=time.time(),
-            )
+        msg = MailboxMessage(
+            type=raw["type"],
+            task=raw.get("task", ""),
+            raw=raw,
+            received_at=time.time(),
         )
+        self._queue.put_nowait(msg)
+        if self._on_message:
+            try:
+                self._on_message(msg)
+            except Exception:
+                pass
