@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.24
+## 0.9.25
 
 - **Feature**: Real-time activity log per task — sub-agent progress, lifecycle events, and error messages stream into an expandable monospace log panel on each task card
 - **Improvement**: Apple-style dashboard redesign — pure black base (#000), glass morphism cards with backdrop-filter blur, Apple HIG color system, 0.5px translucent borders, liquid glass shimmer highlights, system accent colors, Apple animation timing curves, reduced motion support

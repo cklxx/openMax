@@ -374,6 +374,7 @@ def _launch_pane(
     stream_json: bool = False,
 ) -> SimpleNamespace:
     effective_cwd = cwd or runtime.cwd
+    stream_kw: dict[str, bool] = {"stream_json": True} if stream_json else {}
     if runtime.agent_window_id is None:
         pane = runtime.pane_mgr.create_window(
             command=command,
@@ -382,7 +383,7 @@ def _launch_pane(
             title=title,
             cwd=effective_cwd,
             env=env,
-            stream_json=stream_json,
+            **stream_kw,
         )
         runtime.agent_window_id = pane.window_id
         return pane
@@ -395,7 +396,7 @@ def _launch_pane(
             title=title,
             cwd=effective_cwd,
             env=env,
-            stream_json=stream_json,
+            **stream_kw,
         )
     except PaneBackendError as e:
         if "No space" not in str(e):
