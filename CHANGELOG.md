@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.32
+
+- **Improvement**: Task input bar moved to floating bottom dock — sticky positioning keeps the input visible while scrolling, with subtle shadow and gradient fade
+
 ## 0.9.31
 
 - **Feature**: Serve mode auto-approve — `openmax serve` no longer prompts for plan confirmation in the CLI terminal; tasks execute autonomously
