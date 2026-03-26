@@ -371,6 +371,7 @@ def _launch_pane(
     title: str | None = None,
     cwd: str | None = None,
     env: dict[str, str] | None = None,
+    stream_json: bool = False,
 ) -> SimpleNamespace:
     effective_cwd = cwd or runtime.cwd
     if runtime.agent_window_id is None:
@@ -381,6 +382,7 @@ def _launch_pane(
             title=title,
             cwd=effective_cwd,
             env=env,
+            stream_json=stream_json,
         )
         runtime.agent_window_id = pane.window_id
         return pane
@@ -393,6 +395,7 @@ def _launch_pane(
             title=title,
             cwd=effective_cwd,
             env=env,
+            stream_json=stream_json,
         )
     except PaneBackendError as e:
         if "No space" not in str(e):
@@ -411,6 +414,7 @@ def _safe_launch_pane(
     title: str | None = None,
     cwd: str | None = None,
     env: dict[str, str] | None = None,
+    stream_json: bool = False,
 ) -> tuple[SimpleNamespace | None, str | None]:
     """Launch a pane with error handling. Returns (pane, error_message)."""
     try:
@@ -422,6 +426,7 @@ def _safe_launch_pane(
             title=title,
             cwd=cwd,
             env=env,
+            stream_json=stream_json,
         )
         return pane, None
     except PaneBackendError as e:

@@ -27,6 +27,8 @@ class AgentCommand:
     Empty list = fall back to ready_delay_seconds sleep."""
     trust_patterns: list[str] = field(default_factory=list, repr=False)
     """Patterns indicating a trust/confirmation dialog that should be auto-accepted."""
+    stream_json: bool = False
+    """When True, stdout emits newline-delimited JSON (stream-json mode)."""
 
 
 class AgentAdapter(ABC):

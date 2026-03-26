@@ -127,9 +127,12 @@ class PaneManager:
         title: str = "openMax agents",
         cwd: str | None = None,
         env: dict[str, str] | None = None,
+        *,
+        stream_json: bool = False,
     ) -> ManagedPane:
         """Create a NEW window, run command in it, track everything."""
-        pane_id = self._backend.spawn_window(command, cwd=cwd, env=env)
+        kwargs: dict[str, bool] = {"stream_json": True} if stream_json else {}
+        pane_id = self._backend.spawn_window(command, cwd=cwd, env=env, **kwargs)
         window_id = self._find_pane_window(pane_id)
         effective_wid = window_id if window_id is not None else pane_id
         self._track_window(effective_wid, title, pane_id)
@@ -194,6 +197,8 @@ class PaneManager:
         title: str | None = None,
         cwd: str | None = None,
         env: dict[str, str] | None = None,
+        *,
+        stream_json: bool = False,
     ) -> ManagedPane:
         """Add a new pane to an existing managed window with smart layout."""
         win = self._windows.get(window_id)
@@ -208,14 +213,17 @@ class PaneManager:
                 title=win.title,
                 cwd=cwd,
                 env=env,
+                stream_json=stream_json,
             )
         target_pane, direction = _pick_split(win.pane_ids, len(win.pane_ids))
+        kwargs: dict[str, bool] = {"stream_json": True} if stream_json else {}
         pane_id = self._backend.split_pane(
             target_pane,
             direction,
             command,
             cwd=cwd,
             env=env,
+            **kwargs,
         )
         win.pane_ids.append(pane_id)
         return self._track_pane(pane_id, window_id, purpose, agent_type)

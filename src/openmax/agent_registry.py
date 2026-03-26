@@ -17,6 +17,7 @@ from openmax.adapters import (
     AgentAdapter,
     ClaudeCodeAdapter,
     ClaudeCodePrintAdapter,
+    ClaudeCodeStreamAdapter,
     CodexAdapter,
     OpenCodeAdapter,
     SubprocessAdapter,
@@ -89,6 +90,12 @@ def _built_in_definitions() -> tuple[AgentDefinition, ...]:
         AgentDefinition(
             name="claude-code-print",
             adapter=ClaudeCodePrintAdapter(),
+            source="built-in",
+            built_in=True,
+        ),
+        AgentDefinition(
+            name="claude-code-stream",
+            adapter=ClaudeCodeStreamAdapter(),
             source="built-in",
             built_in=True,
         ),

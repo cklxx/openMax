@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 from itertools import count
 from pathlib import Path
-from typing import Literal, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 from urllib.parse import unquote, urlparse
 
 _KAKU_CLI_PREFIX = ["kaku", "cli"]
@@ -172,6 +172,8 @@ class _HeadlessWorker:
     title: str = ""
     output_chunks: list[str] = field(default_factory=list)
     output_lock: threading.Lock = field(default_factory=threading.Lock)
+    stream_callback: Any = None  # StreamCallback | None
+    stream_result: dict[str, Any] | None = None
 
 
 def _wrap_command_clean_env(command: list[str]) -> list[str]:
@@ -189,6 +191,31 @@ def _wrap_command_with_env(command: list[str], env: dict[str, str] | None) -> li
     if env:
         env_prefix.extend(f"{k}={v}" for k, v in env.items())
     return env_prefix + command
+
+
+def _spawn_headless_process(
+    command: list[str],
+    cwd: str | None,
+    env: dict[str, str],
+) -> subprocess.Popen[str]:
+    try:
+        proc = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+    except OSError as exc:
+        raise PaneBackendError("headless pane spawn failed") from exc
+    if proc.stdin is None or proc.stdout is None:
+        proc.kill()
+        proc.wait(timeout=1)
+        raise PaneBackendError("headless pane spawn failed")
+    return proc
 
 
 class HeadlessPaneBackend:
@@ -227,6 +254,8 @@ class HeadlessPaneBackend:
         command: list[str],
         cwd: str | None = None,
         env: dict[str, str] | None = None,
+        *,
+        stream_json: bool = False,
     ) -> int:
         pane_id = next(self._pane_ids)
         window_id = next(self._window_ids)
@@ -236,6 +265,7 @@ class HeadlessPaneBackend:
             command=command,
             cwd=cwd,
             env=env,
+            stream_json=stream_json,
         )
         self._active_pane_id = pane_id
         return pane_id
@@ -247,6 +277,8 @@ class HeadlessPaneBackend:
         command: list[str],
         cwd: str | None = None,
         env: dict[str, str] | None = None,
+        *,
+        stream_json: bool = False,
     ) -> int:
         del direction
         target = self._require_worker(target_pane_id)
@@ -257,6 +289,7 @@ class HeadlessPaneBackend:
             command=command,
             cwd=cwd,
             env=env,
+            stream_json=stream_json,
         )
         self._active_pane_id = pane_id
         return pane_id
@@ -316,42 +349,30 @@ class HeadlessPaneBackend:
         command: list[str],
         cwd: str | None,
         env: dict[str, str] | None,
+        stream_json: bool = False,
     ) -> _HeadlessWorker:
         process_env = dict(os.environ)
         if env:
             process_env.update(env)
-        try:
-            process = subprocess.Popen(
-                command,
-                cwd=cwd,
-                env=process_env,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-            )
-        except OSError as exc:
-            raise PaneBackendError("headless pane spawn failed") from exc
-
-        if process.stdin is None or process.stdout is None:
-            process.kill()
-            process.wait(timeout=1)
-            raise PaneBackendError("headless pane spawn failed")
-
+        process = _spawn_headless_process(command, cwd, process_env)
         worker = _HeadlessWorker(
             pane_id=pane_id,
             window_id=window_id,
             process=process,
             cwd=cwd or "",
         )
-        thread = threading.Thread(
-            target=self._capture_output,
-            args=(worker,),
-            daemon=True,
-        )
-        thread.start()
+        capture = self._capture_stream_output if stream_json else self._capture_output
+        threading.Thread(target=capture, args=(worker,), daemon=True).start()
         return worker
+
+    def register_stream_callback(self, pane_id: int, callback: Any) -> None:
+        worker = self._workers.get(pane_id)
+        if worker:
+            worker.stream_callback = callback
+
+    def get_stream_result(self, pane_id: int) -> dict[str, Any] | None:
+        worker = self._workers.get(pane_id)
+        return worker.stream_result if worker else None
 
     def _write_stdin(self, pane_id: int, data: str) -> None:
         worker = self._require_worker(pane_id)
@@ -373,6 +394,24 @@ class HeadlessPaneBackend:
                 break
             with worker.output_lock:
                 worker.output_chunks.append(chunk)
+
+    @staticmethod
+    def _capture_stream_output(worker: _HeadlessWorker) -> None:
+        """Read stdout line-by-line, parse stream-json events, invoke callback."""
+        from openmax.stream_parser import parse_stream_line
+
+        if worker.process.stdout is None:
+            return
+        for line in worker.process.stdout:
+            with worker.output_lock:
+                worker.output_chunks.append(line)
+            event = parse_stream_line(line)
+            if event is None:
+                continue
+            if event.type == "result":
+                worker.stream_result = event.raw
+            if worker.stream_callback:
+                worker.stream_callback(worker.pane_id, event)
 
 
 class KakuPaneBackend:

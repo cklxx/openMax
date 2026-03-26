@@ -46,6 +46,39 @@ _MAX_RETRIES = 2
 _RETRY_CONTEXT_MAX_CHARS = 2000
 
 
+def _register_stream_callback(
+    runtime: Any,
+    pane_id: int,
+    task_name: str,
+    cwd: str,
+) -> None:
+    """Wire up stream-json callback: update dashboard + write log file."""
+    from pathlib import Path
+
+    from openmax.pane_backend import HeadlessPaneBackend
+
+    backend = getattr(runtime.pane_mgr, "_backend", None)
+    if not isinstance(backend, HeadlessPaneBackend):
+        return
+    log_dir = Path(cwd) / ".openmax" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"{task_name}.jsonl"
+
+    import json as _json
+
+    def _on_event(pid: int, event: Any) -> None:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(_json.dumps(event.raw, ensure_ascii=False) + "\n")
+        if runtime.dashboard is None:
+            return
+        if event.type in ("tool_use", "text"):
+            runtime.dashboard.update_pane_activity(pid, event.summary)
+        if event.type == "tool_use":
+            runtime.dashboard.add_tool_event(f"{task_name}: {event.summary}", "tool")
+
+    backend.register_stream_callback(pane_id, _on_event)
+
+
 def get_stuck_threshold(stats: SessionStats | None = None) -> int:
     """Adaptive stuck threshold based on historical false positive rate."""
     base = _STUCK_BASE_THRESHOLD
@@ -372,6 +405,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
             title=f"openMax: {runtime.plan.goal[:40]}",
             cwd=agent_cwd,
             env=launch_env,
+            stream_json=cmd_spec.stream_json,
         )
         if pane is None:
             return _dispatch_failure_response(task_name, agent_type, branch_name, launch_err)
@@ -400,6 +434,9 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
             task_name, agent_type, pane.pane_id, "running", started_at=subtask.started_at
         )
         runtime.dashboard.set_dispatch_prompt(task_name, args["prompt"])
+
+    if cmd_spec.stream_json:
+        _register_stream_callback(runtime, pane.pane_id, task_name, agent_cwd)
 
     win = runtime.pane_mgr.windows.get(runtime.agent_window_id)
     pane_count = len(win.pane_ids) if win else 1

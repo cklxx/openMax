@@ -47,3 +47,19 @@ class ClaudeCodePrintAdapter(AgentAdapter):
 
     def get_command(self, prompt: str, cwd: str | None = None) -> AgentCommand:
         return AgentCommand(launch_cmd=["claude", "-p", prompt], interactive=False)
+
+
+class ClaudeCodeStreamAdapter(AgentAdapter):
+    """Claude Code in streaming print mode with structured JSON output."""
+
+    @property
+    def agent_type(self) -> str:
+        return "claude-code-stream"
+
+    @property
+    def interactive(self) -> bool:
+        return False
+
+    def get_command(self, prompt: str, cwd: str | None = None) -> AgentCommand:
+        cmd = ["claude", "-p", "--output-format", "stream-json", "--verbose", prompt]
+        return AgentCommand(launch_cmd=cmd, interactive=False, stream_json=True)
