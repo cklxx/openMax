@@ -456,7 +456,10 @@ def _claude_window_usage(hours: int) -> WindowUsage:
                     if entry.get("type") != "assistant":
                         continue
                     msg = entry.get("message")
-                    if not isinstance(msg, dict) or "usage" not in msg:
+                    if not isinstance(msg, dict):
+                        continue
+                    usage = msg.get("usage")
+                    if not isinstance(usage, dict):
                         continue
                     ts = entry.get("timestamp")
                     if ts:
@@ -466,11 +469,10 @@ def _claude_window_usage(hours: int) -> WindowUsage:
                                 continue
                         except ValueError:
                             continue
-                    usage = msg["usage"]
-                    window.input_tokens += usage.get("input_tokens", 0)
-                    window.output_tokens += usage.get("output_tokens", 0)
-                    window.cache_read_tokens += usage.get("cache_read_input_tokens", 0)
-                    window.cache_creation_tokens += usage.get("cache_creation_input_tokens", 0)
+                    window.input_tokens += usage.get("input_tokens") or 0
+                    window.output_tokens += usage.get("output_tokens") or 0
+                    window.cache_read_tokens += usage.get("cache_read_input_tokens") or 0
+                    window.cache_creation_tokens += usage.get("cache_creation_input_tokens") or 0
                     window.messages += 1
                     model = msg.get("model", "unknown")
                     window.models[model] = window.models.get(model, 0) + 1
