@@ -165,8 +165,11 @@ def test_explicit_session_id_overrides_env(monkeypatch, tmp_path):
 
 def test_execute_with_codex_returns_result(monkeypatch):
     monkeypatch.setattr("openmax.mcp_server.shutil.which", lambda _name: "/usr/bin/codex")
+    captured_cmd = None
 
     def fake_run(cmd, *, cwd, capture_output, text, timeout):
+        nonlocal captured_cmd
+        captured_cmd = cmd
         return subprocess.CompletedProcess(cmd, returncode=0, stdout="Changes applied", stderr="")
 
     monkeypatch.setattr("openmax.mcp_server.subprocess.run", fake_run)
@@ -175,6 +178,23 @@ def test_execute_with_codex_returns_result(monkeypatch):
     assert result["ok"] is True
     assert "Changes applied" in result["output"]
     assert result["exit_code"] == 0
+    assert captured_cmd == ["codex", "exec", "--full-auto", "implement feature"]
+
+
+def test_execute_with_codex_suggest_mode_no_auto_flag(monkeypatch):
+    monkeypatch.setattr("openmax.mcp_server.shutil.which", lambda _name: "/usr/bin/codex")
+    captured_cmd = None
+
+    def fake_run(cmd, *, cwd, capture_output, text, timeout):
+        nonlocal captured_cmd
+        captured_cmd = cmd
+        return subprocess.CompletedProcess(cmd, returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("openmax.mcp_server.subprocess.run", fake_run)
+    result = execute_with_codex("review code", cwd="/tmp", approval_mode="suggest")
+
+    assert result["ok"] is True
+    assert captured_cmd == ["codex", "exec", "review code"]
 
 
 def test_execute_with_codex_empty_task():

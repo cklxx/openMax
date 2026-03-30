@@ -134,7 +134,7 @@ def report_progress(task: str, pct: int, msg: str, session_id: str = "") -> dict
     )
 
 
-_CODEX_APPROVAL_MODES = frozenset({"auto-edit", "full-auto"})
+_CODEX_APPROVAL_MODES = frozenset({"full-auto", "suggest"})
 
 
 @mcp.tool(
@@ -148,7 +148,7 @@ _CODEX_APPROVAL_MODES = frozenset({"auto-edit", "full-auto"})
 def execute_with_codex(
     task: str,
     cwd: str = "",
-    approval_mode: str = "auto-edit",
+    approval_mode: str = "full-auto",
     timeout_seconds: int = 300,
 ) -> dict[str, Any]:
     task_text = _normalize_required_text(task)
@@ -164,7 +164,10 @@ def execute_with_codex(
 
 
 def _run_codex(task: str, cwd: str, approval_mode: str, timeout: int) -> dict[str, Any]:
-    cmd = ["codex", "exec", "-a", approval_mode, task]
+    cmd = ["codex", "exec"]
+    if approval_mode == "full-auto":
+        cmd.append("--full-auto")
+    cmd.append(task)
     start = time.monotonic()
     try:
         proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)

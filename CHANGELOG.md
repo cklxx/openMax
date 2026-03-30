@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.35
+
+- **Fix**: `execute_with_codex` MCP tool — replaced invalid `-a` flag with `--full-auto` to match codex CLI v0.116.0 interface; `suggest` mode omits the flag for interactive approval
+- **Improvement**: Tests now assert exact command construction, catching CLI argument mismatches
+
 ## 0.9.34
 
 - **Fix**: Stale session resume — interrupted sessions (Ctrl+C / SIGTERM) left `active` status because `SystemExit` bypasses `except Exception`; `finally` block now marks them `aborted`
