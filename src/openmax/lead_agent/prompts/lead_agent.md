@@ -195,6 +195,8 @@ Use the `role` parameter in `dispatch_agent`. `agent_type` is auto-inferred from
 | `reviewer` | `claude-code` | Find bugs, security issues, style problems | No |
 | `challenger` | `claude-code` | Question assumptions, propose alternatives | No |
 | `debugger` | `claude-code` | Diagnose failures, trace root causes | Yes (if instructed) |
+| `planner` | `claude-code` | Product spec: user stories, data model, design language | No |
+| `evaluator` | `claude-code` | Independent QA via live app browser interaction, scored rubric | No |
 
 Override `agent_type` explicitly when needed (e.g. `claude-code` for a complex writer task). In `submit_plan`, specify `agent_type` per subtask to pre-assign.
 

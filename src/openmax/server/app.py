@@ -96,11 +96,19 @@ async def stats(request: Request) -> JSONResponse:
 async def list_employees(request: Request) -> JSONResponse:
     from openmax.employees import list_employees as _list
 
-    return JSONResponse([
-        {"name": e.name, "role": e.role, "specialty": e.specialty,
-         "agent_type": e.agent_type, "task_count": e.task_count, "created": e.created}
-        for e in _list()
-    ])
+    return JSONResponse(
+        [
+            {
+                "name": e.name,
+                "role": e.role,
+                "specialty": e.specialty,
+                "agent_type": e.agent_type,
+                "task_count": e.task_count,
+                "created": e.created,
+            }
+            for e in _list()
+        ]
+    )
 
 
 async def ws_endpoint(ws: WebSocket) -> None:

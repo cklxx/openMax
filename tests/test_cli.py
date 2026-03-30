@@ -1475,3 +1475,26 @@ def test_run_auto_decompose_cancelled(monkeypatch, tmp_path):
     runner = CliRunner()
     result = runner.invoke(cli.main, ["run", f"@{task_file}"])
     assert "Cancelled" in result.output
+
+
+def test_run_harness_flag_forwards_harness_mode(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "ensure_kaku", lambda: True)
+    monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+
+    captured: dict[str, object] = {}
+
+    def fake_run_lead_agent(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(subtasks=[])
+
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run_lead_agent)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        ["run", "Build feature", "--cwd", str(tmp_path), "--harness"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["harness_mode"] is True

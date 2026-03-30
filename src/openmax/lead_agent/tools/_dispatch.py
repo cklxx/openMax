@@ -169,6 +169,8 @@ _ROLE_TO_AGENT: dict[str, str] = {
     "challenger": "claude-code",
     "debugger": "claude-code",
     "writer": "codex",
+    "planner": "claude-code",
+    "evaluator": "claude-code",
 }
 
 
@@ -344,7 +346,7 @@ def _dispatch_failure_response(
             "token_budget": {"type": "integer"},
             "role": {
                 "type": "string",
-                "enum": ["writer", "reviewer", "challenger", "debugger"],
+                "enum": ["writer", "reviewer", "challenger", "debugger", "planner", "evaluator"],
             },
             "employee": {"type": "string"},
         },
@@ -382,7 +384,7 @@ async def dispatch_agent(args: dict[str, Any]) -> dict[str, Any]:
     retry_count = args.get("retry_count", 0)
     token_budget = args.get("token_budget")
     role = args.get("role", "writer")
-    if role not in ("writer", "reviewer", "challenger", "debugger"):
+    if role not in ("writer", "reviewer", "challenger", "debugger", "planner", "evaluator"):
         role = "writer"
     agent_type = args.get("agent_type") or _auto_select_agent(runtime, role)
     if not isinstance(retry_count, int) or retry_count < 0:

@@ -324,6 +324,29 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
         for warning in conflict_warnings:
             console.print(f"  [yellow]⚠[/yellow]  {warning}")
 
+    # Harness mode: planner → generator ↔ evaluator loop per subtask
+    if runtime.harness_mode and runtime.mailbox is not None:
+        from openmax.quality_workflow import run_harness_workflow
+
+        n = len(subtasks_raw)
+        console.print(f"  [bold yellow]H[/bold yellow]  harness workflow: {n} tasks")
+        all_results: list[dict[str, Any]] = []
+        for st in subtasks_raw:
+            prompt = st.get("prompt") or st["description"]
+            wf_results = await run_harness_workflow(runtime, st["name"], prompt)
+            all_results.extend(wf_results)
+
+        from openmax.lead_agent.tools._misc import _run_all_done_pipeline
+
+        pipeline = await _run_all_done_pipeline(runtime)
+        result_data["status"] = "completed"
+        result_data["harness_workflow"] = all_results
+        result_data.update(pipeline)
+        result_data["instruction"] = (
+            "Harness workflow complete (plan → generate ↔ evaluate). Session done."
+        )
+        return _tool_response(result_data)
+
     # Quality mode: run write → review → rewrite workflow per subtask
     if runtime.quality_mode and runtime.mailbox is not None:
         from openmax.quality_workflow import run_quality_workflow

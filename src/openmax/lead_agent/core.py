@@ -282,6 +282,21 @@ The automated quality workflow handles the full refinement cycle for every subta
 Steps 2-5 are code-enforced — the orchestrator runs them automatically. \
 The first draft is NEVER the final draft."""
 
+_HARNESS_MODE_PROMPT = """\
+## Harness Mode (ACTIVE)
+
+The automated harness workflow runs for every subtask:
+
+1. PLANNER produces a product spec (bold scope, NO implementation details)
+2. For each round (up to 5):
+   a. Sprint CONTRACT defines acceptance criteria
+   b. GENERATOR implements based on spec + contract + prior evaluation feedback
+   c. EVALUATOR independently scores the live app via browser interaction
+   d. DECISION: accept (all dimensions pass) / refine / pivot (re-plan)
+
+All steps are code-enforced. The evaluator is independent — not the generator \
+evaluating itself. Scores are calibrated with few-shot anchors."""
+
 
 def _build_lead_prompt(
     task: str,
@@ -292,6 +307,7 @@ def _build_lead_prompt(
     loop_context: str | None = None,
     archetype_ctx: str | None = None,
     quality_mode: bool = False,
+    harness_mode: bool = False,
 ) -> str:
     parts = [f"## Goal\n{task}", f"Working directory: {cwd}"]
 
@@ -303,7 +319,9 @@ def _build_lead_prompt(
     if archetype_ctx:
         parts.append(archetype_ctx)
 
-    if quality_mode:
+    if harness_mode:
+        parts.append(_HARNESS_MODE_PROMPT)
+    elif quality_mode:
         parts.append(_QUALITY_MODE_PROMPT)
 
     if allowed_agents:
@@ -336,6 +354,7 @@ def run_lead_agent(
     plan_confirm: bool = True,
     verbose: bool = False,
     quality_mode: bool = False,
+    harness_mode: bool = False,
     ui_coordinator: Any | None = None,
     max_concurrent_agents: int = 0,
     mailbox: Any | None = None,
@@ -359,6 +378,7 @@ def run_lead_agent(
                 plan_confirm,
                 verbose,
                 quality_mode,
+                harness_mode,
                 ui_coordinator,
                 max_concurrent_agents,
                 mailbox,
@@ -397,6 +417,7 @@ async def _run_lead_agent_async(
     plan_confirm: bool = True,
     verbose: bool = False,
     quality_mode: bool = False,
+    harness_mode: bool = False,
     ui_coordinator: Any | None = None,
     max_concurrent_agents: int = 0,
     external_mailbox: Any | None = None,
@@ -412,6 +433,7 @@ async def _run_lead_agent_async(
         dashboard=dashboard,
         plan_confirm=plan_confirm,
         quality_mode=quality_mode,
+        harness_mode=harness_mode,
         ui_coordinator=ui_coordinator,
         max_concurrent_agents=max_concurrent_agents,
     )
@@ -542,6 +564,7 @@ async def _run_lead_agent_async(
                 loop_context=loop_context,
                 archetype_ctx=arch_ctx,
                 quality_mode=quality_mode,
+                harness_mode=harness_mode,
             )
             return p, matched
 

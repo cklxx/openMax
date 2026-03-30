@@ -444,6 +444,12 @@ def main() -> None:
     help="Quality mode: write → review → challenge → rewrite cycle",
 )
 @click.option(
+    "--harness",
+    is_flag=True,
+    default=False,
+    help="Harness mode: planner → generator ↔ evaluator quality loop",
+)
+@click.option(
     "--max-agents",
     default=0,
     type=click.IntRange(min=0),
@@ -463,6 +469,7 @@ def run(
     no_confirm: bool,
     verbose: bool,
     quality: bool,
+    harness: bool,
     max_agents: int,
 ) -> None:
     """Decompose TASK(s) and dispatch sub-agents in terminal panes.
@@ -586,6 +593,7 @@ def run(
                 plan_confirm=not no_confirm,
                 verbose=verbose,
                 quality_mode=quality,
+                harness_mode=harness,
                 max_concurrent_agents=max_agents,
             )
         except LeadAgentStartupError as exc:

@@ -36,6 +36,9 @@ class LeadAgentRuntime:
     session_stats: Any | None = None
     quality_mode: bool = False
     quality_phases: dict[str, str] = field(default_factory=dict)  # task_name → phase
+    harness_mode: bool = False
+    harness_scores: dict[str, list[dict[str, float]]] = field(default_factory=dict)
+    harness_round: dict[str, int] = field(default_factory=dict)
     ui_coordinator: Any | None = None
     max_concurrent_agents: int = 0  # 0 = unlimited
     dispatch_queue: list[dict[str, Any]] = field(default_factory=list)

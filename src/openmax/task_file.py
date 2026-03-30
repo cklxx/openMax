@@ -9,6 +9,9 @@ _BRIEFS_DIR = "briefs"
 _REPORTS_DIR = "reports"
 _SHARED_DIR = "shared"
 _CHECKPOINTS_DIR = "checkpoints"
+_SPECS_DIR = "specs"
+_CONTRACTS_DIR = "contracts"
+_EVALUATIONS_DIR = "evaluations"
 
 
 def _task_dir(cwd: str, subdir: str) -> Path:
@@ -104,6 +107,44 @@ def write_checkpoint(cwd: str, task_name: str, content: str) -> Path:
 
 def delete_checkpoint(cwd: str, task_name: str) -> None:
     checkpoint_path(cwd, task_name).unlink(missing_ok=True)
+
+
+def spec_path(cwd: str) -> Path:
+    return _task_dir(cwd, _SPECS_DIR) / "spec.md"
+
+
+def contract_path(cwd: str, task_name: str, round_num: int) -> Path:
+    return _task_dir(cwd, _CONTRACTS_DIR) / f"{task_name}-round-{round_num}.md"
+
+
+def evaluation_path(cwd: str, task_name: str, round_num: int) -> Path:
+    return _task_dir(cwd, _EVALUATIONS_DIR) / f"{task_name}-round-{round_num}.md"
+
+
+def read_spec(cwd: str) -> str | None:
+    path = spec_path(cwd)
+    return path.read_text(encoding="utf-8") if path.exists() else None
+
+
+def write_spec(cwd: str, content: str) -> Path:
+    _ensure_gitignore(cwd)
+    path = spec_path(cwd)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def read_evaluation(cwd: str, task_name: str, round_num: int) -> str | None:
+    path = evaluation_path(cwd, task_name, round_num)
+    return path.read_text(encoding="utf-8") if path.exists() else None
+
+
+def write_contract(cwd: str, task_name: str, round_num: int, content: str) -> Path:
+    _ensure_gitignore(cwd)
+    path = contract_path(cwd, task_name, round_num)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return path
 
 
 def cleanup_task_files(cwd: str, task_name: str) -> None:

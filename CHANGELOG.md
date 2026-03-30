@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.36
+
+- **Feature**: Harness mode (`--harness`) — Planner → Generator ↔ Evaluator quality loop inspired by Anthropic Labs harness checklist
+- **Feature**: Planner role — dispatches agent to produce bold product spec (user stories, data model, design language) without implementation details
+- **Feature**: Evaluator role — independent quality assessment via live app browser interaction with calibrated scoring dimensions (design quality 35%, originality 30%, craftsmanship 20%, functionality 15%)
+- **Feature**: Threshold-driven iteration — evaluator scores drive accept/refine/pivot decisions, up to 5 rounds with quality peak detection
+- **Feature**: Sprint contracts — per-round acceptance criteria written to `.openmax/contracts/`, evaluation reports to `.openmax/evaluations/`
+- **Feature**: Harness session events — `harness.planner_done`, `harness.evaluation`, `harness.decision`, `harness.complete` for metrics tracking
+- **Improvement**: File helpers for specs, contracts, and evaluations in `task_file.py`
+- **Tests**: 31 new tests covering harness scoring, evaluation parsing, decision logic, prompt builders, file helpers, and CLI flag
+
 ## 0.9.35
 
 - **Fix**: `execute_with_codex` MCP tool — replaced invalid `-a` flag with `--full-auto` to match codex CLI v0.116.0 interface; `suggest` mode omits the flag for interactive approval

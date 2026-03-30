@@ -1,7 +1,11 @@
-"""Quality workflow — write → review → challenge → rewrite with AST enforcement."""
+"""Quality workflow — write → review → challenge → rewrite with AST enforcement.
+
+Also implements the harness workflow: planner → generator ↔ evaluator loop.
+"""
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -207,4 +211,340 @@ async def run_quality_workflow(
         step_results.append(step_result)
         console.print(f"  [bold magenta]Q[/bold magenta]  step {i + 1} done ({duration}s)")
 
+    return step_results
+
+
+# ---------------------------------------------------------------------------
+# Harness workflow: planner → generator ↔ evaluator loop
+# ---------------------------------------------------------------------------
+
+MAX_HARNESS_ROUNDS = 5
+
+EVAL_DIMENSIONS: dict[str, dict[str, float]] = {
+    "design_quality": {"weight": 0.35, "threshold": 7},
+    "originality": {"weight": 0.30, "threshold": 7},
+    "craftsmanship": {"weight": 0.20, "threshold": 6},
+    "functionality": {"weight": 0.15, "threshold": 6},
+}
+
+_H = "[bold yellow]H[/bold yellow]"
+
+
+def _build_planner_prompt(task_prompt: str) -> str:
+    return (
+        f"Create a product spec for: {task_prompt}\n\n"
+        "## Constraints\n"
+        "- Be BOLD in scope — include AI-powered features where sensible\n"
+        "- Define: user stories, data model, design language, interaction patterns\n"
+        "- Do NOT include implementation details (they cascade errors)\n"
+        "- Write the full spec to `.openmax/specs/spec.md`\n"
+        "- Then report done."
+    )
+
+
+def _build_generator_prompt(
+    task_prompt: str,
+    spec: str,
+    contract: str,
+    prev_eval: str,
+) -> str:
+    parts = [task_prompt, f"## Product Spec\n{spec[:3000]}", f"## Sprint Contract\n{contract}"]
+    if prev_eval:
+        parts.append(f"## Previous Evaluation (fix these issues)\n{prev_eval[:3000]}")
+    parts.append("Run tests and commit your changes when done.")
+    return "\n\n".join(parts)
+
+
+def _build_evaluator_prompt(task_name: str, round_num: int) -> str:
+    dims = "\n".join(
+        f"- {name} (weight {d['weight']:.0%}, threshold {d['threshold']}/10)"
+        for name, d in EVAL_DIMENSIONS.items()
+    )
+    return (
+        f"Evaluate task '{task_name}' (round {round_num}).\n\n"
+        "1. Read the project to find how to start the dev server\n"
+        "2. Start the dev server (or detect if running)\n"
+        "3. Use browser/browse tools to navigate and interact with the live app\n"
+        "4. Score each dimension 0-10 with detailed justification\n\n"
+        f"## Dimensions\n{dims}\n\n"
+        f"Write evaluation to `.openmax/evaluations/{task_name}-round-{round_num}.md`.\n"
+        "Format: `## <Dimension>\\nScore: N/10\\n<justification>\\n"
+        "Improvements: <specific actions>`\n\n"
+        "Then report done."
+    )
+
+
+def _build_contract(task_prompt: str, spec: str, round_num: int, prev_eval: str) -> str:
+    parts = [
+        f"# Sprint Contract — Round {round_num}\n",
+        f"## Goal\n{task_prompt}\n",
+        "## Acceptance Criteria (from spec)\n",
+        spec[:1500] if spec else "(no spec available)",
+    ]
+    if prev_eval:
+        parts.append(f"\n## Must Fix (from evaluation)\n{prev_eval[:1500]}")
+    parts.append("\n## Rules\n- All acceptance criteria must pass\n- Run tests before committing")
+    return "\n".join(parts)
+
+
+_SCORE_PATTERN = re.compile(r"Score:\s*(\d+)\s*/\s*10", re.IGNORECASE)
+
+
+def _parse_evaluation(cwd: str, task_name: str, round_num: int) -> dict[str, float]:
+    """Parse evaluation file into {dimension: score} dict."""
+    from openmax.task_file import read_evaluation
+
+    text = read_evaluation(cwd, task_name, round_num)
+    if not text:
+        return {}
+    scores: dict[str, float] = {}
+    current_dim: str | None = None
+    for line in text.splitlines():
+        if line.startswith("## "):
+            key = line[3:].strip().lower().replace(" ", "_")
+            if key in EVAL_DIMENSIONS:
+                current_dim = key
+        if current_dim and (m := _SCORE_PATTERN.search(line)):
+            scores[current_dim] = float(m.group(1))
+            current_dim = None
+    return scores
+
+
+def _all_above_threshold(scores: dict[str, float]) -> bool:
+    return all(scores.get(dim, 0) >= info["threshold"] for dim, info in EVAL_DIMENSIONS.items())
+
+
+def _weighted_average(scores: dict[str, float]) -> float:
+    total = sum(scores.get(d, 0) * info["weight"] for d, info in EVAL_DIMENSIONS.items())
+    return round(total, 2)
+
+
+def _decide_next(
+    scores: dict[str, float],
+    round_num: int,
+    history: list[dict[str, float]],
+) -> str:
+    if _all_above_threshold(scores):
+        return "accept"
+    if round_num >= MAX_HARNESS_ROUNDS:
+        return "accept"
+    if len(history) >= 2:
+        prev_avg = _weighted_average(history[-2])
+        curr_avg = _weighted_average(scores)
+        if curr_avg < prev_avg - 0.5:
+            return "pivot"
+    return "refine"
+
+
+def _record_metrics(
+    runtime: Any,
+    task_name: str,
+    round_num: int,
+    scores: dict[str, float],
+    duration: float,
+) -> None:
+    from openmax.lead_agent.tools._helpers import _append_session_event
+
+    _append_session_event(
+        "harness.evaluation",
+        {
+            "task": task_name,
+            "round": round_num,
+            "scores": scores,
+            "weighted_avg": _weighted_average(scores),
+            "pass": _all_above_threshold(scores),
+            "duration_s": round(duration, 1),
+        },
+    )
+
+
+def _detect_quality_peak(history: list[dict[str, float]]) -> int:
+    """Return 1-indexed round number with the best weighted average."""
+    if not history:
+        return 1
+    avgs = [_weighted_average(s) for s in history]
+    return avgs.index(max(avgs)) + 1
+
+
+async def _dispatch_and_wait(
+    runtime: Any,
+    agent_name: str,
+    role: str,
+    prompt: str,
+) -> list[dict[str, Any]]:
+    """Dispatch an agent and block until it completes."""
+    from openmax.lead_agent.tools._dispatch import dispatch_agent
+    from openmax.lead_agent.tools._misc import _monitor_until_done
+
+    await dispatch_agent.handler({"task_name": agent_name, "role": role, "prompt": prompt})
+    results, _ = await _monitor_until_done(runtime, timeout=600)
+    return results
+
+
+async def _mark_and_merge(results: list[dict[str, Any]], merge: bool = True) -> None:
+    """Mark done + optionally merge for all completed tasks in results."""
+    from openmax.lead_agent.tools._planning import mark_task_done
+    from openmax.lead_agent.tools._verify import merge_agent_branch
+
+    for r in results:
+        if r.get("type") != "done":
+            continue
+        try:
+            await mark_task_done.handler({"task_name": r["task"], "notes": ""})
+            if merge:
+                await merge_agent_branch.handler({"task_name": r["task"]})
+        except Exception:
+            pass
+
+
+async def _run_planner_phase(
+    runtime: Any,
+    task_name: str,
+    task_prompt: str,
+) -> str:
+    """Dispatch planner agent, wait, read spec."""
+    from openmax.lead_agent.tools._helpers import _append_session_event
+    from openmax.task_file import read_spec
+
+    console.print(f"  {_H}  phase: planner → spec")
+    t0 = time.monotonic()
+    prompt = _build_planner_prompt(task_prompt)
+    results = await _dispatch_and_wait(runtime, f"{task_name}-planner", "planner", prompt)
+    await _mark_and_merge(results, merge=True)
+    duration = round(time.monotonic() - t0, 1)
+    spec = read_spec(runtime.cwd) or ""
+    _append_session_event(
+        "harness.planner_done",
+        {
+            "task": task_name,
+            "spec_chars": len(spec),
+            "duration_s": duration,
+        },
+    )
+    console.print(f"  {_H}  planner done ({duration}s, {len(spec)} chars)")
+    return spec
+
+
+async def _run_generator_phase(
+    runtime: Any,
+    task_name: str,
+    task_prompt: str,
+    spec: str,
+    contract: str,
+    prev_eval: str,
+    round_num: int,
+) -> float:
+    """Dispatch generator, wait, merge. Returns duration."""
+    from openmax.lead_agent.tools._helpers import _append_session_event
+
+    console.print(f"  {_H}  round {round_num}: generator")
+    t0 = time.monotonic()
+    prompt = _build_generator_prompt(task_prompt, spec, contract, prev_eval)
+    agent_name = f"{task_name}-gen-r{round_num}"
+    results = await _dispatch_and_wait(runtime, agent_name, "writer", prompt)
+    await _mark_and_merge(results, merge=True)
+    duration = round(time.monotonic() - t0, 1)
+    _append_session_event(
+        "harness.generator_done",
+        {
+            "task": task_name,
+            "round": round_num,
+            "duration_s": duration,
+        },
+    )
+    console.print(f"  {_H}  generator done ({duration}s)")
+    return duration
+
+
+async def _run_evaluator_phase(
+    runtime: Any,
+    task_name: str,
+    round_num: int,
+) -> tuple[dict[str, float], float]:
+    """Dispatch evaluator, wait, parse scores. Returns (scores, duration)."""
+    console.print(f"  {_H}  round {round_num}: evaluator")
+    t0 = time.monotonic()
+    prompt = _build_evaluator_prompt(task_name, round_num)
+    agent_name = f"{task_name}-eval-r{round_num}"
+    results = await _dispatch_and_wait(runtime, agent_name, "evaluator", prompt)
+    await _mark_and_merge(results, merge=False)
+    duration = round(time.monotonic() - t0, 1)
+    scores = _parse_evaluation(runtime.cwd, task_name, round_num)
+    avg = _weighted_average(scores)
+    passed = _all_above_threshold(scores)
+    tag = "[green]PASS[/green]" if passed else "[red]FAIL[/red]"
+    console.print(f"  {_H}  evaluator done ({duration}s) avg={avg} {tag}")
+    return scores, duration
+
+
+async def run_harness_workflow(
+    runtime: Any,
+    task_name: str,
+    task_prompt: str,
+) -> list[dict[str, Any]]:
+    """Execute planner → generator ↔ evaluator harness loop."""
+    from openmax.lead_agent.tools._helpers import _append_session_event
+    from openmax.task_file import read_evaluation, write_contract
+
+    step_results: list[dict[str, Any]] = []
+    spec = await _run_planner_phase(runtime, task_name, task_prompt)
+    history: list[dict[str, float]] = []
+    prev_eval_text = ""
+
+    for round_num in range(1, MAX_HARNESS_ROUNDS + 1):
+        contract = _build_contract(task_prompt, spec, round_num, prev_eval_text)
+        write_contract(runtime.cwd, task_name, round_num, contract)
+        _append_session_event("harness.contract", {"task": task_name, "round": round_num})
+
+        gen_dur = await _run_generator_phase(
+            runtime,
+            task_name,
+            task_prompt,
+            spec,
+            contract,
+            prev_eval_text,
+            round_num,
+        )
+        scores, eval_dur = await _run_evaluator_phase(runtime, task_name, round_num)
+        history.append(scores)
+        runtime.harness_scores.setdefault(task_name, []).append(scores)
+        _record_metrics(runtime, task_name, round_num, scores, gen_dur + eval_dur)
+
+        action = _decide_next(scores, round_num, history)
+        _append_session_event(
+            "harness.decision",
+            {
+                "task": task_name,
+                "round": round_num,
+                "action": action,
+            },
+        )
+        step_results.append(
+            {
+                "round": round_num,
+                "scores": scores,
+                "action": action,
+                "gen_duration_s": gen_dur,
+                "eval_duration_s": eval_dur,
+            }
+        )
+        console.print(f"  {_H}  round {round_num} decision: {action}")
+
+        if action == "accept":
+            break
+        if action == "pivot":
+            spec = await _run_planner_phase(runtime, task_name, task_prompt)
+        prev_eval_text = read_evaluation(runtime.cwd, task_name, round_num) or ""
+
+    peak = _detect_quality_peak(history)
+    _append_session_event(
+        "harness.complete",
+        {
+            "task": task_name,
+            "total_rounds": len(history),
+            "peak_round": peak,
+            "final_scores": history[-1] if history else {},
+        },
+    )
+    console.print(f"  {_H}  harness complete: {len(history)} rounds, peak at round {peak}")
     return step_results
