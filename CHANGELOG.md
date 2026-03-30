@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.39
+
+- **Fix**: `provider_usage` — guard against null usage field (not just missing key); use `or 0` so null token values don't propagate to `+=` arithmetic
+- **Fix**: `usage` — same `or 0` fix in `usage_from_result` when token values are null
+- **Fix**: `core` — replace `getattr(dict, ...)` with `dict.get()` — `getattr` on a dict looks up attributes, not keys, silently returning 0 even when data was present
+- **Tests**: Regression tests for null usage field, null token values, and missing token fields
+
 ## 0.9.38
 
 - **Fix**: Double-processing — harness `_mark_and_merge` was redundant with `_auto_mark_and_merge` in mailbox handler; removed duplicate mark/merge calls
