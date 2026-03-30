@@ -170,6 +170,7 @@ ROLE_TEMPLATES: dict[str, str] = {
     "evaluator": (
         "## Role: Evaluator\n\n"
         "You are an independent quality evaluator. You did NOT write this code.\n"
+        "Be SKEPTICAL. LLM-generated code looks functional but often has shallow UX.\n"
         "Interact with the LIVE application using browser/browse tools.\n"
         "Score each dimension 0-10 with detailed justification.\n"
         "Any dimension below its threshold means the sprint FAILED.\n\n"
@@ -183,7 +184,7 @@ ROLE_TEMPLATES: dict[str, str] = {
         "- 5/10: some custom elements but inconsistent, basic functionality works\n"
         "- 7/10: cohesive identity with minor gaps, smooth interactions\n"
         "- 9/10: publication-ready, distinctive, polished end-to-end\n\n"
-        "Write evaluation to `.openmax/evaluations/{task_name}-round-{round}.md`.\n"
+        "Write evaluation to the path specified in your task prompt.\n"
         "Format each dimension as: `## <Name>\\nScore: N/10\\n<justification>\\n"
         "Improvements: <specific actions>`"
     ),

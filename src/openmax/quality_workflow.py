@@ -220,14 +220,50 @@ async def run_quality_workflow(
 
 MAX_HARNESS_ROUNDS = 5
 
-EVAL_DIMENSIONS: dict[str, dict[str, float]] = {
+FRONTEND_DIMENSIONS: dict[str, dict[str, float]] = {
     "design_quality": {"weight": 0.35, "threshold": 7},
     "originality": {"weight": 0.30, "threshold": 7},
     "craftsmanship": {"weight": 0.20, "threshold": 6},
     "functionality": {"weight": 0.15, "threshold": 6},
 }
 
+FULLSTACK_DIMENSIONS: dict[str, dict[str, float]] = {
+    "product_depth": {"weight": 0.30, "threshold": 7},
+    "functionality": {"weight": 0.30, "threshold": 7},
+    "design_quality": {"weight": 0.25, "threshold": 6},
+    "code_quality": {"weight": 0.15, "threshold": 6},
+}
+
+# Default — overridden by archetype detection in run_harness_workflow
+EVAL_DIMENSIONS: dict[str, dict[str, float]] = FRONTEND_DIMENSIONS
+
 _H = "[bold yellow]H[/bold yellow]"
+
+
+def _persist_from_worktree(
+    runtime: Any,
+    task_name: str,
+    src_subdir: str,
+    src_filename: str,
+    dst_subdir: str | None = None,
+    dst_filename: str | None = None,
+) -> str:
+    """Copy a .openmax/ file from agent worktree to main cwd. Returns content or ''."""
+    for st in runtime.plan.subtasks:
+        if st.name != task_name or not st.branch_name:
+            continue
+        wt = Path(runtime.cwd) / ".openmax-worktrees" / st.branch_name.replace("/", "_")
+        src = wt / ".openmax" / src_subdir / src_filename
+        if not src.exists():
+            continue
+        content = src.read_text(encoding="utf-8")
+        dst_dir = dst_subdir or src_subdir
+        dst_name = dst_filename or src_filename
+        dst = Path(runtime.cwd) / ".openmax" / dst_dir / dst_name
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_text(content, encoding="utf-8")
+        return content
+    return ""
 
 
 def _build_planner_prompt(task_prompt: str) -> str:
@@ -255,10 +291,15 @@ def _build_generator_prompt(
     return "\n\n".join(parts)
 
 
-def _build_evaluator_prompt(task_name: str, round_num: int) -> str:
-    dims = "\n".join(
+def _build_evaluator_prompt(
+    task_name: str,
+    round_num: int,
+    dims: dict[str, dict[str, float]] | None = None,
+) -> str:
+    dims = dims or EVAL_DIMENSIONS
+    dims_text = "\n".join(
         f"- {name} (weight {d['weight']:.0%}, threshold {d['threshold']}/10)"
-        for name, d in EVAL_DIMENSIONS.items()
+        for name, d in dims.items()
     )
     return (
         f"Evaluate task '{task_name}' (round {round_num}).\n\n"
@@ -266,7 +307,7 @@ def _build_evaluator_prompt(task_name: str, round_num: int) -> str:
         "2. Start the dev server (or detect if running)\n"
         "3. Use browser/browse tools to navigate and interact with the live app\n"
         "4. Score each dimension 0-10 with detailed justification\n\n"
-        f"## Dimensions\n{dims}\n\n"
+        f"## Dimensions\n{dims_text}\n\n"
         f"Write evaluation to `.openmax/evaluations/{task_name}-round-{round_num}.md`.\n"
         "Format: `## <Dimension>\\nScore: N/10\\n<justification>\\n"
         "Improvements: <specific actions>`\n\n"
@@ -290,32 +331,63 @@ def _build_contract(task_prompt: str, spec: str, round_num: int, prev_eval: str)
 _SCORE_PATTERN = re.compile(r"Score:\s*(\d+)\s*/\s*10", re.IGNORECASE)
 
 
-def _parse_evaluation(cwd: str, task_name: str, round_num: int) -> dict[str, float]:
+def _normalize_dimension_key(
+    heading: str,
+    dims: dict[str, dict[str, float]] | None = None,
+) -> str | None:
+    """Fuzzy-match a heading to a dimension key."""
+    dims = dims or EVAL_DIMENSIONS
+    # Strip leading numbers like "1. " or "1) " BEFORE lowercasing
+    cleaned = re.sub(r"^\d+[.)]\s*", "", heading.strip())
+    key = cleaned.lower().replace(" ", "_")
+    if key in dims:
+        return key
+    # Partial match: "design" → "design_quality", "original" → "originality"
+    for dim in dims:
+        if key.startswith(dim.split("_")[0]):
+            return dim
+    return None
+
+
+def _parse_evaluation(
+    cwd: str,
+    task_name: str,
+    round_num: int,
+    dims: dict[str, dict[str, float]] | None = None,
+) -> dict[str, float]:
     """Parse evaluation file into {dimension: score} dict."""
     from openmax.task_file import read_evaluation
 
+    dims = dims or EVAL_DIMENSIONS
     text = read_evaluation(cwd, task_name, round_num)
     if not text:
         return {}
     scores: dict[str, float] = {}
     current_dim: str | None = None
     for line in text.splitlines():
-        if line.startswith("## "):
-            key = line[3:].strip().lower().replace(" ", "_")
-            if key in EVAL_DIMENSIONS:
-                current_dim = key
+        if line.startswith("## ") or line.startswith("### "):
+            heading = line.lstrip("#").strip()
+            current_dim = _normalize_dimension_key(heading, dims)
         if current_dim and (m := _SCORE_PATTERN.search(line)):
             scores[current_dim] = float(m.group(1))
             current_dim = None
     return scores
 
 
-def _all_above_threshold(scores: dict[str, float]) -> bool:
-    return all(scores.get(dim, 0) >= info["threshold"] for dim, info in EVAL_DIMENSIONS.items())
+def _all_above_threshold(
+    scores: dict[str, float],
+    dims: dict[str, dict[str, float]] | None = None,
+) -> bool:
+    dims = dims or EVAL_DIMENSIONS
+    return all(scores.get(dim, 0) >= info["threshold"] for dim, info in dims.items())
 
 
-def _weighted_average(scores: dict[str, float]) -> float:
-    total = sum(scores.get(d, 0) * info["weight"] for d, info in EVAL_DIMENSIONS.items())
+def _weighted_average(
+    scores: dict[str, float],
+    dims: dict[str, dict[str, float]] | None = None,
+) -> float:
+    dims = dims or EVAL_DIMENSIONS
+    total = sum(scores.get(d, 0) * info["weight"] for d, info in dims.items())
     return round(total, 2)
 
 
@@ -323,15 +395,16 @@ def _decide_next(
     scores: dict[str, float],
     round_num: int,
     history: list[dict[str, float]],
+    dims: dict[str, dict[str, float]] | None = None,
 ) -> str:
-    if _all_above_threshold(scores):
+    if _all_above_threshold(scores, dims):
         return "accept"
     if round_num >= MAX_HARNESS_ROUNDS:
         return "accept"
     if len(history) >= 2:
-        prev_avg = _weighted_average(history[-2])
-        curr_avg = _weighted_average(scores)
-        if curr_avg < prev_avg - 0.5:
+        prev_avg = _weighted_average(history[-2], dims)
+        curr_avg = _weighted_average(scores, dims)
+        if curr_avg < prev_avg - 1.0:
             return "pivot"
     return "refine"
 
@@ -342,6 +415,7 @@ def _record_metrics(
     round_num: int,
     scores: dict[str, float],
     duration: float,
+    dims: dict[str, dict[str, float]] | None = None,
 ) -> None:
     from openmax.lead_agent.tools._helpers import _append_session_event
 
@@ -351,18 +425,21 @@ def _record_metrics(
             "task": task_name,
             "round": round_num,
             "scores": scores,
-            "weighted_avg": _weighted_average(scores),
-            "pass": _all_above_threshold(scores),
+            "weighted_avg": _weighted_average(scores, dims),
+            "pass": _all_above_threshold(scores, dims),
             "duration_s": round(duration, 1),
         },
     )
 
 
-def _detect_quality_peak(history: list[dict[str, float]]) -> int:
+def _detect_quality_peak(
+    history: list[dict[str, float]],
+    dims: dict[str, dict[str, float]] | None = None,
+) -> int:
     """Return 1-indexed round number with the best weighted average."""
     if not history:
         return 1
-    avgs = [_weighted_average(s) for s in history]
+    avgs = [_weighted_average(s, dims) for s in history]
     return avgs.index(max(avgs)) + 1
 
 
@@ -402,17 +479,23 @@ async def _run_planner_phase(
     task_name: str,
     task_prompt: str,
 ) -> str:
-    """Dispatch planner agent, wait, read spec."""
+    """Dispatch planner agent, wait, persist spec from worktree."""
     from openmax.lead_agent.tools._helpers import _append_session_event
     from openmax.task_file import read_spec
 
     console.print(f"  {_H}  phase: planner → spec")
     t0 = time.monotonic()
     prompt = _build_planner_prompt(task_prompt)
-    results = await _dispatch_and_wait(runtime, f"{task_name}-planner", "planner", prompt)
-    await _mark_and_merge(results, merge=True)
+    agent_name = f"{task_name}-planner"
+    results = await _dispatch_and_wait(runtime, agent_name, "planner", prompt)
+    # Planner doesn't commit code — just mark done, no merge
+    await _mark_and_merge(results, merge=False)
+    # Copy spec from worktree to main cwd (gitignored files don't survive merge)
+    _persist_from_worktree(runtime, agent_name, "specs", "spec.md")
     duration = round(time.monotonic() - t0, 1)
     spec = read_spec(runtime.cwd) or ""
+    if not spec:
+        console.print(f"  {_H}  [yellow]warning: planner produced empty spec[/yellow]")
     _append_session_event(
         "harness.planner_done",
         {
@@ -460,21 +543,37 @@ async def _run_evaluator_phase(
     runtime: Any,
     task_name: str,
     round_num: int,
+    dims: dict[str, dict[str, float]] | None = None,
 ) -> tuple[dict[str, float], float]:
-    """Dispatch evaluator, wait, parse scores. Returns (scores, duration)."""
+    """Dispatch evaluator, wait, persist evaluation, parse scores."""
     console.print(f"  {_H}  round {round_num}: evaluator")
     t0 = time.monotonic()
-    prompt = _build_evaluator_prompt(task_name, round_num)
+    prompt = _build_evaluator_prompt(task_name, round_num, dims)
     agent_name = f"{task_name}-eval-r{round_num}"
     results = await _dispatch_and_wait(runtime, agent_name, "evaluator", prompt)
+    # Evaluator doesn't commit — just mark done, no merge
     await _mark_and_merge(results, merge=False)
+    # Copy evaluation from worktree to main cwd
+    eval_file = f"{task_name}-round-{round_num}.md"
+    _persist_from_worktree(runtime, agent_name, "evaluations", eval_file)
     duration = round(time.monotonic() - t0, 1)
-    scores = _parse_evaluation(runtime.cwd, task_name, round_num)
-    avg = _weighted_average(scores)
-    passed = _all_above_threshold(scores)
+    scores = _parse_evaluation(runtime.cwd, task_name, round_num, dims)
+    if not scores:
+        console.print(f"  {_H}  [yellow]warning: evaluator returned no parseable scores[/yellow]")
+    avg = _weighted_average(scores, dims)
+    passed = _all_above_threshold(scores, dims)
     tag = "[green]PASS[/green]" if passed else "[red]FAIL[/red]"
     console.print(f"  {_H}  evaluator done ({duration}s) avg={avg} {tag}")
     return scores, duration
+
+
+def _select_dimensions(runtime: Any) -> dict[str, dict[str, float]]:
+    """Pick evaluation dimensions based on matched archetype."""
+    arch = getattr(runtime, "matched_archetype", None)
+    arch_name = getattr(arch, "name", "") if arch else ""
+    if arch_name in ("api_service", "cli_tool", "library"):
+        return FULLSTACK_DIMENSIONS
+    return FRONTEND_DIMENSIONS
 
 
 async def run_harness_workflow(
@@ -486,6 +585,7 @@ async def run_harness_workflow(
     from openmax.lead_agent.tools._helpers import _append_session_event
     from openmax.task_file import read_evaluation, write_contract
 
+    dims = _select_dimensions(runtime)
     step_results: list[dict[str, Any]] = []
     spec = await _run_planner_phase(runtime, task_name, task_prompt)
     history: list[dict[str, float]] = []
@@ -505,19 +605,15 @@ async def run_harness_workflow(
             prev_eval_text,
             round_num,
         )
-        scores, eval_dur = await _run_evaluator_phase(runtime, task_name, round_num)
+        scores, eval_dur = await _run_evaluator_phase(runtime, task_name, round_num, dims)
         history.append(scores)
         runtime.harness_scores.setdefault(task_name, []).append(scores)
-        _record_metrics(runtime, task_name, round_num, scores, gen_dur + eval_dur)
+        _record_metrics(runtime, task_name, round_num, scores, gen_dur + eval_dur, dims)
 
-        action = _decide_next(scores, round_num, history)
+        action = _decide_next(scores, round_num, history, dims)
         _append_session_event(
             "harness.decision",
-            {
-                "task": task_name,
-                "round": round_num,
-                "action": action,
-            },
+            {"task": task_name, "round": round_num, "action": action},
         )
         step_results.append(
             {
@@ -536,7 +632,7 @@ async def run_harness_workflow(
             spec = await _run_planner_phase(runtime, task_name, task_prompt)
         prev_eval_text = read_evaluation(runtime.cwd, task_name, round_num) or ""
 
-    peak = _detect_quality_peak(history)
+    peak = _detect_quality_peak(history, dims)
     _append_session_event(
         "harness.complete",
         {

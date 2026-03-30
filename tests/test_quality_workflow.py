@@ -6,7 +6,8 @@ Also covers harness workflow: planner → generator ↔ evaluator.
 from __future__ import annotations
 
 from openmax.quality_workflow import (
-    EVAL_DIMENSIONS,
+    FRONTEND_DIMENSIONS,
+    FULLSTACK_DIMENSIONS,
     MAX_HARNESS_ROUNDS,
     QUALITY_STEPS,
     _all_above_threshold,
@@ -16,6 +17,7 @@ from openmax.quality_workflow import (
     _build_planner_prompt,
     _decide_next,
     _detect_quality_peak,
+    _normalize_dimension_key,
     _parse_evaluation,
     _read_challenge_report,
     _read_report,
@@ -84,12 +86,36 @@ def test_read_challenge_report_returns_fallback(tmp_path):
 
 
 class TestHarnessConstants:
-    def test_eval_dimensions_weights_sum_to_one(self):
-        total = sum(d["weight"] for d in EVAL_DIMENSIONS.values())
+    def test_frontend_dimensions_weights_sum_to_one(self):
+        total = sum(d["weight"] for d in FRONTEND_DIMENSIONS.values())
+        assert abs(total - 1.0) < 0.01
+
+    def test_fullstack_dimensions_weights_sum_to_one(self):
+        total = sum(d["weight"] for d in FULLSTACK_DIMENSIONS.values())
         assert abs(total - 1.0) < 0.01
 
     def test_max_harness_rounds_positive(self):
         assert MAX_HARNESS_ROUNDS > 0
+
+
+class TestNormalizeDimensionKey:
+    def test_exact_match(self):
+        assert _normalize_dimension_key("Design Quality") == "design_quality"
+
+    def test_with_number_prefix(self):
+        assert _normalize_dimension_key("1. Design Quality") == "design_quality"
+
+    def test_partial_match(self):
+        assert _normalize_dimension_key("design") == "design_quality"
+
+    def test_no_match(self):
+        assert _normalize_dimension_key("random heading") is None
+
+    def test_fullstack_dimensions(self):
+        assert _normalize_dimension_key("Product Depth", FULLSTACK_DIMENSIONS) == "product_depth"
+
+    def test_case_insensitive(self):
+        assert _normalize_dimension_key("ORIGINALITY") == "originality"
 
 
 class TestParseEvaluation:
@@ -120,6 +146,22 @@ class TestParseEvaluation:
         (evals / "task-round-1.md").write_text("## Design Quality\nScore: 5/10\nOK.\n")
         scores = _parse_evaluation(str(tmp_path), "task", 1)
         assert scores == {"design_quality": 5.0}
+
+    def test_h3_headings(self, tmp_path):
+        evals = tmp_path / ".openmax" / "evaluations"
+        evals.mkdir(parents=True)
+        content = "### Design Quality\nScore: 7/10\nGood.\n"
+        (evals / "task-round-1.md").write_text(content)
+        scores = _parse_evaluation(str(tmp_path), "task", 1)
+        assert scores == {"design_quality": 7.0}
+
+    def test_numbered_headings(self, tmp_path):
+        evals = tmp_path / ".openmax" / "evaluations"
+        evals.mkdir(parents=True)
+        content = "## 1. Design Quality\nScore: 6/10\nOK.\n"
+        (evals / "task-round-1.md").write_text(content)
+        scores = _parse_evaluation(str(tmp_path), "task", 1)
+        assert scores == {"design_quality": 6.0}
 
 
 class TestScoring:

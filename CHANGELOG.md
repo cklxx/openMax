@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.37
+
+- **Fix**: Harness worktree isolation — planner/evaluator write `.openmax/` files in worktrees (gitignored), added `_persist_from_worktree` to copy specs and evaluations back to main cwd
+- **Fix**: Planner merge skip — planner doesn't commit code, so merge was a no-op; now correctly skips merge
+- **Fix**: Evaluator role template — removed unpopulated `{task_name}`/`{round}` placeholders, added "be skeptical" instruction per Anthropic checklist
+- **Fix**: Evaluation parser robustness — now handles `###` headings, `1.` numbered prefixes, case-insensitive and partial dimension matching
+- **Fix**: Pivot threshold too tight — widened from 0.5 to 1.0 weighted average regression
+- **Improvement**: Archetype-aware evaluation dimensions — frontend projects use design/originality-weighted rubric; backend/API/CLI use product-depth/functionality-weighted rubric
+- **Improvement**: Empty spec/score warnings — harness prints warnings when planner or evaluator produce empty output
+- **Tests**: 9 new tests for fuzzy heading matching, numbered headings, dual dimension sets
+
 ## 0.9.36
 
 - **Feature**: Harness mode (`--harness`) — Planner → Generator ↔ Evaluator quality loop inspired by Anthropic Labs harness checklist
