@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.38
+
+- **Fix**: Double-processing — harness `_mark_and_merge` was redundant with `_auto_mark_and_merge` in mailbox handler; removed duplicate mark/merge calls
+- **Fix**: Force-mark safety — agents exiting without MCP done callback now get force-marked as done when pane death is confirmed, preventing subsequent phases from hanging
+- **Improvement**: `run_harness_workflow` refactored to 12-line body with `_HarnessState` dataclass, `_run_harness_round`, and `_emit_harness_complete` helpers
+
 ## 0.9.37
 
 - **Fix**: Harness worktree isolation — planner/evaluator write `.openmax/` files in worktrees (gitignored), added `_persist_from_worktree` to copy specs and evaluations back to main cwd
