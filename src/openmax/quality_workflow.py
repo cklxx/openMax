@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from openmax.lead_agent.types import TaskStatus
 from openmax.output import console
 
 
@@ -449,29 +450,33 @@ async def _dispatch_and_wait(
     role: str,
     prompt: str,
 ) -> list[dict[str, Any]]:
-    """Dispatch an agent and block until it completes."""
+    """Dispatch an agent and block until it completes.
+
+    _monitor_until_done handles done messages via _handle_message,
+    which calls _auto_mark_and_merge (mark_done + merge) automatically.
+    No additional mark/merge needed after this returns.
+    """
     from openmax.lead_agent.tools._dispatch import dispatch_agent
     from openmax.lead_agent.tools._misc import _monitor_until_done
 
     await dispatch_agent.handler({"task_name": agent_name, "role": role, "prompt": prompt})
     results, _ = await _monitor_until_done(runtime, timeout=600)
+    # If agent exited without MCP callback, force-mark done
+    await _force_mark_if_still_running(runtime, agent_name)
     return results
 
 
-async def _mark_and_merge(results: list[dict[str, Any]], merge: bool = True) -> None:
-    """Mark done + optionally merge for all completed tasks in results."""
+async def _force_mark_if_still_running(runtime: Any, task_name: str) -> None:
+    """Safety net: mark task done if monitor timed out but pane exited."""
     from openmax.lead_agent.tools._planning import mark_task_done
-    from openmax.lead_agent.tools._verify import merge_agent_branch
 
-    for r in results:
-        if r.get("type") != "done":
-            continue
-        try:
-            await mark_task_done.handler({"task_name": r["task"], "notes": ""})
-            if merge:
-                await merge_agent_branch.handler({"task_name": r["task"]})
-        except Exception:
-            pass
+    for st in runtime.plan.subtasks:
+        if st.name == task_name and st.status == TaskStatus.RUNNING:
+            alive = runtime.pane_mgr.is_pane_alive(st.pane_id) if st.pane_id else False
+            if not alive:
+                await mark_task_done.handler({"task_name": task_name, "notes": "force-marked"})
+                console.print(f"  {_H}  [yellow]force-marked {task_name} done[/yellow]")
+            break
 
 
 async def _run_planner_phase(
@@ -487,9 +492,7 @@ async def _run_planner_phase(
     t0 = time.monotonic()
     prompt = _build_planner_prompt(task_prompt)
     agent_name = f"{task_name}-planner"
-    results = await _dispatch_and_wait(runtime, agent_name, "planner", prompt)
-    # Planner doesn't commit code — just mark done, no merge
-    await _mark_and_merge(results, merge=False)
+    await _dispatch_and_wait(runtime, agent_name, "planner", prompt)
     # Copy spec from worktree to main cwd (gitignored files don't survive merge)
     _persist_from_worktree(runtime, agent_name, "specs", "spec.md")
     duration = round(time.monotonic() - t0, 1)
@@ -524,8 +527,7 @@ async def _run_generator_phase(
     t0 = time.monotonic()
     prompt = _build_generator_prompt(task_prompt, spec, contract, prev_eval)
     agent_name = f"{task_name}-gen-r{round_num}"
-    results = await _dispatch_and_wait(runtime, agent_name, "writer", prompt)
-    await _mark_and_merge(results, merge=True)
+    await _dispatch_and_wait(runtime, agent_name, "writer", prompt)
     duration = round(time.monotonic() - t0, 1)
     _append_session_event(
         "harness.generator_done",
@@ -550,9 +552,7 @@ async def _run_evaluator_phase(
     t0 = time.monotonic()
     prompt = _build_evaluator_prompt(task_name, round_num, dims)
     agent_name = f"{task_name}-eval-r{round_num}"
-    results = await _dispatch_and_wait(runtime, agent_name, "evaluator", prompt)
-    # Evaluator doesn't commit — just mark done, no merge
-    await _mark_and_merge(results, merge=False)
+    await _dispatch_and_wait(runtime, agent_name, "evaluator", prompt)
     # Copy evaluation from worktree to main cwd
     eval_file = f"{task_name}-round-{round_num}.md"
     _persist_from_worktree(runtime, agent_name, "evaluations", eval_file)
@@ -576,71 +576,98 @@ def _select_dimensions(runtime: Any) -> dict[str, dict[str, float]]:
     return FRONTEND_DIMENSIONS
 
 
+@dataclass
+class _HarnessState:
+    """Mutable state passed through harness round iterations."""
+
+    dims: dict[str, dict[str, float]]
+    spec: str
+    history: list[dict[str, float]] = field(default_factory=list)
+    prev_eval_text: str = ""
+    step_results: list[dict[str, Any]] = field(default_factory=list)
+
+
+async def _run_harness_round(
+    runtime: Any,
+    task_name: str,
+    task_prompt: str,
+    round_num: int,
+    state: _HarnessState,
+) -> str:
+    """Execute one generate → evaluate round. Returns decision action."""
+    from openmax.lead_agent.tools._helpers import _append_session_event
+    from openmax.task_file import write_contract
+
+    contract = _build_contract(task_prompt, state.spec, round_num, state.prev_eval_text)
+    write_contract(runtime.cwd, task_name, round_num, contract)
+    _append_session_event("harness.contract", {"task": task_name, "round": round_num})
+
+    gen_dur = await _run_generator_phase(
+        runtime,
+        task_name,
+        task_prompt,
+        state.spec,
+        contract,
+        state.prev_eval_text,
+        round_num,
+    )
+    scores, eval_dur = await _run_evaluator_phase(runtime, task_name, round_num, state.dims)
+    state.history.append(scores)
+    runtime.harness_scores.setdefault(task_name, []).append(scores)
+    _record_metrics(runtime, task_name, round_num, scores, gen_dur + eval_dur, state.dims)
+
+    action = _decide_next(scores, round_num, state.history, state.dims)
+    _append_session_event(
+        "harness.decision",
+        {"task": task_name, "round": round_num, "action": action},
+    )
+    state.step_results.append(
+        {
+            "round": round_num,
+            "scores": scores,
+            "action": action,
+            "gen_duration_s": gen_dur,
+            "eval_duration_s": eval_dur,
+        }
+    )
+    return action
+
+
+def _emit_harness_complete(task_name: str, state: _HarnessState) -> None:
+    from openmax.lead_agent.tools._helpers import _append_session_event
+
+    peak = _detect_quality_peak(state.history, state.dims)
+    _append_session_event(
+        "harness.complete",
+        {
+            "task": task_name,
+            "total_rounds": len(state.history),
+            "peak_round": peak,
+            "final_scores": state.history[-1] if state.history else {},
+        },
+    )
+    console.print(f"  {_H}  harness complete: {len(state.history)} rounds, peak at round {peak}")
+
+
 async def run_harness_workflow(
     runtime: Any,
     task_name: str,
     task_prompt: str,
 ) -> list[dict[str, Any]]:
     """Execute planner → generator ↔ evaluator harness loop."""
-    from openmax.lead_agent.tools._helpers import _append_session_event
-    from openmax.task_file import read_evaluation, write_contract
+    from openmax.task_file import read_evaluation
 
-    dims = _select_dimensions(runtime)
-    step_results: list[dict[str, Any]] = []
-    spec = await _run_planner_phase(runtime, task_name, task_prompt)
-    history: list[dict[str, float]] = []
-    prev_eval_text = ""
+    state = _HarnessState(dims=_select_dimensions(runtime), spec="")
+    state.spec = await _run_planner_phase(runtime, task_name, task_prompt)
 
     for round_num in range(1, MAX_HARNESS_ROUNDS + 1):
-        contract = _build_contract(task_prompt, spec, round_num, prev_eval_text)
-        write_contract(runtime.cwd, task_name, round_num, contract)
-        _append_session_event("harness.contract", {"task": task_name, "round": round_num})
-
-        gen_dur = await _run_generator_phase(
-            runtime,
-            task_name,
-            task_prompt,
-            spec,
-            contract,
-            prev_eval_text,
-            round_num,
-        )
-        scores, eval_dur = await _run_evaluator_phase(runtime, task_name, round_num, dims)
-        history.append(scores)
-        runtime.harness_scores.setdefault(task_name, []).append(scores)
-        _record_metrics(runtime, task_name, round_num, scores, gen_dur + eval_dur, dims)
-
-        action = _decide_next(scores, round_num, history, dims)
-        _append_session_event(
-            "harness.decision",
-            {"task": task_name, "round": round_num, "action": action},
-        )
-        step_results.append(
-            {
-                "round": round_num,
-                "scores": scores,
-                "action": action,
-                "gen_duration_s": gen_dur,
-                "eval_duration_s": eval_dur,
-            }
-        )
+        action = await _run_harness_round(runtime, task_name, task_prompt, round_num, state)
         console.print(f"  {_H}  round {round_num} decision: {action}")
-
         if action == "accept":
             break
         if action == "pivot":
-            spec = await _run_planner_phase(runtime, task_name, task_prompt)
-        prev_eval_text = read_evaluation(runtime.cwd, task_name, round_num) or ""
+            state.spec = await _run_planner_phase(runtime, task_name, task_prompt)
+        state.prev_eval_text = read_evaluation(runtime.cwd, task_name, round_num) or ""
 
-    peak = _detect_quality_peak(history, dims)
-    _append_session_event(
-        "harness.complete",
-        {
-            "task": task_name,
-            "total_rounds": len(history),
-            "peak_round": peak,
-            "final_scores": history[-1] if history else {},
-        },
-    )
-    console.print(f"  {_H}  harness complete: {len(history)} rounds, peak at round {peak}")
-    return step_results
+    _emit_harness_complete(task_name, state)
+    return state.step_results
