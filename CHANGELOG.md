@@ -1,10 +1,13 @@
 # Changelog
 
-## 0.9.39
+## 0.9.40
 
 - **Feat**: Phase-based dependency dispatch — plans with phased dependencies (e.g., Phase 1 must complete before Phase 2 starts) now correctly dispatch dependent tasks automatically when their prerequisites finish
 - **Fix**: All subtasks registered upfront with PENDING status so monitoring loop correctly tracks the full task graph
 - **Fix**: `_all_tasks_done()` now checks for terminal states (DONE/ERROR) instead of just "not RUNNING", preventing false completion when PENDING deps exist
+
+## 0.9.39
+
 - **Fix**: `provider_usage` — guard against null usage field (not just missing key); use `or 0` so null token values don't propagate to `+=` arithmetic
 - **Fix**: `usage` — same `or 0` fix in `usage_from_result` when token values are null
 - **Fix**: `core` — replace `getattr(dict, ...)` with `dict.get()` — `getattr` on a dict looks up attributes, not keys, silently returning 0 even when data was present
