@@ -503,12 +503,18 @@ async def _auto_report_completion(
         return {"status": "error", "error": str(exc)}
 
 
+_TERMINAL = (TaskStatus.DONE, TaskStatus.ERROR, TaskStatus.PERMANENT_ERROR)
+
+
 def _all_tasks_done(runtime: Any) -> bool:
-    return all(st.status != TaskStatus.RUNNING for st in runtime.plan.subtasks)
+    return all(st.status in _TERMINAL for st in runtime.plan.subtasks)
 
 
 def _has_running_tasks(runtime: Any) -> bool:
-    return any(st.status == TaskStatus.RUNNING for st in runtime.plan.subtasks)
+    return any(
+        st.status == TaskStatus.RUNNING or st.status == TaskStatus.PENDING
+        for st in runtime.plan.subtasks
+    )
 
 
 async def _monitor_until_done(
@@ -539,6 +545,11 @@ async def _monitor_until_done(
         auto = _auto_done_for_exited_panes(runtime)
         if auto:
             results.append({"type": "auto-detect", "message": auto})
+            from openmax.lead_agent.tools._planning import dispatch_ready_dependents
+
+            dep_dispatched = await dispatch_ready_dependents(runtime)
+            if dep_dispatched:
+                results.append({"type": "dep-dispatch", "dispatched": dep_dispatched})
             if _all_tasks_done(runtime):
                 break
             continue
@@ -588,10 +599,14 @@ async def _handle_message(runtime: Any, msg: Any) -> dict[str, Any]:
     _append_session_event("mailbox.message_received", {"type": msg.type, "task": msg.task})
 
     merge_result = None
+    dep_dispatched: list[dict[str, Any]] = []
     if msg.type == "done":
         _apply_subtask_usage(msg.task, msg.raw)
         _try_append_employee_experience(runtime, msg.task)
         merge_result = await _auto_mark_and_merge(runtime, msg.task)
+        from openmax.lead_agent.tools._planning import dispatch_ready_dependents
+
+        dep_dispatched = await dispatch_ready_dependents(runtime)
 
     if msg.type == "progress" and runtime.dashboard is not None:
         pct = msg.raw.get("pct", 0)
@@ -607,6 +622,8 @@ async def _handle_message(runtime: Any, msg: Any) -> dict[str, Any]:
     entry: dict[str, Any] = {"type": msg.type, "task": msg.task, "message": msg.raw}
     if merge_result:
         entry["auto_merged"] = merge_result
+    if dep_dispatched:
+        entry["dep_dispatched"] = dep_dispatched
     return entry
 
 

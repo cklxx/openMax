@@ -37,6 +37,7 @@ class SubTask:
     role: str = "writer"
     employee: str | None = None
     estimated_cost_usd: float | None = None
+    dependencies: list[str] = field(default_factory=list)
 
 
 @dataclass

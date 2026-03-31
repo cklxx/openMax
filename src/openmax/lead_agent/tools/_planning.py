@@ -44,6 +44,57 @@ def _roots_from_plan(
     return [st for st in subtasks if st["name"] not in has_deps]
 
 
+def _register_all_subtasks(runtime: Any, subtasks_raw: list[dict[str, Any]]) -> None:
+    """Create PENDING SubTask entries for every planned subtask upfront."""
+    from openmax.lead_agent.tools._helpers import _upsert_subtask as _upsert
+    from openmax.lead_agent.types import SubTask
+
+    for st in subtasks_raw:
+        subtask = SubTask(
+            name=st["name"],
+            agent_type=st.get("agent_type", "claude-code"),
+            prompt=st.get("prompt") or st["description"],
+            status=TaskStatus.PENDING,
+            dependencies=list(st.get("dependencies", [])),
+        )
+        _upsert(subtask)
+
+
+async def dispatch_ready_dependents(runtime: Any) -> list[dict[str, Any]]:
+    """Find PENDING tasks whose deps are all DONE and dispatch them."""
+    from openmax.lead_agent.tools._dispatch import dispatch_agent
+
+    done_names = {st.name for st in runtime.plan.subtasks if st.status == TaskStatus.DONE}
+    ready = [
+        st
+        for st in runtime.plan.subtasks
+        if st.status == TaskStatus.PENDING
+        and st.dependencies
+        and all(dep in done_names for dep in st.dependencies)
+    ]
+    if not ready:
+        return []
+
+    goal = getattr(runtime.plan, "goal", "") if runtime.plan else ""
+    results: list[dict[str, Any]] = []
+    for st in ready:
+        prompt = _build_auto_prompt({"name": st.name, "description": st.prompt}, goal)
+        try:
+            result = await dispatch_agent.handler(
+                {"task_name": st.name, "prompt": prompt, "agent_type": st.agent_type}
+            )
+            content = result.get("content", [{}])
+            text = content[0].get("text", "")[:200] if content else ""
+            results.append({"task_name": st.name, "dispatched": True, "summary": text})
+            console.print(
+                f"  [bold cyan]{P}[/bold cyan]  dep-ready: dispatched [bold]{st.name}[/bold]"
+            )
+        except Exception as exc:
+            console.print(f"  [yellow]![/yellow]  Dep-dispatch {st.name} failed: {exc}")
+            results.append({"task_name": st.name, "dispatched": False, "error": str(exc)})
+    return results
+
+
 def _build_auto_prompt(subtask: dict[str, Any], goal: str) -> str:
     """Build a dispatch prompt from plan data without LLM generation.
 
@@ -369,6 +420,8 @@ async def submit_plan(args: dict[str, Any]) -> dict[str, Any]:
             "Quality workflow complete (write → review → challenge → rewrite). Session done."
         )
         return _tool_response(result_data)
+
+    _register_all_subtasks(runtime, subtasks_raw)
 
     dispatched = await _auto_dispatch_from_plan(runtime, subtasks_raw, parallel_groups)
     ok = [d for d in dispatched if d.get("dispatched")]
