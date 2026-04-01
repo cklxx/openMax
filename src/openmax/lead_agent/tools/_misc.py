@@ -14,6 +14,7 @@ from claude_agent_sdk import tool
 from openmax.lead_agent.tools._helpers import (
     _append_session_event,
     _apply_subtask_usage,
+    _cap_dict_strings,
     _pane_id_for_task,
     _read_subtask_report,
     _runtime,
@@ -401,7 +402,7 @@ async def read_file_tool(args: dict[str, Any]) -> dict[str, Any]:
 
     lines = text.splitlines()
     total = len(lines)
-    selected = lines[offset : offset + limit]
+    selected = [line[:1000] for line in lines[offset : offset + limit]]
     numbered = [f"{i + offset + 1:>5}  {line}" for i, line in enumerate(selected)]
     header = f"# {rel_path} ({total} lines total"
     if offset:
@@ -504,6 +505,7 @@ async def _auto_report_completion(
 
 
 _TERMINAL = (TaskStatus.DONE, TaskStatus.ERROR, TaskStatus.PERMANENT_ERROR)
+_MAX_MONITOR_RESULTS = 50
 
 
 def _all_tasks_done(runtime: Any) -> bool:
@@ -538,6 +540,8 @@ async def _monitor_until_done(
         if msg is not None:
             entry = await _handle_message(runtime, msg)
             results.append(entry)
+            if len(results) > _MAX_MONITOR_RESULTS:
+                results = results[-_MAX_MONITOR_RESULTS:]
             if _all_tasks_done(runtime):
                 break
             continue
@@ -619,7 +623,8 @@ async def _handle_message(runtime: Any, msg: Any) -> dict[str, Any]:
     detail = msg.raw.get("msg") or msg.raw.get("summary") or ""
     suffix = f": {detail[:60]}" if msg.type != "done" and detail else ""
     console.print(f"  [bold green]\u2709[/bold green]  [{msg.type}] {msg.task}{suffix}")
-    entry: dict[str, Any] = {"type": msg.type, "task": msg.task, "message": msg.raw}
+    capped_raw = _cap_dict_strings(msg.raw)
+    entry: dict[str, Any] = {"type": msg.type, "task": msg.task, "message": capped_raw}
     if merge_result:
         entry["auto_merged"] = merge_result
     if dep_dispatched:

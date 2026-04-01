@@ -60,6 +60,7 @@ _TRANSIENT_ERROR_PATTERNS = (
     "overloaded",
     "rate_limit",
     "internal_server_error",
+    "exceeded maximum buffer size",
 )
 
 
@@ -548,6 +549,7 @@ async def _run_lead_agent_async(
             cwd=cwd,
             permission_mode="bypassPermissions",
             env=_build_lead_env(),
+            max_buffer_size=8_388_608,
         )
         if model:
             options.model = model

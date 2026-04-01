@@ -118,9 +118,22 @@ def _record_phase_anchor(phase: str, summary: str, completion_pct: int | None = 
     _update_session_phase(normalized_phase)
 
 
-def _tool_response(data: Any) -> dict[str, Any]:
+_TOOL_RESPONSE_MAX_CHARS = 500_000
+
+
+def _tool_response(data: Any, max_chars: int = _TOOL_RESPONSE_MAX_CHARS) -> dict[str, Any]:
     text = json.dumps(data, ensure_ascii=False) if isinstance(data, (dict, list)) else str(data)
+    if len(text) > max_chars:
+        text = text[:max_chars] + "\n...[truncated]"
     return {"content": [{"type": "text", "text": text}]}
+
+
+def _cap_dict_strings(d: dict[str, Any], max_chars: int = 4000) -> dict[str, Any]:
+    """Shallow-copy a dict, capping large string values to prevent context bloat."""
+    return {
+        k: (v[:max_chars] + "...[capped]" if isinstance(v, str) and len(v) > max_chars else v)
+        for k, v in d.items()
+    }
 
 
 def _pane_id_for_task(task_name: str) -> int | None:
@@ -271,8 +284,15 @@ async def _wait_for_pane_ready(
     return False
 
 
-def _extract_smart_output(text: str, tail_lines: int = 100) -> str:
-    """Return tail of output, with error lines from earlier surfaced at top."""
+_SMART_OUTPUT_MAX_CHARS = 30_000
+
+
+def _extract_smart_output(
+    text: str,
+    tail_lines: int = 100,
+    max_chars: int = _SMART_OUTPUT_MAX_CHARS,
+) -> str:
+    """Return tail of output with error lines surfaced, capped by chars."""
     lines = text.splitlines()
     tail = lines[-tail_lines:]
     error_kw = ["Error", "error", "Traceback", "FAILED", "fatal", "exception", "❌"]
@@ -282,8 +302,10 @@ def _extract_smart_output(text: str, tail_lines: int = 100) -> str:
         if any(k in line for k in error_kw)
     ][-20:]
     if error_context:
-        return "\n".join(error_context) + "\n---\n" + "\n".join(tail)
-    return "\n".join(tail)
+        result = "\n".join(error_context) + "\n---\n" + "\n".join(tail)
+    else:
+        result = "\n".join(tail)
+    return result[:max_chars] if len(result) > max_chars else result
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\].*?\x07")
