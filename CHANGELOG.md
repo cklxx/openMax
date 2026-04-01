@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.41
+
+- **Fix**: Prevent JSON buffer overflow crash in lead agent SDK communication — 5-layer defense: increased SDK buffer to 8MB, added 500KB safety cap on tool responses, capped mailbox message strings to 4KB, limited monitor results to 50 entries, added 30KB char limit to `_extract_smart_output`, and added buffer overflow to transient retry patterns
+- **Fix**: `read_file_tool` — cap individual lines to 1000 chars to prevent minified-file blowup
+
 ## 0.9.40
 
 - **Feat**: Phase-based dependency dispatch — plans with phased dependencies (e.g., Phase 1 must complete before Phase 2 starts) now correctly dispatch dependent tasks automatically when their prerequisites finish
