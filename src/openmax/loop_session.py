@@ -117,3 +117,43 @@ def build_loop_context(session: LoopSession, current_iteration: int) -> str:
             lines.append(f"     Failed: {', '.join(it.tasks_failed[:5])}")
     lines += ["", "Pick the next unaddressed improvement that builds on what was done above."]
     return "\n".join(lines)
+
+
+def _format_iteration_history(iterations: list[LoopIteration]) -> list[str]:
+    recent = iterations[-_LOOP_CONTEXT_MAX_ITERATIONS:]
+    lines: list[str] = []
+    if len(iterations) > _LOOP_CONTEXT_MAX_ITERATIONS:
+        lines.append(
+            f"  (showing last {_LOOP_CONTEXT_MAX_ITERATIONS} of {len(iterations)} iterations)"
+        )
+    for it in recent:
+        ts = it.started_at[:16].replace("T", " ")
+        pct = f"{it.completion_pct}%" if it.completion_pct is not None else "?"
+        lines.append(f"  {it.iteration}. [{ts}] {it.outcome_summary}  ({pct})")
+        if it.tasks_done:
+            lines.append(f"     Done: {', '.join(it.tasks_done[:10])}")
+        if it.tasks_failed:
+            lines.append(f"     Failed: {', '.join(it.tasks_failed[:5])}")
+    return lines
+
+
+def build_interactive_context(
+    iteration: int,
+    prior_iterations: list[LoopIteration],
+    user_feedback: str,
+) -> str:
+    """Build context for interactive mode: prior results + user feedback."""
+    lines = [
+        f"## Interactive Session (Iteration {iteration})",
+        "",
+        "Prior iterations — DO NOT repeat completed work:",
+    ]
+    lines.extend(_format_iteration_history(prior_iterations))
+    lines += [
+        "",
+        "User feedback for this iteration:",
+        f"> {user_feedback}",
+        "",
+        "Address the user's feedback. Build on prior work, do not redo completed tasks.",
+    ]
+    return "\n".join(lines)

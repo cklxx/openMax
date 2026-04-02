@@ -1498,3 +1498,67 @@ def test_run_harness_flag_forwards_harness_mode(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert captured["harness_mode"] is True
+
+
+# ── interactive mode ─────────────────────────────────────────────────────────
+
+
+def test_run_interactive_flag_in_help():
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["run", "--help"])
+    assert result.exit_code == 0
+    assert "--interactive" in result.output or "-i" in result.output
+
+
+def test_run_interactive_single_iteration_quit(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+    monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
+
+    captured: list[dict] = []
+
+    def fake_run(**kwargs):
+        captured.append(kwargs)
+        return SimpleNamespace(subtasks=[])
+
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run)
+
+    # User immediately quits
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "q")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        ["run", "-i", "do something", "--cwd", str(tmp_path), "--no-confirm"],
+    )
+
+    assert result.exit_code == 0
+    assert len(captured) == 1
+
+
+def test_run_interactive_feedback_triggers_second_iteration(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+    monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
+
+    captured: list[dict] = []
+
+    def fake_run(**kwargs):
+        captured.append(kwargs)
+        return SimpleNamespace(subtasks=[])
+
+    monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run)
+
+    # First prompt: give feedback, second prompt: quit
+    inputs = iter(["change the output format", "q"])
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(inputs))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        ["run", "-i", "do something", "--cwd", str(tmp_path), "--no-confirm"],
+    )
+
+    assert result.exit_code == 0
+    assert len(captured) == 2
+    # Second iteration should have interactive context with user feedback
+    assert captured[1]["loop_context"] is not None
+    assert "change the output format" in captured[1]["loop_context"]

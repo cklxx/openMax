@@ -1,10 +1,11 @@
-"""Tests for loop session tape: LoopSessionStore and build_loop_context."""
+"""Tests for loop session tape: LoopSessionStore, build_loop_context, build_interactive_context."""
 
 from __future__ import annotations
 
 from openmax.loop_session import (
     LoopIteration,
     LoopSessionStore,
+    build_interactive_context,
     build_loop_context,
 )
 
@@ -176,3 +177,33 @@ def test_build_loop_context_caps_at_ten_iterations(tmp_path):
     assert "iteration 5 work" not in ctx
     # Truncation notice present
     assert "showing last 10 of 15 iterations" in ctx
+
+
+# ── build_interactive_context ────────────────────────────────────────────────
+
+
+def test_build_interactive_context_includes_user_feedback():
+    prior = [_iteration(1, done=["setup-db", "add-api"])]
+    ctx = build_interactive_context(2, prior, "change the API response format to JSON:API")
+
+    assert "Interactive Session (Iteration 2)" in ctx
+    assert "setup-db" in ctx
+    assert "change the API response format to JSON:API" in ctx
+    assert "DO NOT repeat completed work" in ctx
+
+
+def test_build_interactive_context_includes_failed_tasks():
+    prior = [_iteration(1, done=["ok"], failed=["broken"])]
+    ctx = build_interactive_context(2, prior, "fix the broken task")
+
+    assert "broken" in ctx
+    assert "Failed" in ctx
+
+
+def test_build_interactive_context_shows_multiple_iterations():
+    prior = [_iteration(1, done=["task-a"]), _iteration(2, done=["task-b"])]
+    ctx = build_interactive_context(3, prior, "now add tests")
+
+    assert "iteration 1 work" in ctx
+    assert "iteration 2 work" in ctx
+    assert "now add tests" in ctx

@@ -455,6 +455,13 @@ def main() -> None:
     type=click.IntRange(min=0),
     help="Max concurrent sub-agents (0=unlimited, default: 0). RPM 120 → use 3.",
 )
+@click.option(
+    "--interactive",
+    "-i",
+    is_flag=True,
+    default=False,
+    help="Interactive mode: review results and give feedback between iterations",
+)
 def run(
     tasks: tuple[str, ...],
     cwd: str | None,
@@ -471,6 +478,7 @@ def run(
     quality: bool,
     harness: bool,
     max_agents: int,
+    interactive: bool,
 ) -> None:
     """Decompose TASK(s) and dispatch sub-agents in terminal panes.
 
@@ -578,28 +586,43 @@ def run(
 
     try:
         effective_model = model or get_model()
-        try:
-            run_lead_agent(
+        if interactive:
+            _run_interactive(
                 task=task,
                 pane_mgr=pane_mgr,
                 cwd=cwd,
-                model=effective_model,
+                effective_model=effective_model,
                 max_turns=max_turns,
-                session_id=session_id,
-                resume=resume,
                 allowed_agents=allowed_agents,
                 agent_registry=agent_registry,
                 loop_context=loop_context,
-                plan_confirm=not no_confirm,
+                no_confirm=no_confirm,
                 verbose=verbose,
-                quality_mode=quality,
-                harness_mode=harness,
-                max_concurrent_agents=max_agents,
+                quality=quality,
+                harness=harness,
+                max_agents=max_agents,
             )
-        except LeadAgentStartupError as exc:
-            raise SystemExit(1) from exc
         else:
-            pass  # done banner already printed by dashboard
+            try:
+                run_lead_agent(
+                    task=task,
+                    pane_mgr=pane_mgr,
+                    cwd=cwd,
+                    model=effective_model,
+                    max_turns=max_turns,
+                    session_id=session_id,
+                    resume=resume,
+                    allowed_agents=allowed_agents,
+                    agent_registry=agent_registry,
+                    loop_context=loop_context,
+                    plan_confirm=not no_confirm,
+                    verbose=verbose,
+                    quality_mode=quality,
+                    harness_mode=harness,
+                    max_concurrent_agents=max_agents,
+                )
+            except LeadAgentStartupError as exc:
+                raise SystemExit(1) from exc
     finally:
         signal.signal(signal.SIGINT, previous_sigint)
         signal.signal(signal.SIGTERM, previous_sigterm)
@@ -608,6 +631,100 @@ def run(
             _do_cleanup()
         elif keep_panes:
             console.print("[dim]Keeping panes open (--keep-panes).[/dim]")
+
+
+def _run_interactive(
+    *,
+    task: str,
+    pane_mgr: PaneManager,
+    cwd: str,
+    effective_model: str,
+    max_turns: int,
+    allowed_agents: list[str] | None,
+    agent_registry,
+    loop_context: str | None,
+    no_confirm: bool,
+    verbose: bool,
+    quality: bool,
+    harness: bool,
+    max_agents: int,
+) -> None:
+    from openmax.lead_agent import LeadAgentStartupError, run_lead_agent
+    from openmax.loop_session import build_interactive_context
+
+    iteration = 0
+    prior: list[LoopIteration] = []
+    user_feedback: str = ""
+
+    while True:
+        iteration += 1
+        sid = _generate_session_id(f"interactive-{iteration}")
+        started_at = utc_now_iso()
+
+        ctx = loop_context or ""
+        if prior and user_feedback:
+            interactive_ctx = build_interactive_context(iteration, prior, user_feedback)
+            ctx = "\n\n".join(filter(None, [ctx, interactive_ctx]))
+
+        try:
+            plan = run_lead_agent(
+                task=task,
+                pane_mgr=pane_mgr,
+                cwd=cwd,
+                model=effective_model,
+                max_turns=max_turns,
+                session_id=sid,
+                allowed_agents=allowed_agents,
+                agent_registry=agent_registry,
+                loop_context=ctx or None,
+                plan_confirm=not no_confirm and iteration == 1,
+                verbose=verbose,
+                quality_mode=quality,
+                harness_mode=harness,
+                max_concurrent_agents=max_agents,
+            )
+        except LeadAgentStartupError:
+            console.print("[red]Iteration failed to start.[/red]")
+            plan = None
+
+        result = _make_loop_iteration(iteration, started_at, plan, session_id=sid)
+        prior.append(result)
+        _print_interactive_summary(result)
+
+        user_feedback = _prompt_interactive_feedback()
+        if user_feedback is None:
+            break
+
+
+def _print_interactive_summary(result) -> None:
+    from openmax.loop_session import LoopIteration
+
+    if not isinstance(result, LoopIteration):
+        return
+    done_n = len(result.tasks_done)
+    failed_n = len(result.tasks_failed)
+    total = done_n + failed_n
+    pct = f"{result.completion_pct}%" if result.completion_pct is not None else "?"
+    console.print()
+    console.print(f"[bold]── Iteration {result.iteration} complete ──[/bold]")
+    console.print(f"  Result: {done_n}/{total} subtasks done ({pct})")
+    if result.tasks_done:
+        console.print(f"  [green]Done:[/green] {', '.join(result.tasks_done[:10])}")
+    if result.tasks_failed:
+        console.print(f"  [red]Failed:[/red] {', '.join(result.tasks_failed[:5])}")
+    console.print()
+
+
+def _prompt_interactive_feedback() -> str | None:
+    """Prompt for feedback. Returns None to exit, str for next iteration."""
+    console.print("[dim]Enter feedback to continue, or press Enter / type q to exit.[/dim]")
+    try:
+        feedback = input("feedback> ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
+    if not feedback or feedback.lower() in ("q", "quit", "exit"):
+        return None
+    return feedback
 
 
 @main.command()
