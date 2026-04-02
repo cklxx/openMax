@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.42
+
+- **Feat**: Interactive mode (`-i` / `--interactive`) — human-in-the-loop feedback between iterations. After each run completes, review results and provide feedback to guide the next iteration. Type `q` or press Enter to exit.
+
 ## 0.9.41
 
 - **Fix**: Prevent JSON buffer overflow crash in lead agent SDK communication — 5-layer defense: increased SDK buffer to 8MB, added 500KB safety cap on tool responses, capped mailbox message strings to 4KB, limited monitor results to 50 entries, added 30KB char limit to `_extract_smart_output`, and added buffer overflow to transient retry patterns

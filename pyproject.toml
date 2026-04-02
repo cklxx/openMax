@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openmax"
-version = "0.9.41"
+version = "0.9.42"
 description = "Extreme parallel acceleration — one command dispatches multiple AI agents with domain-aware task decomposition"
 readme = "README.md"
 license = "MIT"
