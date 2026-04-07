@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.50
+
+- **Fix**: "Execute, don't just build" directive — lead agent now distinguishes between writing a tool and actually running it on data. Batch/data tasks must dispatch agents that execute on each data item, not just produce a script.
+- **Fix**: Pattern 3 (Parallel Cases) now includes two-phase guidance: build reusable tool first, then dispatch execution agents per data item.
+
 ## 0.9.49
 
 - **Feat**: Task decomposition prompt templates — improved `_DECOMPOSE_SYSTEM` with rules and examples for parallel vs sequential vs batch patterns
