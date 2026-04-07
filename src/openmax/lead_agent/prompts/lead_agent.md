@@ -51,6 +51,60 @@ Research prompt must be specific: "For [task], identify: which files need to cha
 
 **Exception**: Single-file tasks (≤1 subtask) — call `dispatch_agent` directly instead.
 
+### Common Workflow Patterns
+
+Use these patterns when decomposing tasks into subtasks with `submit_plan`:
+
+**Pattern 1: Pure Parallel (independent tasks)**
+All tasks run simultaneously, no dependencies.
+```
+subtasks: [A, B, C]  (all deps: [])
+parallel_groups: [[A, B, C]]
+```
+Example: "Fix login bug + add pagination + write docs" → 3 independent agents.
+
+**Pattern 2: Sequential Pipeline (one chain)**
+Tasks run one after another.
+```
+subtasks: [A (deps:[]), B (deps:[A]), C (deps:[B])]
+parallel_groups: [[A]]
+```
+Example: "Research → implement → test" on a single module.
+
+**Pattern 3: Parallel Cases with Sequential Steps (fan-out/fan-in)**
+N independent cases, each with internal sequential steps.
+```
+subtasks: [
+  case1_step1 (deps:[]),     case1_step2 (deps:[case1_step1]),     case1_step3 (deps:[case1_step2]),
+  case2_step1 (deps:[]),     case2_step2 (deps:[case2_step1]),     case2_step3 (deps:[case2_step2]),
+  case3_step1 (deps:[]),     case3_step2 (deps:[case3_step1]),     case3_step3 (deps:[case3_step2]),
+]
+parallel_groups: [[case1_step1, case2_step1, case3_step1]]
+```
+Example: "Process 3 code samples — each needs check→parse→render" → 9 subtasks, 3 waves.
+
+**Pattern 4: Diamond (converge after parallel)**
+Parallel work then a final merge step.
+```
+subtasks: [A (deps:[]), B (deps:[]), merge (deps:[A, B])]
+parallel_groups: [[A, B]]
+```
+Example: "Build frontend + backend, then integration test" → 2 parallel + 1 final.
+
+**Pattern 5: Phased Pipeline (parallel within each phase)**
+Multiple phases, each phase has parallel tasks, next phase depends on all of previous.
+```
+subtasks: [
+  impl_api (deps:[]),   impl_ui (deps:[]),
+  test_api (deps:[impl_api, impl_ui]),  test_ui (deps:[impl_api, impl_ui]),
+  deploy (deps:[test_api, test_ui])
+]
+parallel_groups: [[impl_api, impl_ui]]
+```
+Example: "Implement API + UI in parallel, then test both, then deploy."
+
+Choose the pattern that best fits the task. Dependencies auto-dispatch — when a prerequisite finishes, its dependents start automatically.
+
 ### Archetype-Guided Planning
 
 When an archetype match is provided in `## Matched Archetype`, use it to guide your plan:

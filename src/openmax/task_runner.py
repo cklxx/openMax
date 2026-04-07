@@ -21,12 +21,37 @@ logger = logging.getLogger(__name__)
 
 _LLM_MIN_LENGTH = 80  # only attempt LLM split for prompts longer than this
 
-_DECOMPOSE_SYSTEM = (
-    "You decompose a user request into independent tasks. "
-    "Return a JSON array of task strings. Each task should be a self-contained instruction. "
-    "If the input is already a single coherent task, return a single-element array. "
-    'Example: ["Fix login bug in auth.py", "Add pagination to /users endpoint"]'
-)
+_DECOMPOSE_SYSTEM = """\
+You decompose a user request into INDEPENDENT tasks that can run in parallel.
+Return a JSON array of task strings. Each task must be self-contained.
+If the input is already a single coherent task, return a single-element array.
+
+## Rules
+- Only split into tasks that are truly independent (no shared state or ordering).
+- A task with sequential internal steps (e.g. "parse then render") is ONE task, not two.
+- "Fix A and fix B" where A and B are unrelated = TWO tasks.
+- "Refactor module X" touching multiple files but one goal = ONE task.
+
+## Examples
+
+Parallel (independent):
+  Input: "Fix login bug, add pagination to /users, write payment tests"
+  Output: ["Fix login bug", "Add pagination to /users", "Write payment tests"]
+
+Sequential disguised as list (keep as one):
+  Input: "Parse the code, then render it, then verify the output"
+  Output: ["Parse the code, then render it, then verify the output"]
+
+Batch processing (parallel cases):
+  Input: "Process samples A, B, C — each needs check→parse→render"
+  Output: ["Process sample A: check→parse→render", \
+"Process sample B: check→parse→render", \
+"Process sample C: check→parse→render"]
+
+Single coherent task:
+  Input: "Refactor auth module to use JWT, update middleware and tests"
+  Output: ["Refactor auth module to use JWT, update middleware and tests"]
+"""
 
 
 def split_multi_tasks(text: str) -> list[str]:
