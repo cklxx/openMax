@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.46
+
+- **Fix**: Show full error tracebacks instead of truncated one-liners — `_safe_launch_pane`, auto-dispatch, auto-merge, auto-verify, task runner, and session abort now emit complete stack traces via `traceback.format_exc()`
+- **Fix**: Remove `[:100]` truncation on error display in batch summary; errors now print in full
+- **Fix**: Increase `extract_error_context` default limit from 2000 to 8000 chars
+- **Fix**: Remove `[:4000]` truncation on subtask report in `read_pane_output`
+
 ## 0.9.45
 
 - **Fix**: Tmux session recovery — `spawn_window` now re-creates the `openmax` session if it was externally killed (e.g., all agent panes exited), preventing "can't find session" errors during dispatch
