@@ -577,7 +577,7 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
                 response["rate_limited"] = True
             report = _read_subtask_report_for_pane(pane_id)
             if report:
-                response["report"] = report[:4000]
+                response["report"] = report
             response.update(retry_info)
             event_payload: dict[str, Any] = {
                 "pane_id": pane_id,

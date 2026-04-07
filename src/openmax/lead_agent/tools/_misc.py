@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import time
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -424,8 +425,9 @@ async def _auto_mark_and_merge(runtime: Any, task_name: str) -> dict[str, Any] |
         result = await merge_agent_branch.handler({"task_name": task_name})
         content = result.get("content", [{}])
         merge_text = content[0].get("text", "")[:200] if content else ""
-    except Exception as exc:
-        console.print(f"  [yellow]![/yellow]  Auto-merge {task_name} failed: {exc}")
+    except Exception:
+        tb = traceback.format_exc()
+        console.print(f"  [yellow]![/yellow]  Auto-merge {task_name} failed:\n{tb}")
         return None
     return await _build_pipeline_result(runtime, task_name, merge_text)
 
@@ -500,8 +502,8 @@ async def _auto_report_completion(
     try:
         await report_completion.handler({"completion_pct": pct, "notes": notes})
         return {"status": "reported", "pct": pct}
-    except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+    except Exception:
+        return {"status": "error", "error": traceback.format_exc()}
 
 
 _TERMINAL = (TaskStatus.DONE, TaskStatus.ERROR, TaskStatus.PERMANENT_ERROR)

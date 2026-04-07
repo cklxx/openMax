@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import time
+import traceback
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -481,12 +482,12 @@ def _safe_launch_pane(
             stream_json=stream_json,
         )
         return pane, None
-    except PaneBackendError as e:
-        return None, f"Pane backend error: {e}"
-    except RuntimeError as e:
-        return None, f"Pane launch failed: {e}"
-    except OSError as e:
-        return None, f"OS error during pane launch: {e}"
+    except PaneBackendError:
+        return None, f"Pane backend error:\n{traceback.format_exc()}"
+    except RuntimeError:
+        return None, f"Pane launch failed:\n{traceback.format_exc()}"
+    except OSError:
+        return None, f"OS error during pane launch:\n{traceback.format_exc()}"
 
 
 def _try_reuse_done_pane(

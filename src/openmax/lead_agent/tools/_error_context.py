@@ -54,7 +54,7 @@ def _merge_overlapping(blocks: list[tuple[int, int]]) -> list[tuple[int, int]]:
     return merged
 
 
-def extract_error_context(output: str, max_chars: int = 2000) -> str:
+def extract_error_context(output: str, max_chars: int = 8000) -> str:
     """Extract syntax-aware error context from agent output.
 
     Scans for error markers, extracts surrounding context, strips ANSI.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import subprocess
 import time
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -479,8 +480,8 @@ async def auto_verify_after_merge(runtime: Any) -> dict[str, Any] | None:
         results = await _run_checks_parallel(runtime, "lint", commands, timeout=120)
         overall = "pass" if all(r["status"] == "pass" for r in results) else "fail"
         return {"status": overall, "results": results}
-    except Exception as exc:
-        console.print(f"  [yellow]![/yellow]  Auto-verify failed: {exc}")
+    except Exception:
+        console.print(f"  [yellow]![/yellow]  Auto-verify failed:\n{traceback.format_exc()}")
         return None
 
 

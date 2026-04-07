@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 import time
+import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any
@@ -180,9 +181,9 @@ def _run_single_task(
         plan = _execute_task(idx, prompt, cwd, cfg, ui)
         result.status = "done"
         result.subtask_count = len(plan.subtasks)
-    except Exception as exc:
+    except Exception:
         result.status = "failed"
-        result.error = str(exc)
+        result.error = traceback.format_exc()
     result.duration_s = round(time.monotonic() - t0, 1)
     if cfg.on_progress:
         cfg.on_progress(idx, result.status, result.error or "")
@@ -258,7 +259,8 @@ def _print_summary(results: list[TaskResult]) -> None:
         icon = "[green]✓[/green]" if r.status == "done" else "[red]✗[/red]"
         console.print(f"    {icon} {r.task} ({r.duration_s:.0f}s)")
         if r.error:
-            console.print(f"      [red]{r.error[:100]}[/red]")
+            for line in r.error.rstrip().splitlines():
+                console.print(f"      [red]{line}[/red]")
 
 
 def _notify_completion(results: list[TaskResult]) -> None:

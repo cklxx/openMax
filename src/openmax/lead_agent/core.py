@@ -6,6 +6,7 @@ import concurrent.futures
 import os
 import subprocess
 import time
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -686,7 +687,10 @@ async def _run_lead_agent_async(
             if startup_failure is not None:
                 _append_session_event("session.startup_failed", startup_failure.event_payload())
             else:
-                _append_session_event("session.aborted", {"reason": str(exc)})
+                _append_session_event(
+                    "session.aborted",
+                    {"reason": str(exc), "traceback": traceback.format_exc()},
+                )
         if startup_failure is not None:
             raise startup_failure from exc
         raise

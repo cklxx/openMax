@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import traceback
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -89,9 +90,10 @@ async def dispatch_ready_dependents(runtime: Any) -> list[dict[str, Any]]:
             console.print(
                 f"  [bold cyan]{P}[/bold cyan]  dep-ready: dispatched [bold]{st.name}[/bold]"
             )
-        except Exception as exc:
-            console.print(f"  [yellow]![/yellow]  Dep-dispatch {st.name} failed: {exc}")
-            results.append({"task_name": st.name, "dispatched": False, "error": str(exc)})
+        except Exception:
+            tb = traceback.format_exc()
+            console.print(f"  [yellow]![/yellow]  Dep-dispatch {st.name} failed:\n{tb}")
+            results.append({"task_name": st.name, "dispatched": False, "error": tb})
     return results
 
 
@@ -138,9 +140,10 @@ async def _auto_dispatch_from_plan(
             content = result.get("content", [{}])
             text = content[0].get("text", "")[:200] if content else ""
             results[idx] = {"task_name": st["name"], "dispatched": True, "summary": text}
-        except Exception as exc:
-            console.print(f"  [yellow]![/yellow]  Auto-dispatch {st['name']} failed: {exc}")
-            results[idx] = {"task_name": st["name"], "dispatched": False, "error": str(exc)}
+        except Exception:
+            tb = traceback.format_exc()
+            console.print(f"  [yellow]![/yellow]  Auto-dispatch {st['name']} failed:\n{tb}")
+            results[idx] = {"task_name": st["name"], "dispatched": False, "error": tb}
 
     async with anyio.create_task_group() as tg:
         for i, st in enumerate(roots):
