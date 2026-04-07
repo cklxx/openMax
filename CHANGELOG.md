@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.45
+
+- **Fix**: Tmux session recovery — `spawn_window` now re-creates the `openmax` session if it was externally killed (e.g., all agent panes exited), preventing "can't find session" errors during dispatch
+
 ## 0.9.44
 
 - **Improve**: Upgrade multi-task decomposition model from Haiku to Sonnet 4.6 for better recognition accuracy
