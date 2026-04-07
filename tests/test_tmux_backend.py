@@ -386,6 +386,23 @@ def test_spawned_pane_does_not_inherit_claudecode_env(tmux_backend: TmuxPaneBack
     assert "CLAUDECODE=CLEAN" in text
 
 
+# ── session recovery ───────────────────────────────────────────────
+
+
+def test_spawn_window_recreates_dead_session(tmux_backend: TmuxPaneBackend):
+    """spawn_window re-creates the target session if it was externally killed."""
+    if not tmux_backend._target_session:
+        pytest.skip("test requires a named target session")
+
+    # Kill the session externally
+    tmux_backend._run_tmux(["kill-session", "-t", tmux_backend._target_session], check=False)
+    time.sleep(0.2)
+
+    # spawn_window should recover and succeed
+    pane_id = tmux_backend.spawn_window(_quick_print_cmd("recovered"))
+    _wait_until(lambda: "recovered" in tmux_backend.get_text(pane_id))
+
+
 # ── Full lifecycle: spawn → split → send → read → kill ──────────────
 
 

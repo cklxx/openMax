@@ -983,6 +983,8 @@ class TmuxPaneBackend:
         cwd: str | None = None,
         env: dict[str, str] | None = None,
     ) -> int:
+        if self._target_session:
+            self._ensure_session()
         args = ["new-window", "-P", "-F", "#{pane_id}"]
         if self._target_session:
             args.extend(["-t", f"{self._target_session}:"])
