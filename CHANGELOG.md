@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.44
+
+- **Improve**: Upgrade multi-task decomposition model from Haiku to Sonnet 4.6 for better recognition accuracy
+
 ## 0.9.43
 
 - **Refactor**: Remove fixed-format multi-task recognition (numbered lists, `---` separators, `##` headings) — only LLM-based decomposition remains, preventing false positives when user prompts contain those patterns but aren't actually independent tasks
