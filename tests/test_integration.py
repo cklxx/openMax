@@ -1,6 +1,6 @@
 """Integration tests hitting real APIs and real backends.
 
-Run with: OPENMAX_E2E=1 pytest tests/test_integration.py -v -s --timeout=600
+Run with: OPENMAX_E2E=1 pytest tests/test_integration.py -v -s --timeout=900
 
 Covers:
 - File-based task prompt (@file) → real lead agent
@@ -275,6 +275,7 @@ def test_headless_concurrent_panes():
 # ── Parallel cases with sequential internal workflow ─────────────────────────
 
 
+@pytest.mark.timeout(900)
 def test_parallel_cases_with_sequential_steps(tmp_path):
     """Verify openMax decomposes 'N parallel cases, each with sequential steps' correctly.
 
