@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.47
+
+- **Fix**: End-to-end error handling remediation — add logging to all ~30 silent `except: pass/return` handlers across 14 files (mailbox, CLI, dispatch, verify, planning, quality workflow, scheduler, MCP server, provider usage, stream parser, WebSocket hub). No error is silently swallowed anymore.
+
 ## 0.9.46
 
 - **Fix**: Show full error tracebacks instead of truncated one-liners — `_safe_launch_pane`, auto-dispatch, auto-merge, auto-verify, task runner, and session abort now emit complete stack traces via `traceback.format_exc()`
