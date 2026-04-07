@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.51
+
+- **Fix**: Bump `claude-agent-sdk` minimum to `>=0.1.56` — fixes `context_management: Extra inputs are not permitted` API error caused by SDK/API version mismatch
+
 ## 0.9.50
 
 - **Fix**: "Execute, don't just build" directive — lead agent now distinguishes between writing a tool and actually running it on data. Batch/data tasks must dispatch agents that execute on each data item, not just produce a script.
