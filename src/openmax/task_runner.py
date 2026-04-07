@@ -165,7 +165,7 @@ def _execute_task(idx: int, prompt: str, cwd: str, cfg: MultiTaskConfig, ui: UIC
         try:
             pane_mgr.cleanup_all()
         except Exception:
-            pass
+            logger.debug("Pane cleanup failed", exc_info=True)
     return plan
 
 
@@ -222,12 +222,12 @@ def _run_concurrent(cfg: MultiTaskConfig, ui: UICoordinator) -> list[TaskResult]
             idx = futures[future]
             try:
                 results[idx] = future.result()
-            except Exception as exc:
+            except Exception:
                 results[idx] = TaskResult(
                     task=cfg.tasks[idx][0][:80],
                     cwd=cfg.tasks[idx][1],
                     status="failed",
-                    error=str(exc),
+                    error=traceback.format_exc(),
                 )
     return [r for r in results if r is not None]
 

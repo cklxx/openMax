@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 import traceback
@@ -19,6 +20,8 @@ from openmax.pane_backend import PaneBackendError
 from openmax.pane_manager import PaneManager
 from openmax.session_runtime import anchor_payload
 from openmax.task_file import read_report, read_shared_context, report_path
+
+logger = logging.getLogger(__name__)
 
 _VALID_PHASE_TRANSITIONS: dict[str, set[str]] = {
     "research": {"plan"},
@@ -600,6 +603,7 @@ def _save_pane_log(runtime: LeadAgentRuntime, st: SubTask) -> Path | None:
     try:
         text = runtime.pane_mgr.get_text(st.pane_id)
     except Exception:
+        logger.debug("Failed to read pane for log save", exc_info=True)
         return None
     if not text or len(text.strip()) < 20:
         return None

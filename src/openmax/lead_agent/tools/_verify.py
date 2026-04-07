@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import subprocess
 import time
@@ -34,6 +35,8 @@ from openmax.project_tools import ProjectTooling, detect_all_tooling
 from openmax.stats import load_stats, save_stats, update_stats
 from openmax.test_parsing import parse_test_output
 
+logger = logging.getLogger(__name__)
+
 _VERIFY_POLL_INITIAL = 0.2
 _VERIFY_POLL_BACKOFF = 1.2
 _VERIFY_POLL_MAX = 1.0
@@ -44,6 +47,7 @@ def _poll_exit_marker(runtime: Any, pane_id: int, prev_text: str) -> tuple[int |
     try:
         text = runtime.pane_mgr.get_text(pane_id)
     except Exception:
+        logger.debug("Pane %d poll failed", pane_id, exc_info=True)
         text = prev_text
     match = re.search(r"__OPENMAX_EXIT_(\d+)__", text)
     if match:
@@ -161,7 +165,7 @@ def _update_merge_stats(cwd: str, conflict_files: list[str], had_conflict: bool)
         updated = update_stats(stats, {"merge_conflict_rate_by_dir": dirs_rates})
         save_stats(updated, cwd)
     except Exception:
-        pass
+        logger.debug("Merge stats persistence failed", exc_info=True)
 
 
 def _merge_branch_result(
@@ -467,7 +471,7 @@ def cleanup_deferred_branches(runtime: Any) -> None:
         try:
             _cleanup_agent_branch(runtime.cwd, branch)
         except Exception:
-            pass
+            logger.debug("Branch cleanup failed for %s", branch, exc_info=True)
     runtime._deferred_branches = []
 
 

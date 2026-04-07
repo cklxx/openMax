@@ -33,6 +33,7 @@ class WSHub:
             try:
                 await ws.send_text(msg)
             except Exception:
+                logger.debug("WebSocket send failed, marking dead", exc_info=True)
                 dead.append(ws)
         for ws in dead:
             self._connections.discard(ws)

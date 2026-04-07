@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -30,6 +33,7 @@ def parse_stream_line(line: str) -> StreamEvent | None:
     try:
         data = json.loads(line)
     except json.JSONDecodeError:
+        logger.debug("Malformed stream JSON line: %.100s", line)
         return None
     event_type = data.get("type", "")
     if event_type == "system":

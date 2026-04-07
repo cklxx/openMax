@@ -5,6 +5,7 @@ Also implements the harness workflow: planner → generator ↔ evaluator loop.
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from dataclasses import dataclass, field
@@ -13,6 +14,8 @@ from typing import Any
 
 from openmax.lead_agent.types import TaskStatus
 from openmax.output import console
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -123,6 +126,7 @@ def _run_ast_check(cwd: str) -> tuple[list[Any], str]:
         )
         files = [str(Path(cwd) / f.strip()) for f in result.stdout.strip().split("\n") if f.strip()]
     except Exception:
+        logger.warning("git diff for AST style check failed", exc_info=True)
         files = []
     if not files:
         return [], ""
@@ -186,7 +190,7 @@ async def run_quality_workflow(
                 if step.commits:
                     await merge_agent_branch.handler({"task_name": r["task"]})
             except Exception:
-                pass
+                logger.warning("Auto mark/merge for %s failed", r.get("task", "?"), exc_info=True)
 
         # Post-step hooks
         if step.step_type == "write":

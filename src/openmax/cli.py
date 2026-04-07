@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import atexit
 import json
+import logging
 import os
 import shutil
 import signal
@@ -46,6 +47,8 @@ try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10
     import tomli as tomllib
+
+logger = logging.getLogger(__name__)
 
 _ANCHOR_PREVIEW_LIMIT = 5
 
@@ -325,6 +328,7 @@ def _is_session_stale(updated_at: str) -> bool:
         delta = datetime.now(timezone.utc) - ago_dt
         return delta.total_seconds() > _SESSION_STALE_MINUTES * 60
     except Exception:
+        logger.debug("Session stale check failed", exc_info=True)
         return True
 
 
@@ -349,6 +353,7 @@ def _detect_resumable_session(task: str, cwd: str) -> tuple[str | None, bool]:
             return existing.session_id, True
         return None, False
     except Exception:
+        logger.debug("Resumable session detection failed", exc_info=True)
         return None, False
 
 
@@ -1006,6 +1011,7 @@ def _snapshot_panes(pane_mgr: PaneManager, panes_list: list) -> dict[int, str]:
             tail = "\n".join(text.splitlines()[-_PANE_SNAPSHOT_LINES:])
             out[p.pane_id] = tail[-_PANE_SNAPSHOT_CHARS:]
         except Exception:
+            logger.debug("Pane %d snapshot failed", p.pane_id, exc_info=True)
             out[p.pane_id] = "(unreadable)"
     return out
 
@@ -1018,6 +1024,7 @@ def _attach_existing_panes(pane_mgr: PaneManager) -> str | None:
         else:
             existing = PaneManager.list_all_panes()
     except Exception:
+        logger.debug("Attach existing panes failed", exc_info=True)
         return None
     if not existing:
         return None

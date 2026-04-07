@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from claude_agent_sdk import tool
@@ -12,6 +13,8 @@ from openmax.lead_agent.tools._helpers import (
     _tool_response,
 )
 from openmax.stats import SessionStats
+
+logger = logging.getLogger(__name__)
 
 _ANOMALY_FLOOR = 1.5
 _ANOMALY_CEILING = 10.0
@@ -53,6 +56,7 @@ def _aggregate_session_tokens() -> tuple[int, int]:
         actual = sum(st.tokens_used for st in rt.plan.subtasks)
         return estimated, actual
     except Exception:
+        logger.debug("Token aggregation failed", exc_info=True)
         return 0, 0
 
 
@@ -67,7 +71,7 @@ def _persist_session_stats() -> None:
             rt.session_stats = update_stats(rt.session_stats, rt.token_usage)
             save_stats(rt.session_stats, rt.cwd)
     except Exception:
-        pass
+        logger.debug("Session stats persistence failed", exc_info=True)
 
 
 @tool(

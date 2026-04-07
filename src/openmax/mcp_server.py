@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import time
+import traceback
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -71,7 +72,7 @@ def _send_tool_payload(
         if soft_fail:
             log.warning("report_progress delivery failed: %s", exc)
             return {"ok": True, "warning": f"delivery failed: {exc}"}
-        return _error_result(str(exc))
+        return _error_result(traceback.format_exc())
 
     return {"ok": True, "session_id": session_id, "payload": payload}
 

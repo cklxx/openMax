@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import queue
 import socket
 import threading
@@ -11,6 +12,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _SOCKET_DIR = Path("/tmp")
 _MAX_MSG_BYTES = 64_000
@@ -91,7 +94,8 @@ class SessionMailbox:
             except TimeoutError:
                 continue  # poll _stop and retry
             except OSError:
-                break  # socket closed or fatal error
+                logger.warning("Mailbox server socket error, shutting down", exc_info=True)
+                break
             threading.Thread(target=self._handle, args=(conn,), daemon=True).start()
 
     def _handle(self, conn: socket.socket) -> None:
@@ -104,7 +108,7 @@ class SessionMailbox:
                     break
                 buf += chunk
         except OSError:
-            pass
+            logger.debug("Mailbox connection recv failed", exc_info=True)
         finally:
             conn.close()
         if not buf:
@@ -112,6 +116,7 @@ class SessionMailbox:
         try:
             raw = json.loads(buf.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError):
+            logger.warning("Malformed mailbox message discarded (len=%d)", len(buf))
             return
         if not isinstance(raw, dict) or "type" not in raw:
             return
@@ -129,4 +134,4 @@ class SessionMailbox:
             try:
                 self._on_message(msg)
             except Exception:
-                pass
+                logger.exception("Mailbox on_message handler raised")

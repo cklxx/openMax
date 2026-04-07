@@ -838,5 +838,5 @@ class TestProbeAll:
 
         results = probe_all()
         assert len(results) == 2
-        assert results[0].error == "boom"
+        assert "RuntimeError: boom" in results[0].error
         assert results[1].provider == "codex"

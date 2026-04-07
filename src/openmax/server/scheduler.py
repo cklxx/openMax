@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -115,7 +116,7 @@ class Scheduler:
         except Exception as exc:
             logger.error("Task %s failed: %s", task.id, exc)
             task.status = QueueStatus.ERROR
-            task.error = str(exc)
+            task.error = traceback.format_exc()
             task.finished_at = utc_now_iso()
             await self._log_activity(task, "system", f"Error: {exc}", "error")
         finally:

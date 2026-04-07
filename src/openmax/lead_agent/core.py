@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import logging
 import os
 import subprocess
 import time
@@ -49,6 +50,8 @@ from openmax.session_runtime import (
 )
 from openmax.stats import load_stats
 from openmax.usage import SessionUsage, UsageStore, usage_from_result
+
+logger = logging.getLogger(__name__)
 
 _PROMPT_DIR = Path(__file__).parent / "prompts"
 _MAX_TRANSIENT_RETRIES = 5
@@ -238,6 +241,7 @@ def _gather_project_snapshot(cwd: str, *, minimal: bool = False) -> str:
         result = "\n".join(sections)
         return result[:_SNAPSHOT_CHAR_CAP] if result else ""
     except Exception:
+        logger.debug("Project snapshot failed", exc_info=True)
         return ""
 
 
@@ -267,6 +271,7 @@ def _match_archetype(task: str, cwd: str) -> tuple[str | None, object]:
         section = format_archetype_context(match, task)
         return (section if section else None), match
     except Exception:
+        logger.debug("Archetype matching failed", exc_info=True)
         return None, None
 
 

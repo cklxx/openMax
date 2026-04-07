@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import glob as glob_mod
 import json
+import logging
 import sqlite3
 import time
+import traceback
 import urllib.request  # noqa: F401 (used in function bodies)
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # ── Data classes ───────────────────────────────────────────────────
 
@@ -115,9 +119,9 @@ def probe_all() -> list[ProviderStatus]:
     for probe in probes:
         try:
             results.append(probe())
-        except Exception as exc:
+        except Exception:
             name = probe.__name__.replace("_probe_", "")
-            results.append(ProviderStatus(provider=name, error=str(exc)))
+            results.append(ProviderStatus(provider=name, error=traceback.format_exc()))
     return results
 
 
@@ -177,7 +181,7 @@ def _probe_claude_code() -> ProviderStatus:
         if result.returncode == 0:
             status.version = result.stdout.strip().split("\n")[0]
     except Exception:
-        pass
+        logger.debug("Claude version check failed", exc_info=True)
 
     # ── 5-hour local JSONL scan ────────────────────────
     status.window_usage = _claude_window_usage(5)
@@ -279,6 +283,7 @@ def _claude_fetch_quota() -> QuotaInfo:
         resp = urllib.request.urlopen(req, timeout=10)
         data = json.loads(resp.read())
     except Exception as exc:
+        logger.debug("Claude quota API failed: %s", exc, exc_info=True)
         quota.error = str(exc)
         return quota
 
@@ -325,7 +330,7 @@ def _claude_read_oauth() -> dict | None:
             cred = json.loads(r.stdout.strip())
             return cred.get("claudeAiOauth")
     except Exception:
-        pass
+        logger.debug("Keychain read failed", exc_info=True)
 
     # Fallback to credentials file
     cred_path = Path.home() / ".claude" / ".credentials.json"
@@ -362,6 +367,7 @@ def _claude_refresh_token(refresh_token: str) -> dict | None:
         resp = urllib.request.urlopen(req, timeout=10)
         return json.loads(resp.read())
     except Exception:
+        logger.debug("Token refresh failed", exc_info=True)
         return None
 
 
@@ -424,7 +430,7 @@ def _claude_write_oauth(oauth: dict) -> None:
         )
         return
     except Exception:
-        pass
+        logger.debug("OAuth keychain write failed", exc_info=True)
 
     # Fallback: write credentials file
     cred_path = Path.home() / ".claude" / ".credentials.json"
@@ -618,6 +624,7 @@ def _codex_fetch_quota(codex_dir: Path) -> QuotaInfo:
         resp = urllib.request.urlopen(req, timeout=10)
         data = json.loads(resp.read())
     except Exception as exc:
+        logger.debug("Codex quota API failed: %s", exc, exc_info=True)
         quota.error = str(exc)
         return quota
 

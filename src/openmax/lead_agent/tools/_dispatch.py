@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import time
 from typing import Any
 
@@ -40,6 +41,8 @@ from openmax.lead_agent.types import SubTask, TaskStatus
 from openmax.output import P, console
 from openmax.stats import SessionStats, clamp
 from openmax.task_file import inject_claude_md, report_path, write_brief
+
+logger = logging.getLogger(__name__)
 
 _STUCK_BASE_THRESHOLD = 3
 _MAX_RETRIES = 2
@@ -147,6 +150,7 @@ def _get_previous_pane_output(runtime: Any, task_name: str) -> str:
             try:
                 return runtime.pane_mgr.get_text(st.pane_id)
             except Exception:
+                logger.debug("Failed to read pane for %s", task_name, exc_info=True)
                 return ""
     return ""
 
@@ -269,6 +273,7 @@ def _get_archetype_hints(runtime: Any, task_name: str) -> str:
         arch = getattr(runtime, "matched_archetype", None)
         return format_subtask_hints(arch) if arch else ""
     except Exception:
+        logger.debug("Archetype hints failed", exc_info=True)
         return ""
 
 
@@ -557,6 +562,7 @@ async def read_pane_output(args: dict[str, Any]) -> dict[str, Any]:
         try:
             text = runtime.pane_mgr.get_text(pane_id)
         except Exception:
+            logger.debug("Pane %d text read failed", pane_id, exc_info=True)
             text = ""
 
         if not pane_alive:
