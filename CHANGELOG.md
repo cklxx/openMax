@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.48
+
+- **Test**: Real-API integration tests — 11 E2E tests covering file input, LLM task decomposition, multi-agent headless dispatch, tmux backend (spawn/split/send/recovery), and error propagation. Run with `OPENMAX_E2E=1`.
+- **Fix**: `plan_confirm=False` for non-interactive test runs; relaxed LLM decomposition assertions for non-determinism
+
 ## 0.9.47
 
 - **Fix**: End-to-end error handling remediation — add logging to all ~30 silent `except: pass/return` handlers across 14 files (mailbox, CLI, dispatch, verify, planning, quality workflow, scheduler, MCP server, provider usage, stream parser, WebSocket hub). No error is silently swallowed anymore.
