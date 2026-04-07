@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.43
+
+- **Refactor**: Remove fixed-format multi-task recognition (numbered lists, `---` separators, `##` headings) — only LLM-based decomposition remains, preventing false positives when user prompts contain those patterns but aren't actually independent tasks
+
 ## 0.9.42
 
 - **Feat**: Interactive mode (`-i` / `--interactive`) — human-in-the-loop feedback between iterations. After each run completes, review results and provide feedback to guide the next iteration. Type `q` or press Enter to exit.
