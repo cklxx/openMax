@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.49
+
+- **Feat**: Task decomposition prompt templates — improved `_DECOMPOSE_SYSTEM` with rules and examples for parallel vs sequential vs batch patterns
+- **Feat**: Lead agent workflow pattern library — 5 common patterns added to `lead_agent.md`: Pure Parallel, Sequential Pipeline, Parallel Cases with Sequential Steps, Diamond, and Phased Pipeline
+- **Test**: Parallel-cases-with-sequential-steps E2E test (3 cases × 3 steps = 9 subtasks, 3-wave dependency chain)
+
 ## 0.9.48
 
 - **Test**: Real-API integration tests — 11 E2E tests covering file input, LLM task decomposition, multi-agent headless dispatch, tmux backend (spawn/split/send/recovery), and error propagation. Run with `OPENMAX_E2E=1`.
