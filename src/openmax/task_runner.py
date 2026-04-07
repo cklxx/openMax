@@ -42,7 +42,7 @@ def _split_via_llm(text: str) -> list[str]:
     prompt = f"{_DECOMPOSE_SYSTEM}\n\nUser request:\n{text}"
     try:
         proc = subprocess.run(
-            ["claude", "-p", prompt, "--model", "claude-haiku-4-5-20251001"],
+            ["claude", "-p", prompt, "--model", "claude-sonnet-4-6"],
             capture_output=True,
             text=True,
             timeout=30,
