@@ -334,6 +334,57 @@ def test_parallel_cases_with_sequential_steps(tmp_path):
     assert done >= 1, f"Expected ≥1 done subtask; got: {statuses}"
 
 
+# ── Execute don't just build ──────────────────────────────────────────────────
+
+
+def test_execute_on_data_not_just_build_script(tmp_path):
+    """Lead agent must execute pipeline on each data item, not just write a script.
+
+    We create 3 data files and ask the agent to "process each one".
+    The agent should dispatch sub-agents that actually touch each file,
+    not just write a generic pipeline script and stop.
+    """
+    # Create data files for the agent to process
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    for i in range(3):
+        (data_dir / f"sample_{i}.txt").write_text(f"raw data for sample {i}")
+
+    marker = str(tmp_path / "done.marker")
+    pane_mgr = PaneManager(backend=HeadlessPaneBackend())
+
+    task = (
+        f"Process each data file in {data_dir}/ individually using task-agent.\n"
+        f"There are 3 files: sample_0.txt, sample_1.txt, sample_2.txt.\n"
+        "For each file: read it, validate it, and write a result.\n\n"
+        "IMPORTANT: Dispatch a separate sub-agent for each file. "
+        "Do NOT just write a script — actually process each file via sub-agents."
+    )
+
+    result = run_lead_agent(
+        task=task,
+        pane_mgr=pane_mgr,
+        cwd=str(tmp_path),
+        allowed_agents=["task-agent"],
+        agent_registry=_make_registry(marker),
+        max_turns=25,
+        plan_confirm=False,
+    )
+
+    # Must have dispatched at least 3 subtasks (one per data file)
+    assert len(result.subtasks) >= 3, (
+        f"Expected ≥3 subtasks (one per data file); got {len(result.subtasks)}: "
+        f"{[st.name for st in result.subtasks]}"
+    )
+
+    # At least 1 must have completed
+    done = sum(1 for t in result.subtasks if t.status.value == "done")
+    assert done >= 1, (
+        f"Expected ≥1 done subtask; got: "
+        f"{[f'{st.name}:{st.status.value}' for st in result.subtasks]}"
+    )
+
+
 # ── Error propagation ────────────────────────────────────────────────────────
 
 
