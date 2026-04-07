@@ -18,9 +18,6 @@ from openmax.ui_coordinator import UICoordinator
 
 logger = logging.getLogger(__name__)
 
-_NUMBERED_RE = re.compile(r"^\s*\d+[\.\)]\s+", re.MULTILINE)
-_SEPARATOR_RE = re.compile(r"^---+\s*$", re.MULTILINE)
-_HEADING_RE = re.compile(r"^##\s+", re.MULTILINE)
 _LLM_MIN_LENGTH = 80  # only attempt LLM split for prompts longer than this
 
 _DECOMPOSE_SYSTEM = (
@@ -32,51 +29,12 @@ _DECOMPOSE_SYSTEM = (
 
 
 def split_multi_tasks(text: str) -> list[str]:
-    """Extract independent tasks from a multi-task prompt via structural patterns or LLM."""
-    tasks = _split_by_numbered_list(text)
-    if len(tasks) > 1:
-        return tasks
-    tasks = _split_by_separator(text)
-    if len(tasks) > 1:
-        return tasks
-    tasks = _split_by_headings(text)
-    if len(tasks) > 1:
-        return tasks
+    """Extract independent tasks from a multi-task prompt via LLM decomposition."""
     if len(text) > _LLM_MIN_LENGTH:
         tasks = _split_via_llm(text)
         if len(tasks) > 1:
             return tasks
     return [text.strip()]
-
-
-def _split_by_numbered_list(text: str) -> list[str]:
-    """Split '1. foo\\n2. bar' into ['foo', 'bar']."""
-    matches = list(_NUMBERED_RE.finditer(text))
-    if len(matches) < 2:
-        return []
-    parts: list[str] = []
-    for i, m in enumerate(matches):
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        parts.append(text[m.end() : end].strip())
-    return [p for p in parts if p]
-
-
-def _split_by_separator(text: str) -> list[str]:
-    """Split on '---' lines."""
-    parts = _SEPARATOR_RE.split(text)
-    return [p.strip() for p in parts if p.strip()]
-
-
-def _split_by_headings(text: str) -> list[str]:
-    """Split on '## ' markdown headings, keeping heading text as task title."""
-    matches = list(_HEADING_RE.finditer(text))
-    if len(matches) < 2:
-        return []
-    parts: list[str] = []
-    for i, m in enumerate(matches):
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        parts.append(text[m.end() : end].strip())
-    return [p for p in parts if p]
 
 
 def _split_via_llm(text: str) -> list[str]:

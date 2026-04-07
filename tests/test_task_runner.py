@@ -108,45 +108,43 @@ def test_multi_task_config_defaults():
 # --- split_multi_tasks ---
 
 
-def test_split_numbered_list():
-    text = "1. Fix login bug\n2. Add pagination\n3. Write tests"
-    result = split_multi_tasks(text)
-    assert len(result) == 3
-    assert result[0] == "Fix login bug"
-    assert result[1] == "Add pagination"
-    assert result[2] == "Write tests"
-
-
-def test_split_numbered_with_parens():
-    text = "1) Fix login bug\n2) Add pagination"
-    result = split_multi_tasks(text)
-    assert len(result) == 2
-
-
-def test_split_separator():
-    text = "Fix login bug\n---\nAdd pagination\n---\nWrite tests"
-    result = split_multi_tasks(text)
-    assert len(result) == 3
-    assert result[0] == "Fix login bug"
-
-
-def test_split_headings():
-    text = "## Fix login bug\ndetails here\n## Add pagination\nmore details"
-    result = split_multi_tasks(text)
-    assert len(result) == 2
-    assert "Fix login bug" in result[0]
-
-
 def test_split_single_task_returns_original():
     text = "Just one task to do"
     result = split_multi_tasks(text)
     assert result == ["Just one task to do"]
 
 
-def test_split_empty_lines_filtered():
-    text = "1. Task one\n2.   \n3. Task three"
-    result = split_multi_tasks(text)
-    assert all(t.strip() for t in result)
+def test_split_short_text_skips_llm():
+    """Short text below LLM_MIN_LENGTH returns as-is without LLM call."""
+    result = split_multi_tasks("short task")
+    assert result == ["short task"]
+
+
+def test_split_delegates_to_llm(monkeypatch):
+    """Long text delegates to LLM for decomposition."""
+    fake_proc = MagicMock(
+        returncode=0,
+        stdout='["Fix login bug", "Add pagination"]',
+    )
+    monkeypatch.setattr("openmax.task_runner.subprocess.run", lambda *a, **kw: fake_proc)
+
+    long_text = "Fix the login bug in auth module and also add pagination to users endpoint " * 2
+    result = split_multi_tasks(long_text)
+    assert len(result) == 2
+    assert result[0] == "Fix login bug"
+
+
+def test_split_llm_single_task_returns_original(monkeypatch):
+    """LLM returning single-element array means input stays as-is."""
+    long_text = "Refactor the entire authentication module to use JWT tokens " * 2
+    fake_proc = MagicMock(
+        returncode=0,
+        stdout='["Refactor the entire authentication module to use JWT tokens"]',
+    )
+    monkeypatch.setattr("openmax.task_runner.subprocess.run", lambda *a, **kw: fake_proc)
+
+    result = split_multi_tasks(long_text)
+    assert result == [long_text.strip()]
 
 
 # --- LLM split fallback ---

@@ -1434,10 +1434,14 @@ def test_employee_list_empty(monkeypatch, tmp_path):
 
 
 def test_run_auto_decompose_routes_to_single_lead_agent(monkeypatch, tmp_path):
-    """A single input with numbered tasks decomposes and passes batch prompt to lead agent."""
+    """LLM-decomposed multi-task input passes batch prompt to lead agent."""
     monkeypatch.setattr(cli, "ensure_kaku", lambda: True)
     monkeypatch.setattr(cli, "PaneManager", DummyPaneManager)
     monkeypatch.setattr(cli, "load_agent_registry", lambda cwd: built_in_agent_registry())
+    monkeypatch.setattr(
+        "openmax.task_runner.split_multi_tasks",
+        lambda text: ["Fix login bug", "Add pagination", "Write tests"],
+    )
     monkeypatch.setattr(
         "openmax.task_runner.confirm_tasks",
         lambda tasks: True,
@@ -1452,7 +1456,7 @@ def test_run_auto_decompose_routes_to_single_lead_agent(monkeypatch, tmp_path):
     monkeypatch.setattr(lead_agent_mod, "run_lead_agent", fake_run_lead_agent)
 
     task_file = tmp_path / "tasks.txt"
-    task_file.write_text("1. Fix login bug\n2. Add pagination\n3. Write tests")
+    task_file.write_text("Fix login bug and add pagination and write tests")
 
     runner = CliRunner()
     result = runner.invoke(cli.main, ["run", f"@{task_file}"])
@@ -1465,12 +1469,16 @@ def test_run_auto_decompose_routes_to_single_lead_agent(monkeypatch, tmp_path):
 def test_run_auto_decompose_cancelled(monkeypatch, tmp_path):
     """User declining confirmation aborts execution."""
     monkeypatch.setattr(
+        "openmax.task_runner.split_multi_tasks",
+        lambda text: ["Task A", "Task B"],
+    )
+    monkeypatch.setattr(
         "openmax.task_runner.confirm_tasks",
         lambda tasks: False,
     )
 
     task_file = tmp_path / "tasks.txt"
-    task_file.write_text("1. Task A\n2. Task B")
+    task_file.write_text("Do Task A and Task B")
 
     runner = CliRunner()
     result = runner.invoke(cli.main, ["run", f"@{task_file}"])
