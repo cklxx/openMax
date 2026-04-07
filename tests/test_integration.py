@@ -272,6 +272,68 @@ def test_headless_concurrent_panes():
     _wait_until(lambda: backend.list_panes() == [])
 
 
+# ── Parallel cases with sequential internal workflow ─────────────────────────
+
+
+def test_parallel_cases_with_sequential_steps(tmp_path):
+    """Verify openMax decomposes 'N parallel cases, each with sequential steps' correctly.
+
+    This models a render pipeline:
+      Case 1: check → parse → render  (sequential)
+      Case 2: check → parse → render  (sequential)
+      Case 3: check → parse → render  (sequential)
+    All three cases run in parallel; steps within each case are sequential.
+
+    The lead agent should produce a plan with dependencies like:
+      case1-check (no deps)  →  case1-parse (dep: case1-check)  →  case1-render (dep: case1-parse)
+      case2-check (no deps)  →  case2-parse (dep: case2-check)  →  ...
+      case3-check (no deps)  →  case3-parse (dep: case3-check)  →  ...
+    With parallel_groups containing all check tasks.
+    """
+    marker = str(tmp_path / "done.marker")
+    pane_mgr = PaneManager(backend=HeadlessPaneBackend())
+
+    task = (
+        "Process 3 independent code samples in parallel. "
+        "For EACH sample, execute these steps IN ORDER (sequential within each case):\n"
+        "  Step 1: Renderability check — verify the code is runnable\n"
+        "  Step 2: Parse the code into a structured format\n"
+        "  Step 3: Render the final output\n\n"
+        "The 3 samples are completely independent — run all 3 cases in parallel, "
+        "but within each case, step 1 must finish before step 2, "
+        "and step 2 must finish before step 3.\n\n"
+        "Use task-agent for all steps. Report results when all 3 cases complete."
+    )
+
+    result = run_lead_agent(
+        task=task,
+        pane_mgr=pane_mgr,
+        cwd=str(tmp_path),
+        allowed_agents=["task-agent"],
+        agent_registry=_make_registry(marker),
+        max_turns=40,
+        plan_confirm=False,
+    )
+
+    # Verify: at least 3 subtasks were created (one per case minimum)
+    assert len(result.subtasks) >= 3, (
+        f"Expected ≥3 subtasks for 3 cases; got {len(result.subtasks)}: "
+        f"{[st.name for st in result.subtasks]}"
+    )
+
+    # Verify: at least some subtasks have dependencies (sequential chaining)
+    deps_present = any(st.dependencies for st in result.subtasks)
+    assert deps_present, (
+        "Expected sequential dependencies within cases, but no subtask has dependencies: "
+        f"{[(st.name, st.dependencies) for st in result.subtasks]}"
+    )
+
+    # Verify: at least 1 subtask completed
+    done = sum(1 for t in result.subtasks if t.status.value == "done")
+    statuses = [f"{st.name}:{st.status.value}" for st in result.subtasks]
+    assert done >= 1, f"Expected ≥1 done subtask; got: {statuses}"
+
+
 # ── Error propagation ────────────────────────────────────────────────────────
 
 
