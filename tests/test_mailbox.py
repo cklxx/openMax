@@ -539,6 +539,57 @@ def test_tool_auto_done_for_exited_pane(tmp_path: Path) -> None:
         assert len(data["messages"]) >= 1
         assert data["messages"][0]["type"] == "auto-detect"
         assert data["messages"][0]["message"]["task"] == "dead-task"
+        assert st.status == TaskStatus.DONE
+        assert st.finished_at is not None
+    finally:
+        reset_lead_agent_runtime(token)
+        mb.stop()
+
+
+def test_auto_done_interactive_agent_marked_done(tmp_path: Path) -> None:
+    """Interactive agent (claude-code) pane exit → status marked DONE."""
+    from openmax.lead_agent.runtime import bind_lead_agent_runtime, reset_lead_agent_runtime
+    from openmax.lead_agent.tools._misc import _auto_done_for_exited_panes
+    from openmax.lead_agent.types import SubTask, TaskStatus
+
+    runtime, mb = _make_runtime(tmp_path, "interactive-done")
+    runtime.pane_mgr.alive_pane_ids.return_value = frozenset()
+
+    st = SubTask(name="code-task", agent_type="claude-code", prompt="x", status=TaskStatus.RUNNING)
+    st.pane_id = 99
+    runtime.plan.subtasks.append(st)
+
+    token = bind_lead_agent_runtime(runtime)
+    try:
+        result = _auto_done_for_exited_panes(runtime)
+        assert result is not None
+        assert result["task"] == "code-task"
+        assert st.status == TaskStatus.DONE
+        assert st.finished_at is not None
+    finally:
+        reset_lead_agent_runtime(token)
+        mb.stop()
+
+
+def test_auto_done_skips_mailbox_messaged_task(tmp_path: Path) -> None:
+    """Task that already sent a mailbox message is not re-processed."""
+    from openmax.lead_agent.runtime import bind_lead_agent_runtime, reset_lead_agent_runtime
+    from openmax.lead_agent.tools._misc import _auto_done_for_exited_panes
+    from openmax.lead_agent.types import SubTask, TaskStatus
+
+    runtime, mb = _make_runtime(tmp_path, "messaged-skip")
+    runtime.pane_mgr.alive_pane_ids.return_value = frozenset()
+
+    st = SubTask(name="done-task", agent_type="command", prompt="x", status=TaskStatus.RUNNING)
+    st.pane_id = 50
+    runtime.plan.subtasks.append(st)
+    runtime.mailbox_messaged_tasks.add("done-task")
+
+    token = bind_lead_agent_runtime(runtime)
+    try:
+        result = _auto_done_for_exited_panes(runtime)
+        assert result is None
+        assert st.status == TaskStatus.RUNNING
     finally:
         reset_lead_agent_runtime(token)
         mb.stop()

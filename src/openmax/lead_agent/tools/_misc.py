@@ -447,23 +447,20 @@ def _auto_done_for_exited_panes(runtime: Any) -> dict[str, Any] | None:
         if st.name in runtime.mailbox_messaged_tasks:
             continue
         if st.pane_id not in alive:
-            is_noninteractive = st.agent_type in ("command", "claude-code-stream")
-            if is_noninteractive:
-                st.status = TaskStatus.DONE
-                st.finished_at = _time.time()
-                console.print(
-                    f"  [bold green]\u2713[/bold green]  [bold]{st.name}[/bold]"
-                    " done (process exited)"
+            st.status = TaskStatus.DONE
+            st.finished_at = _time.time()
+            console.print(
+                f"  [bold green]\u2713[/bold green]  [bold]{st.name}[/bold] done (process exited)"
+            )
+            if runtime.dashboard is not None:
+                runtime.dashboard.update_subtask(
+                    st.name,
+                    st.agent_type,
+                    st.pane_id,
+                    "done",
+                    started_at=st.started_at,
+                    finished_at=st.finished_at,
                 )
-                if runtime.dashboard is not None:
-                    runtime.dashboard.update_subtask(
-                        st.name,
-                        st.agent_type,
-                        st.pane_id,
-                        "done",
-                        started_at=st.started_at,
-                        finished_at=st.finished_at,
-                    )
             return {
                 "type": "done",
                 "task": st.name,
