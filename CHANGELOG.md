@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.53
+
+- **Docs**: Improve CLI help text for all commands and options — add defaults, cross-references, and missing pane backends (kaku-tmux, ghostty-tmux)
+- **Docs**: Add Projects group to top-level `--help` output
+
 ## 0.9.52
 
 - **Fix**: Suppress expected `OSError` traceback on mailbox shutdown — `Bad file descriptor` during normal teardown is no longer logged as a warning
