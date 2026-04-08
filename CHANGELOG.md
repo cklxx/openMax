@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.54
+
+- **Fix**: Interactive agents (claude-code, codex, opencode) that exit without calling `report_done` are now auto-detected and marked DONE — previously they stayed in RUNNING state, causing the monitoring loop to spin until timeout with no notification
+
 ## 0.9.53
 
 - **Docs**: Improve CLI help text for all commands and options — add defaults, cross-references, and missing pane backends (kaku-tmux, ghostty-tmux)
