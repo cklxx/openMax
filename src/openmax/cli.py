@@ -61,6 +61,7 @@ class GroupedGroup(click.Group):
         ("Sessions", ["sessions", "inspect", "usage", "log"]),
         ("Environment", ["status", "agents", "employee", "panes", "models"]),
         ("Setup", ["setup", "doctor", "clean"]),
+        ("Projects", ["projects"]),
         ("Benchmark", ["benchmark"]),
     ]
 
@@ -401,46 +402,65 @@ def main() -> None:
 
 @main.command()
 @click.argument("tasks", nargs=-1, required=True)
-@click.option("--cwd", default=None, help="Working directory for agents")
-@click.option("--project", multiple=True, help="Project name per task (from registry)")
-@click.option("--model", default=None, help="Model for the lead agent")
+@click.option("--cwd", default=None, help="Working directory for agents (default: current dir)")
 @click.option(
-    "--max-turns", default=None, type=click.IntRange(min=1), help="Max turns (default: unlimited)"
+    "--project", multiple=True, help="Project name per task (from `openmax projects list`)"
 )
-@click.option("--keep-panes", is_flag=True, default=False, help="Don't close panes on exit")
+@click.option("--model", default=None, help="Lead agent model (default: from `openmax models`)")
+@click.option(
+    "--max-turns",
+    default=None,
+    type=click.IntRange(min=1),
+    help="Max lead-agent turns (default: unlimited)",
+)
+@click.option(
+    "--keep-panes",
+    is_flag=True,
+    default=False,
+    help="Keep terminal panes open after session ends",
+)
 @click.option(
     "--session-id",
     default=None,
-    help="Persistent lead-agent session identifier (default: auto-generated)",
+    help="Custom session identifier (default: auto-generated UUID)",
 )
 @click.option(
     "--resume",
     is_flag=True,
     default=False,
-    help="Resume a persistent lead-agent session",
+    help="Resume a previous session by --session-id",
 )
 @click.option(
     "--agents",
     default=None,
-    help="Comma-separated list of allowed agent names (built-in or configured)",
+    help="Comma-separated list of allowed agent names (see `openmax agents`)",
 )
 @click.option(
     "--pane-backend",
     "pane_backend_name",
     type=click.Choice(
-        ["kaku", "ghostty", "tmux", "terminal-tmux", "headless", "auto"],
+        [
+            "kaku",
+            "kaku-tmux",
+            "ghostty",
+            "ghostty-tmux",
+            "tmux",
+            "terminal-tmux",
+            "headless",
+            "auto",
+        ],
         case_sensitive=False,
     ),
     default=None,
-    help="Pane backend to use (defaults to auto-detect: kaku > tmux)",
+    help="Pane backend (default: auto-detect kaku-tmux > ghostty-tmux > tmux)",
 )
 @click.option(
     "--no-confirm",
     is_flag=True,
     default=False,
-    help="Skip interactive plan confirmation (for automation)",
+    help="Skip plan confirmation prompt (for CI/automation)",
 )
-@click.option("--verbose", "-v", is_flag=True, default=False, help="Show detailed subtask output")
+@click.option("--verbose", "-v", is_flag=True, default=False, help="Print real-time subtask output")
 @click.option(
     "--quality",
     "-q",
@@ -458,14 +478,14 @@ def main() -> None:
     "--max-agents",
     default=0,
     type=click.IntRange(min=0),
-    help="Max concurrent sub-agents (0=unlimited, default: 0). RPM 120 → use 3.",
+    help="Max concurrent sub-agents (0=unlimited). Tip: RPM 120 → use 3",
 )
 @click.option(
     "--interactive",
     "-i",
     is_flag=True,
     default=False,
-    help="Interactive mode: review results and give feedback between iterations",
+    help="Pause after each iteration for user feedback before continuing",
 )
 def run(
     tasks: tuple[str, ...],
@@ -734,37 +754,51 @@ def _prompt_interactive_feedback() -> str | None:
 
 @main.command()
 @click.argument("goal")
-@click.option("--cwd", default=None, help="Working directory for agents")
-@click.option("--model", default=None, help="Model for the lead agent")
-@click.option("--max-turns", default=50, type=click.IntRange(min=1), help="Max turns per iteration")
+@click.option("--cwd", default=None, help="Working directory for agents (default: current dir)")
+@click.option("--model", default=None, help="Lead agent model (default: from `openmax models`)")
+@click.option(
+    "--max-turns",
+    default=50,
+    type=click.IntRange(min=1),
+    help="Max lead-agent turns per iteration (default: 50)",
+)
 @click.option(
     "--max-iterations",
     default=0,
     type=click.IntRange(min=0),
-    help="Max iterations to run (0 = unlimited)",
+    help="Stop after N iterations, 0=run forever (default: 0)",
 )
 @click.option(
     "--delay",
     default=5,
     type=click.IntRange(min=0),
-    help="Seconds to pause between iterations",
+    help="Seconds to pause between iterations (default: 5)",
 )
 @click.option(
     "--agents",
     default=None,
-    help="Comma-separated list of allowed agent names",
+    help="Comma-separated list of allowed agent names (see `openmax agents`)",
 )
 @click.option(
     "--pane-backend",
     "pane_backend_name",
     type=click.Choice(
-        ["kaku", "ghostty", "tmux", "terminal-tmux", "headless", "auto"],
+        [
+            "kaku",
+            "kaku-tmux",
+            "ghostty",
+            "ghostty-tmux",
+            "tmux",
+            "terminal-tmux",
+            "headless",
+            "auto",
+        ],
         case_sensitive=False,
     ),
     default=None,
-    help="Pane backend to use",
+    help="Pane backend (default: auto-detect kaku-tmux > ghostty-tmux > tmux)",
 )
-@click.option("--verbose", "-v", is_flag=True, default=False, help="Show detailed subtask output")
+@click.option("--verbose", "-v", is_flag=True, default=False, help="Print real-time subtask output")
 def loop(
     goal: str,
     cwd: str | None,
@@ -928,9 +962,9 @@ def _make_loop_iteration(
 
 
 @main.command()
-@click.option("--port", "-p", default=7862, help="HTTP server port")
-@click.option("--host", "-h", default="127.0.0.1", help="Bind address")
-@click.option("--max-slots", default=6, help="Max concurrent task slots")
+@click.option("--port", "-p", default=7862, help="HTTP server port (default: 7862)")
+@click.option("--host", "-h", default="127.0.0.1", help="Bind address (default: 127.0.0.1)")
+@click.option("--max-slots", default=6, help="Max concurrent task slots (default: 6)")
 def serve(port: int, host: str, max_slots: int) -> None:
     """Start openMax as a persistent service with web dashboard."""
     try:
@@ -949,7 +983,7 @@ def serve(port: int, host: str, max_slots: int) -> None:
 @main.command()
 @click.argument("pane_id", required=False, default=None, type=int)
 def panes(pane_id: int | None) -> None:
-    """List terminal panes, or read one by ID."""
+    """List active terminal panes, or read output from a specific pane by ID."""
     if pane_id is not None:
         mgr = PaneManager()
         try:
@@ -1061,12 +1095,16 @@ def _attached_panes_context(panes_list: list, contents: dict[int, str] | None = 
 
 
 @main.command()
-@click.option("--cwd", default=None, help="Working directory used for workspace agent config")
+@click.option("--cwd", default=None, help="Workspace to scan for agent config (default: cwd)")
 @click.option(
-    "--verbose", "-v", is_flag=True, default=False, help="Show command template for each agent"
+    "--verbose",
+    "-v",
+    is_flag=True,
+    default=False,
+    help="Show command template for each agent",
 )
 def agents(cwd: str | None, verbose: bool) -> None:
-    """List available agents (built-in and configured)."""
+    """List available agents (built-in and workspace-configured)."""
     cwd = _resolve_cwd(cwd)
 
     try:
@@ -1091,16 +1129,16 @@ def agents(cwd: str | None, verbose: bool) -> None:
     "--status",
     default=None,
     type=click.Choice(["active", "completed", "failed", "aborted"], case_sensitive=False),
-    help="Filter sessions by persisted status",
+    help="Filter by session status",
 )
 @click.option(
     "--limit",
     default=10,
     type=click.IntRange(min=1),
-    help="Maximum number of recent sessions to show",
+    help="Number of recent sessions to show (default: 10)",
 )
 def sessions(status: str | None, limit: int) -> None:
-    """List recent sessions."""
+    """List recent sessions with status, progress, and task summary."""
     store = SessionStore()
     sessions = store.list_sessions(status=status.lower() if status else None, limit=limit)
     if not sessions:
@@ -1145,7 +1183,7 @@ def sessions(status: str | None, limit: int) -> None:
 @main.command()
 @click.argument("session_id")
 def inspect(session_id: str) -> None:
-    """Inspect a persisted session."""
+    """Inspect a session: plan, subtasks, status, and anchors."""
     store = SessionStore()
     try:
         snapshot = store.load_snapshot(session_id)
@@ -1269,14 +1307,14 @@ def _render_subtask_usage_table(rec: SessionUsage) -> None:
     "--limit",
     default=10,
     type=click.IntRange(min=1),
-    help="Maximum number of recent sessions to show",
+    help="Number of recent sessions to show (default: 10)",
 )
-@click.option("--total", is_flag=True, default=False, help="Show aggregate totals")
+@click.option("--total", is_flag=True, default=False, help="Show aggregate totals across sessions")
 def usage(session_id: str | None, limit: int, total: bool) -> None:
-    """Show usage (cost, tokens, duration) for sessions.
+    """Show cost, tokens, and duration for sessions.
 
-    If SESSION_ID is provided, show usage for that session only.
-    Otherwise list recent sessions with their usage.
+    If SESSION_ID is given, show detailed usage for that session.
+    Otherwise list recent sessions with usage summary.
     """
     store = UsageStore()
 
@@ -1327,15 +1365,15 @@ def usage(session_id: str | None, limit: int, total: bool) -> None:
 
 
 @main.command()
-@click.option("--daily", is_flag=True, default=False, help="Show daily activity breakdown")
+@click.option("--daily", is_flag=True, default=False, help="Break down activity by day")
 @click.option(
     "--days",
     default=7,
     type=click.IntRange(min=1),
-    help="Number of days to show in daily view",
+    help="Number of days in daily view (default: 7)",
 )
 def status(daily: bool, days: int) -> None:
-    """Show subscription usage for installed coding agents."""
+    """Show API usage and rate limits for installed coding agents."""
     providers = probe_all()
     installed = [p for p in providers if p.installed]
 
@@ -1629,9 +1667,9 @@ def _provider_display_name(provider: str) -> str:
 
 
 @main.command()
-@click.option("--cwd", default=None, help="Workspace to validate agent config for")
+@click.option("--cwd", default=None, help="Workspace to validate (default: current dir)")
 def doctor(cwd: str | None) -> None:
-    """Check environment health and configuration."""
+    """Check environment health: auth, backends, agents, and config."""
     results = run_checks(cwd=_resolve_cwd(cwd))
     lines, issue_count = render_results(results)
     for line in lines:
@@ -1640,9 +1678,11 @@ def doctor(cwd: str | None) -> None:
 
 
 @main.command()
-@click.option("--all", "include_all", is_flag=True, default=False, help="Also expire old sessions")
+@click.option(
+    "--all", "include_all", is_flag=True, default=False, help="Also remove expired sessions"
+)
 @click.option("--dry-run", is_flag=True, default=False, help="Preview what would be removed")
-@click.option("--cwd", default=None, help="Workspace to clean (default: current)")
+@click.option("--cwd", default=None, help="Workspace to clean (default: current dir)")
 def clean(include_all: bool, dry_run: bool, cwd: str | None) -> None:
     """Remove openMax artifacts: branches, worktrees, task files, sockets.
 
@@ -1686,16 +1726,18 @@ def clean(include_all: bool, dry_run: bool, cwd: str | None) -> None:
 
 
 @main.command()
-@click.option("--status", is_flag=True, default=False, help="Show current auth status")
-@click.option("--skills", is_flag=True, default=False, help="Install openMax skills")
+@click.option("--status", is_flag=True, default=False, help="Show auth and MCP registration status")
+@click.option(
+    "--skills", is_flag=True, default=False, help="Install skills to project .claude/commands/"
+)
 @click.option(
     "--skills-global",
     is_flag=True,
     default=False,
-    help="Install skills globally (~/.claude/commands/)",
+    help="Install openMax skills globally to ~/.claude/commands/",
 )
 def setup(status: bool, skills: bool, skills_global: bool) -> None:
-    """Configure auth, MCP servers, and skills."""
+    """Configure auth, register MCP servers, and install skills."""
     if skills or skills_global:
         _setup_install_skills(global_=skills_global)
         return
@@ -1776,7 +1818,7 @@ def _setup_install_skills(global_: bool = False, cwd: str | None = None) -> None
 
 @main.command()
 def models() -> None:
-    """Select the lead agent model and save it to config."""
+    """Interactively select the lead agent model and persist to config."""
     current = get_model()
     if current:
         console.print(f"[dim]Current model:[/dim] [bold]{current}[/bold]\n")
@@ -1809,9 +1851,14 @@ def models() -> None:
 
 @main.command(hidden=True)
 @click.argument("message")
-@click.option("--session", required=True, envvar="OPENMAX_SESSION_ID", help="Session ID")
+@click.option(
+    "--session",
+    required=True,
+    envvar="OPENMAX_SESSION_ID",
+    help="Target session ID (or $OPENMAX_SESSION_ID)",
+)
 def msg(message: str, session: str) -> None:
-    """Send a JSON message to the lead agent mailbox (internal)."""
+    """Send a JSON message to the lead-agent mailbox (internal use)."""
     from openmax.mailbox import send_mailbox_message
 
     try:
@@ -1833,11 +1880,13 @@ def msg(message: str, session: str) -> None:
 
 
 @main.command()
-@click.option("--session", required=True, help="Session ID")
-@click.option("--follow", "-f", is_flag=True, default=False, help="Stream new messages (tail mode)")
-@click.option("--cwd", default=None, help="Working directory (default: current)")
+@click.option("--session", required=True, help="Session ID to view logs for")
+@click.option(
+    "--follow", "-f", is_flag=True, default=False, help="Stream new messages in real time"
+)
+@click.option("--cwd", default=None, help="Working directory (default: current dir)")
 def log(session: str, follow: bool, cwd: str | None) -> None:
-    """View or follow session message log."""
+    """View or follow the lead-agent message log for a session."""
     from pathlib import Path as _Path
 
     cwd_path = _Path(cwd).resolve() if cwd else _Path.cwd()
@@ -1899,15 +1948,17 @@ def _log_replay(log_path: Path) -> None:
 
 @main.group()
 def employee() -> None:
-    """Manage persistent employee profiles for sub-agents."""
+    """Manage named employee profiles (identity, role, specialty) for sub-agents."""
 
 
 @employee.command("add")
 @click.argument("name")
-@click.option("--role", default="writer", help="Default role (writer/reviewer/challenger/debugger)")
-@click.option("--agent-type", default="", help="Preferred agent type (claude-code/codex)")
-@click.option("--specialty", default="", help="Employee specialty description")
-@click.option("--identity", default="", help="Custom identity paragraph")
+@click.option(
+    "--role", default="writer", help="writer/reviewer/challenger/debugger (default: writer)"
+)
+@click.option("--agent-type", default="", help="Preferred CLI: claude-code, codex, opencode")
+@click.option("--specialty", default="", help="Specialty, e.g. 'frontend React expert'")
+@click.option("--identity", default="", help="Custom persona paragraph for system prompt")
 def employee_add(name: str, role: str, agent_type: str, specialty: str, identity: str) -> None:
     """Create a new employee profile."""
     from openmax.employees import create_employee, get_employee
@@ -1995,13 +2046,18 @@ def employee_remove(name: str) -> None:
 
 @main.group()
 def benchmark() -> None:
-    """Compare Claude Code vs openMax completion times."""
+    """Benchmark Claude Code vs openMax on identical tasks."""
 
 
 @benchmark.command("list")
-@click.option("--suite", default=None, type=click.Path(exists=True), help="Task suite directory")
+@click.option(
+    "--suite",
+    default=None,
+    type=click.Path(exists=True),
+    help="Directory containing task YAML files",
+)
 def benchmark_list(suite: str | None) -> None:
-    """List available benchmark tasks."""
+    """List available benchmark tasks with difficulty and timeout."""
     from openmax.benchmark.tasks import load_task_suite
 
     suite_path = Path(suite) if suite else None
@@ -2023,12 +2079,17 @@ def benchmark_list(suite: str | None) -> None:
     "tasks_path",
     default=None,
     type=click.Path(exists=True),
-    help="Single task YAML or directory of tasks",
+    help="Single task YAML file or directory of tasks (default: built-in suite)",
 )
-@click.option("--repeat", default=1, type=click.IntRange(min=1), help="Repeat each task N times")
-@click.option("--model", default=None, help="Model to use for both runners")
+@click.option(
+    "--repeat",
+    default=1,
+    type=click.IntRange(min=1),
+    help="Run each task N times for averaging (default: 1)",
+)
+@click.option("--model", default=None, help="Model for both Claude Code and openMax runners")
 def benchmark_run(tasks_path: str | None, repeat: int, model: str | None) -> None:
-    """Run benchmark: same tasks via Claude Code and openMax."""
+    """Run benchmark: same tasks via Claude Code and openMax, compare times."""
     from openmax.benchmark.report import print_report, save_report
     from openmax.benchmark.runner import run_benchmark
     from openmax.benchmark.tasks import load_task, load_task_suite
@@ -2055,7 +2116,7 @@ def benchmark_run(tasks_path: str | None, repeat: int, model: str | None) -> Non
 
 @main.group()
 def projects() -> None:
-    """Manage registered projects for multi-task workflows."""
+    """Manage registered project directories for `run --project`."""
 
 
 @projects.command("add")
