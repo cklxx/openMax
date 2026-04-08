@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.52
+
+- **Fix**: Suppress expected `OSError` traceback on mailbox shutdown — `Bad file descriptor` during normal teardown is no longer logged as a warning
+
 ## 0.9.51
 
 - **Fix**: Bump `claude-agent-sdk` minimum to `>=0.1.56` — fixes `context_management: Extra inputs are not permitted` API error caused by SDK/API version mismatch
