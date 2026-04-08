@@ -94,7 +94,8 @@ class SessionMailbox:
             except TimeoutError:
                 continue  # poll _stop and retry
             except OSError:
-                logger.warning("Mailbox server socket error, shutting down", exc_info=True)
+                if not self._stop.is_set():
+                    logger.warning("Mailbox server socket error, shutting down")
                 break
             threading.Thread(target=self._handle, args=(conn,), daemon=True).start()
 
